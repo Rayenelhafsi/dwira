@@ -7,6 +7,7 @@ import {
   submitReservationIdentityFromChat,
 } from "../services/projectBooking.service.js";
 import { sendMetaMessage } from "../services/meta/sender.service.js";
+import { ensureChatbotSchema } from "../services/chatbotSchema.service.js";
 import { chatSchema, chatSessionSchema } from "../utils/validators.js";
 
 async function loadConversationSnapshot(platform, platformUserId) {
@@ -49,6 +50,10 @@ async function loadConversationSnapshot(platform, platformUserId) {
   }
 
   return { client, conversation, context };
+}
+
+function sanitizeWideSearchReply(reply) {
+  return String(reply || "").trim();
 }
 
 function toAbsoluteWebsiteUrl(rawUrl, websiteBaseUrl) {
@@ -197,82 +202,122 @@ export async function chatController(req, res) {
   const parsed = chatSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json(parsed.error.flatten());
 
-  const payload = parsed.data;
-  await incomingMessageQueue.add("incoming", payload, {
-    jobId: `${payload.platform}:${payload.platformUserId}:${Date.now()}`,
-  });
-
-  return res.json({ queued: true });
+  try {
+    await ensureChatbotSchema();
+    const payload = parsed.data;
+    await incomingMessageQueue.add("incoming", payload, {
+      jobId: `${payload.platform}:${payload.platformUserId}:${Date.now()}`,
+    });
+    return res.json({ queued: true });
+  } catch (error) {
+    console.error("chatController error:", error);
+    return res.status(500).json({
+      error: "chatbot_unavailable",
+      message: "Chatbot storage is not ready.",
+      detail: String(error?.message || error || "").slice(0, 300),
+    });
+  }
 }
 
 export async function chatSyncController(req, res) {
   const parsed = chatSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json(parsed.error.flatten());
 
-  const result = await processIncomingMessage(parsed.data);
-  if (!result) return res.status(429).json({ error: "Conversation locked, retry shortly." });
+  try {
+    await ensureChatbotSchema();
+    const result = await processIncomingMessage(parsed.data);
+    if (!result) return res.status(429).json({ error: "Conversation locked, retry shortly." });
+    const reply = sanitizeWideSearchReply(result.reply || "");
 
-  return res.json({
-    conversationId: result.conversationId,
-    reply: result.reply || "",
-    options: result.options || [],
-  });
+    return res.json({
+      conversationId: result.conversationId,
+      reply,
+      options: result.options || [],
+    });
+  } catch (error) {
+    console.error("chatSyncController error:", error);
+    return res.status(500).json({
+      error: "chatbot_unavailable",
+      message: "Assistant conversation failed.",
+      detail: String(error?.message || error || "").slice(0, 300),
+    });
+  }
 }
 
 export async function chatSessionController(req, res) {
-  const platform = String(req.params.platform || "website").trim() || "website";
-  const platformUserId = String(req.params.platformUserId || "").trim();
-  if (!platformUserId) return res.status(400).json({ error: "platformUserId is required" });
-  const snapshot = await loadConversationSnapshot(platform, platformUserId);
-  return res.json({
-    platform,
-    platformUserId,
-    snapshot,
-  });
+  try {
+    await ensureChatbotSchema();
+    const platform = String(req.params.platform || "website").trim() || "website";
+    const platformUserId = String(req.params.platformUserId || "").trim();
+    if (!platformUserId) return res.status(400).json({ error: "platformUserId is required" });
+    const snapshot = await loadConversationSnapshot(platform, platformUserId);
+    return res.json({
+      platform,
+      platformUserId,
+      snapshot,
+    });
+  } catch (error) {
+    console.error("chatSessionController error:", error);
+    return res.status(500).json({
+      error: "chatbot_unavailable",
+      message: "Chat session storage is not ready.",
+      detail: String(error?.message || error || "").slice(0, 300),
+    });
+  }
 }
 
 export async function resetChatSessionController(req, res) {
   const parsed = chatSessionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json(parsed.error.flatten());
 
-  const { platform, platformUserId } = parsed.data;
-  const client = await prisma.client.findUnique({
-    where: {
-      platform_platformUserId: {
-        platform,
-        platformUserId,
+  try {
+    await ensureChatbotSchema();
+    const { platform, platformUserId } = parsed.data;
+    const client = await prisma.client.findUnique({
+      where: {
+        platform_platformUserId: {
+          platform,
+          platformUserId,
+        },
       },
-    },
-    include: {
-      conversations: {
-        select: { id: true },
+      include: {
+        conversations: {
+          select: { id: true },
+        },
       },
-    },
-  });
-
-  if (!client) {
-    return res.json({ cleared: true, deletedConversationCount: 0 });
-  }
-
-  const conversationIds = client.conversations.map((conversation) => conversation.id);
-  if (conversationIds.length > 0) {
-    await prisma.message.deleteMany({
-      where: { conversationId: { in: conversationIds } },
     });
-    await prisma.conversation.deleteMany({
-      where: { id: { in: conversationIds } },
+
+    if (!client) {
+      return res.json({ cleared: true, deletedConversationCount: 0 });
+    }
+
+    const conversationIds = client.conversations.map((conversation) => conversation.id);
+    if (conversationIds.length > 0) {
+      await prisma.message.deleteMany({
+        where: { conversationId: { in: conversationIds } },
+      });
+      await prisma.conversation.deleteMany({
+        where: { id: { in: conversationIds } },
+      });
+      await Promise.all(conversationIds.map((id) => redis.del(`conversation:ctx:${id}`)));
+    }
+
+    await prisma.client.delete({
+      where: { id: client.id },
     });
-    await Promise.all(conversationIds.map((id) => redis.del(`conversation:ctx:${id}`)));
+
+    return res.json({
+      cleared: true,
+      deletedConversationCount: conversationIds.length,
+    });
+  } catch (error) {
+    console.error("resetChatSessionController error:", error);
+    return res.status(500).json({
+      error: "chatbot_unavailable",
+      message: "Chat reset failed.",
+      detail: String(error?.message || error || "").slice(0, 300),
+    });
   }
-
-  await prisma.client.delete({
-    where: { id: client.id },
-  });
-
-  return res.json({
-    cleared: true,
-    deletedConversationCount: conversationIds.length,
-  });
 }
 
 export async function notifyReservationDemandChatController(req, res) {

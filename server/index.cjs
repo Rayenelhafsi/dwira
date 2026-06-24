@@ -167,11 +167,60 @@ function safeParseJson(value, fallbackValue = null) {
   }
 }
 
+function isLocalHostname(hostname) {
+  const normalized = String(hostname || '').trim().toLowerCase();
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+}
+
+function getHeaderOrigin(headerValue) {
+  const raw = String(headerValue || '').trim();
+  if (!raw) return '';
+  try {
+    return new URL(raw).origin.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+function getRequestOrigin(req) {
+  const host = String(req.get('host') || '').trim();
+  if (!host) return '';
+  return `${req.protocol}://${host}`.replace(/\/+$/, '');
+}
+
 function getPublicFrontendBaseUrl(req) {
+  const localCandidates = [
+    getHeaderOrigin(req.get('origin')),
+    getHeaderOrigin(req.get('referer')),
+  ].filter(Boolean);
+
+  for (const candidate of localCandidates) {
+    try {
+      const requestUrl = new URL(candidate);
+      if (isLocalHostname(requestUrl.hostname)) {
+        return requestUrl.origin.replace(/\/+$/, '');
+      }
+    } catch {
+      // Ignore malformed origins and fall back to configured values.
+    }
+  }
+
+  const requestOrigin = getRequestOrigin(req);
+  if (requestOrigin) {
+    try {
+      const requestUrl = new URL(requestOrigin);
+      if (isLocalHostname(requestUrl.hostname)) {
+        const localFrontendPort = String(process.env.LOCAL_FRONTEND_PORT || '5173').trim() || '5173';
+        return `${requestUrl.protocol}//${requestUrl.hostname}${localFrontendPort ? `:${localFrontendPort}` : ''}`;
+      }
+    } catch {
+      // Ignore malformed request origins and fall back to configured values.
+    }
+  }
+
   const configured = String(CANONICAL_FRONTEND_URL || FRONTEND_URL || '').trim().replace(/\/+$/, '');
   if (configured) return configured;
-  const requestOrigin = `${req.protocol}://${req.get('host')}`.replace(/\/+$/, '');
-  return requestOrigin;
+  return localCandidates[0] || '';
 }
 
 function resolvePublicAssetUrl(rawValue) {

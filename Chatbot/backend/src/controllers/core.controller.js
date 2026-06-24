@@ -2,6 +2,9 @@ import { prisma } from "../config/prisma.js";
 import { searchAvailableProperties } from "../services/propertySearch.service.js";
 import { config } from "../config/env.js";
 import { qdrant } from "../config/qdrant.js";
+import { ensureChatbotSchema } from "../services/chatbotSchema.service.js";
+import { feedbackLearningSchema } from "../utils/validators.js";
+import { invalidateReplyCoachingCache } from "../services/ai/recommendationLearning.service.js";
 
 export async function searchPropertiesController(req, res) {
   const data = await searchAvailableProperties({
@@ -82,8 +85,41 @@ export async function humanTakeoverController(req, res) {
 }
 
 export async function feedbackController(req, res) {
-  const row = await prisma.feedbackLearning.create({ data: req.body });
-  return res.status(201).json(row);
+  const parsed = feedbackLearningSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+
+  await ensureChatbotSchema();
+  const payload = parsed.data;
+  const row = await prisma.feedbackLearning.create({
+    data: {
+      question: payload.question,
+      botAnswer: payload.botAnswer || "",
+      correctedAnswer: payload.correctedAnswer || null,
+      reason: payload.reason || null,
+    },
+  });
+  invalidateReplyCoachingCache();
+  return res.status(201).json({
+    id: row.id,
+    stored: true,
+    message: "Recommendation saved and ready to influence future replies.",
+  });
+}
+
+export async function feedbackListController(_req, res) {
+  await ensureChatbotSchema();
+  const rows = await prisma.feedbackLearning.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  return res.json(rows.map((row) => ({
+    id: row.id,
+    question: row.question,
+    botAnswer: row.botAnswer,
+    correctedAnswer: row.correctedAnswer,
+    reason: row.reason,
+    createdAt: row.createdAt,
+  })));
 }
 
 export async function conversationByIdController(req, res) {

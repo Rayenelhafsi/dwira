@@ -37,3 +37,10 @@ export const chatSessionSchema = z.object({
   platform: z.enum(["website", "whatsapp", "messenger", "instagram"]),
   platformUserId: z.string().min(1),
 });
+
+export const feedbackLearningSchema = z.object({
+  question: z.string().trim().min(1),
+  botAnswer: z.string().trim().optional().default(""),
+  correctedAnswer: z.string().trim().optional().nullable().default(null),
+  reason: z.string().trim().optional().nullable().default(null),
+});

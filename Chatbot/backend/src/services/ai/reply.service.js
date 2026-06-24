@@ -1,5 +1,6 @@
 import { openai } from "../../config/openai.js";
 import { config } from "../../config/env.js";
+import { buildReplyCoachingContext } from "./recommendationLearning.service.js";
 
 const SYSTEM_RULES = `
 You are a multilingual vacation-rental booking assistant.
@@ -15,9 +16,12 @@ Rules:
 - Currency must be shown as TND only (for example: 480 TND/night).
 - Output plain text only. Do not use markdown, bullets with stars, or image markdown syntax.
 - When suggesting properties, include the property reference and the page link whenever available.
+- When the request is broad and multiple properties may fit, prefer sharing the filtered Dwira search link if available.
+- When the request is specific or there are 1-3 strong matches, include one or more direct property page links.
 - If no property matches, clearly say none are available and ask for alternative dates/budget.
 - If required info is missing, ask concise follow-up questions.
 - Keep a professional and concise conversion-focused tone.
+- Sound like a real human agent in a live discussion, not like a rigid form.
 `;
 
 function withTimeout(promise, ms, label) {
@@ -45,9 +49,67 @@ function sameProtectedTokens(a, b) {
   return JSON.stringify(collectProtectedTokens(a)) === JSON.stringify(collectProtectedTokens(b));
 }
 
+function normalizeConversationTranscript(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .join("\n");
+  }
+  return String(value || "").trim();
+}
+
+function compactPropertyOptions(propertyOptions) {
+  return (Array.isArray(propertyOptions) ? propertyOptions : []).slice(0, 6).map((item) => ({
+    reference: item?.reference || null,
+    title: item?.title || null,
+    location: item?.location || null,
+    pricePerNightTnd: item?.pricePerNightTnd || null,
+    pricePerWeekTnd: item?.pricePerWeekTnd || null,
+    link: item?.link || null,
+  }));
+}
+
+function formatLinkContext(shareLinks) {
+  const payload = shareLinks && typeof shareLinks === "object" ? shareLinks : {};
+  return JSON.stringify({
+    seasonalSearchUrl: payload?.seasonalSearchUrl || null,
+    seasonalSearchRelativeUrl: payload?.seasonalSearchRelativeUrl || null,
+    selectedPropertyUrl: payload?.selectedPropertyUrl || null,
+    optionLinks: Array.isArray(payload?.optionLinks) ? payload.optionLinks : [],
+  }, null, 2);
+}
+
+function shouldKeepSearchLinkReplyAsIs(reply) {
+  const text = String(reply || "").trim();
+  if (!text) return false;
+  return /(?:lien de recherche|lien recherche|search link)\s*:/i.test(text);
+}
+
 export async function generateAssistantReply(input) {
-  const { userMessage, language, state, extracted, constraints, propertyOptions, ragContext } = input;
-  const contextBlock = JSON.stringify({ language, state, extracted, constraints, propertyOptions }, null, 2);
+  const {
+    userMessage,
+    language,
+    state,
+    extracted,
+    constraints,
+    propertyOptions,
+    ragContext,
+    conversationTranscript,
+    platform,
+    shareLinks,
+  } = input;
+  const contextBlock = JSON.stringify({
+    language,
+    state,
+    platform: String(platform || "").trim().toLowerCase() || "website",
+    extracted,
+    constraints,
+    propertyOptions: compactPropertyOptions(propertyOptions),
+  }, null, 2);
+  const transcriptBlock = normalizeConversationTranscript(conversationTranscript) || "none";
+  const linkBlock = formatLinkContext(shareLinks);
+  const coachingBlock = await buildReplyCoachingContext({ userMessage, language, state });
 
   const completion = await openai.chat.completions.create({
     model: config.openaiChatModel,
@@ -55,6 +117,9 @@ export async function generateAssistantReply(input) {
     messages: [
       { role: "system", content: SYSTEM_RULES },
       { role: "system", content: `RAG_CONTEXT:\n${ragContext || "none"}` },
+      { role: "system", content: `LIVE_CONVERSATION_TRANSCRIPT:\n${transcriptBlock}` },
+      { role: "system", content: `LINK_CONTEXT:\n${linkBlock}` },
+      { role: "system", content: `REPLY_COACHING:\n${coachingBlock || "none"}` },
       { role: "system", content: `STRUCTURED_CONTEXT:\n${contextBlock}` },
       { role: "user", content: userMessage },
     ],
@@ -64,11 +129,21 @@ export async function generateAssistantReply(input) {
 }
 
 export async function generateKnowledgeReply(input) {
-  const { userMessage, language, ragContext, constraints, conversationState } = input || {};
+  const {
+    userMessage,
+    language,
+    ragContext,
+    constraints,
+    conversationState,
+    conversationTranscript,
+    platform,
+    shareLinks,
+  } = input || {};
   const context = String(ragContext || "").trim();
   if (!context) return "";
   const searchContext = {
     conversationState: conversationState || null,
+    platform: String(platform || "").trim().toLowerCase() || "website",
     location: constraints?.location || null,
     type: constraints?.type || null,
     subType: constraints?.subType || null,
@@ -89,6 +164,8 @@ Rules:
 - If the user is asking a side question during an existing property search, answer the side question first without destroying the search context.
 - If the answer depends on a specific property or exact stay dates and they are missing, say that briefly.
 - If the knowledge context is insufficient, say so briefly and ask the user to specify the property reference or dates if needed.
+- Stay coherent with the live transcript and avoid sounding robotic.
+- Apply relevant coaching recommendations if they fit this case without inventing facts.
 
 KNOWLEDGE_CONTEXT:
 ${context}
@@ -96,9 +173,20 @@ ${context}
 SEARCH_CONTEXT:
 ${JSON.stringify(searchContext, null, 2)}
 
+LIVE_CONVERSATION_TRANSCRIPT:
+${normalizeConversationTranscript(conversationTranscript) || "none"}
+
+LINK_CONTEXT:
+${formatLinkContext(shareLinks)}
+
 USER_MESSAGE:
 ${String(userMessage || "")}
   `.trim();
+  const coachingBlock = await buildReplyCoachingContext({
+    userMessage,
+    language,
+    state: conversationState,
+  });
 
   try {
     const completion = await withTimeout(
@@ -107,6 +195,7 @@ ${String(userMessage || "")}
         temperature: 0.1,
         messages: [
           { role: "system", content: SYSTEM_RULES },
+          { role: "system", content: `REPLY_COACHING:\n${coachingBlock || "none"}` },
           { role: "user", content: prompt },
         ],
       }),
@@ -120,36 +209,63 @@ ${String(userMessage || "")}
 }
 
 export async function polishAssistantReply(input) {
-  const { draftReply, language, userMessage, constraints, propertyOptions } = input || {};
+  const {
+    draftReply,
+    language,
+    userMessage,
+    constraints,
+    propertyOptions,
+    conversationTranscript,
+    platform,
+    shareLinks,
+    state,
+  } = input || {};
   const baseReply = String(draftReply || "").trim();
   if (!baseReply) return "";
-  if (language !== "tn") return baseReply;
   if (/^marhbe bik,\s*kifech najemou naawnouk,\s*chnw tlawej bithabet\??$/i.test(baseReply)) return baseReply;
+  if (shouldKeepSearchLinkReplyAsIs(baseReply)) return baseReply;
 
-  const compactOptions = (Array.isArray(propertyOptions) ? propertyOptions : []).slice(0, 3).map((item) => ({
-    reference: item?.reference || null,
-    title: item?.title || null,
-    location: item?.location || null,
-    pricePerNightTnd: item?.pricePerNightTnd || null,
-  }));
+  const compactOptions = compactPropertyOptions(propertyOptions);
+  const coachingBlock = await buildReplyCoachingContext({ userMessage, language, state });
 
   const prompt = `
-Rewrite the assistant reply in natural Tunisian dialect written in Latin/Facebook style.
+Rewrite the assistant reply so it sounds like a real live-agent message in an ongoing conversation.
 Rules:
 - Keep the same meaning, same facts, same prices, same references, same links.
 - Do not invent any new data.
-- Keep it short, natural, and human, like a Tunisian rental agent on Messenger.
+- Stay in the same language as the user. Allowed languages: fr, en, ar, tn.
+- If language is tn, write natural Tunisian dialect in Latin/Facebook style.
+- Keep it short, natural, and human, as if replying on ${String(platform || "website").trim() || "website"}.
+- Stay coherent with the live transcript. Do not ignore what was already said in the conversation.
+- If a filtered seasonal search link is provided and it helps the user continue, you may include it once naturally.
+- If the user needs to browse several possible matches, prefer the filtered search link over a long manual list.
+- If the user asks for a specific property or the shortlist is very strong, include the direct property page links.
+- If the draft already contains the right decision, improve the phrasing instead of changing the decision.
 - Use plain text only.
-- Keep property references and links unchanged.
+- Do not use markdown bullets with stars.
+- Keep property references, dates, prices, and links unchanged.
+- Apply relevant coaching recommendations if they fit this case, but never override factual constraints.
 
 User message:
 ${String(userMessage || "")}
+
+Conversation state:
+${String(state || "").trim() || "unknown"}
+
+Live transcript:
+${normalizeConversationTranscript(conversationTranscript) || "none"}
 
 Constraints:
 ${JSON.stringify(constraints || {}, null, 2)}
 
 Options:
 ${JSON.stringify(compactOptions, null, 2)}
+
+Link context:
+${formatLinkContext(shareLinks)}
+
+Reply coaching:
+${coachingBlock || "none"}
 
 Draft reply:
 ${baseReply}

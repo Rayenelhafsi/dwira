@@ -21,6 +21,9 @@ export const config = {
   ragTimeoutMs: Number(process.env.RAG_TIMEOUT_MS || 5000),
   hybridTimeoutMs: Number(process.env.HYBRID_TIMEOUT_MS || 5000),
   tonePolishTimeoutMs: Number(process.env.TONE_POLISH_TIMEOUT_MS || 3500),
+  replyCoachingEnabled: String(process.env.REPLY_COACHING_ENABLED || "true").toLowerCase() === "true",
+  replyCoachingCorpusSize: Number(process.env.REPLY_COACHING_CORPUS_SIZE || 120),
+  replyCoachingSelectionLimit: Number(process.env.REPLY_COACHING_SELECTION_LIMIT || 4),
   meta: {
     verifyToken: process.env.META_VERIFY_TOKEN,
     appSecret: process.env.META_APP_SECRET,

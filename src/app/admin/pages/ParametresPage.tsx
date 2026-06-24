@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bell, Database, Lock, ShieldCheck, User, Wrench } from "lucide-react";
+import { AlertTriangle, Bell, Bot, Database, Lock, ShieldCheck, User, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import {
   getSiteMaintenanceStatus,
   updateSiteMaintenanceStatus,
   type SiteMaintenanceStatus,
 } from "../../services/siteMaintenance";
+import { createChatbotFeedback, listChatbotFeedback, type ChatbotFeedbackRow } from "../../services/chatbotFeedback";
 import type { Proprietaire } from "../types";
 
 function toDateTimeLocalValue(value?: string | null) {
@@ -42,6 +43,13 @@ export default function ParametresPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sendingOwnerAppUpdate, setSendingOwnerAppUpdate] = useState(false);
+  const [chatbotFeedbackRows, setChatbotFeedbackRows] = useState<ChatbotFeedbackRow[]>([]);
+  const [chatbotQuestion, setChatbotQuestion] = useState("");
+  const [chatbotBotAnswer, setChatbotBotAnswer] = useState("");
+  const [chatbotCorrectedAnswer, setChatbotCorrectedAnswer] = useState("");
+  const [chatbotReason, setChatbotReason] = useState("");
+  const [loadingChatbotFeedback, setLoadingChatbotFeedback] = useState(true);
+  const [savingChatbotFeedback, setSavingChatbotFeedback] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +72,30 @@ export default function ParametresPage() {
       }
     };
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadFeedback = async () => {
+      try {
+        const rows = await listChatbotFeedback();
+        if (!cancelled) {
+          setChatbotFeedbackRows(Array.isArray(rows) ? rows : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(error instanceof Error ? error.message : "Chargement recommandations chatbot impossible");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingChatbotFeedback(false);
+        }
+      }
+    };
+    void loadFeedback();
     return () => {
       cancelled = true;
     };
@@ -176,6 +208,38 @@ export default function ParametresPage() {
     }
   };
 
+  const handleSaveChatbotFeedback = async () => {
+    if (!chatbotQuestion.trim()) {
+      toast.error("Ajoutez au moins le cas client.");
+      return;
+    }
+    if (!chatbotCorrectedAnswer.trim() && !chatbotReason.trim()) {
+      toast.error("Ajoutez une reponse recommandee ou une instruction metier.");
+      return;
+    }
+
+    setSavingChatbotFeedback(true);
+    try {
+      const result = await createChatbotFeedback({
+        question: chatbotQuestion,
+        botAnswer: chatbotBotAnswer,
+        correctedAnswer: chatbotCorrectedAnswer,
+        reason: chatbotReason,
+      });
+      const rows = await listChatbotFeedback();
+      setChatbotFeedbackRows(Array.isArray(rows) ? rows : []);
+      setChatbotQuestion("");
+      setChatbotBotAnswer("");
+      setChatbotCorrectedAnswer("");
+      setChatbotReason("");
+      toast.success(result.message || "Recommandation chatbot enregistree.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Enregistrement recommandation chatbot impossible");
+    } finally {
+      setSavingChatbotFeedback(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -190,6 +254,167 @@ export default function ParametresPage() {
           <span>{statusBadge.label}</span>
         </div>
       </div>
+
+      <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-700">
+                <Bot className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Coaching chatbot</h2>
+                <p className="text-sm text-gray-500">
+                  Enregistrez vos bonnes formulations et vos consignes metier. Le chatbot les reutilise ensuite pour mieux reformuler avec OpenAI.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 lg:max-w-sm">
+            <div className="flex items-start gap-3">
+              <Bot className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-semibold">Memoire de recommandations</p>
+                <p className="mt-1">
+                  Utilisez cette zone pour apprendre au chatbot le ton, la structure et les priorites commerciales a appliquer sur les prochains cas similaires.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 xl:grid-cols-2">
+          <label className="rounded-2xl border border-gray-200 p-4">
+            <span className="text-sm font-semibold text-gray-900">Cas client / besoin observe</span>
+            <textarea
+              value={chatbotQuestion}
+              onChange={(event) => setChatbotQuestion(event.target.value)}
+              rows={4}
+              placeholder="Exemple: client parle tunisien et demande des appartements S+2 sans donner de date."
+              className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            />
+          </label>
+
+          <label className="rounded-2xl border border-gray-200 p-4">
+            <span className="text-sm font-semibold text-gray-900">Reponse bot faible actuelle</span>
+            <textarea
+              value={chatbotBotAnswer}
+              onChange={(event) => setChatbotBotAnswer(event.target.value)}
+              rows={4}
+              placeholder="Collez ici une mauvaise reponse du bot si vous voulez lui montrer quoi eviter."
+              className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <label className="rounded-2xl border border-gray-200 p-4">
+            <span className="text-sm font-semibold text-gray-900">Reponse recommandee</span>
+            <textarea
+              value={chatbotCorrectedAnswer}
+              onChange={(event) => setChatbotCorrectedAnswer(event.target.value)}
+              rows={5}
+              placeholder="Exemple: Bennesba lel S+2, najem nwarik lien recherche mfiltri, wala 3 options direct ken t7eb..."
+              className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            />
+          </label>
+
+          <label className="rounded-2xl border border-gray-200 p-4">
+            <span className="text-sm font-semibold text-gray-900">Instruction metier</span>
+            <textarea
+              value={chatbotReason}
+              onChange={(event) => setChatbotReason(event.target.value)}
+              rows={5}
+              placeholder="Exemple: si la demande est large, proposer d'abord le lien filtre; si le client parle tounsi, repondre tounsi naturel et court."
+              className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            />
+          </label>
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleSaveChatbotFeedback()}
+            disabled={savingChatbotFeedback}
+            className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {savingChatbotFeedback ? "Enregistrement..." : "Ajouter la recommandation"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setChatbotQuestion("");
+              setChatbotBotAnswer("");
+              setChatbotCorrectedAnswer("");
+              setChatbotReason("");
+            }}
+            disabled={savingChatbotFeedback}
+            className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Vider le formulaire
+          </button>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Recommandations recentes</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                Les cas enregistres ici servent de coaching pour les prochains messages proches.
+              </p>
+            </div>
+            <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+              {chatbotFeedbackRows.length} memo{chatbotFeedbackRows.length > 1 ? "s" : ""}
+            </span>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {loadingChatbotFeedback ? (
+              <div className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-6 text-sm text-gray-500">
+                Chargement des recommandations chatbot...
+              </div>
+            ) : chatbotFeedbackRows.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-6 text-sm text-gray-500">
+                Aucune recommandation enregistree pour le moment.
+              </div>
+            ) : (
+              chatbotFeedbackRows.slice(0, 8).map((row) => (
+                <div key={row.id} className="rounded-2xl border border-gray-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Cas #{row.id}</p>
+                    <p className="text-xs text-gray-400">{formatStatusDate(row.createdAt)}</p>
+                  </div>
+                  <div className="mt-3 space-y-3 text-sm">
+                    <div>
+                      <p className="font-semibold text-gray-900">Cas client</p>
+                      <p className="mt-1 whitespace-pre-line text-gray-600">{row.question}</p>
+                    </div>
+                    {row.botAnswer ? (
+                      <div>
+                        <p className="font-semibold text-gray-900">Reponse a eviter</p>
+                        <p className="mt-1 whitespace-pre-line text-gray-600">{row.botAnswer}</p>
+                      </div>
+                    ) : null}
+                    {row.correctedAnswer ? (
+                      <div>
+                        <p className="font-semibold text-gray-900">Reponse recommandee</p>
+                        <p className="mt-1 whitespace-pre-line text-gray-600">{row.correctedAnswer}</p>
+                      </div>
+                    ) : null}
+                    {row.reason ? (
+                      <div>
+                        <p className="font-semibold text-gray-900">Instruction</p>
+                        <p className="mt-1 whitespace-pre-line text-gray-600">{row.reason}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

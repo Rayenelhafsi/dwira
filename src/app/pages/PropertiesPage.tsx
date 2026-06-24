@@ -375,7 +375,7 @@ const extractSelectedLocationRegionZone = (value: string): { region: string; zon
 const extractSelectedGovernorate = (value: string): string => {
   const parts = String(value || "").split("/").map((item) => normalizeFeatureName(item)).filter(Boolean);
   if (parts.length >= 2) return parts[0];
-  return parts[0] || "";
+  return "";
 };
 const getPropertyRegionZone = (property: any): { region: string; zone: string } => {
   const h = property?.filterProfile?.locationHierarchy || {};
@@ -1404,6 +1404,28 @@ export default function PropertiesPage() {
       const scopedMainType = getScopedCategoryMainType(rawCategory);
       const displayCategory = getCategoryDisplayLabel(rawCategory);
       const genericSubTypeKey = getCanonicalSubTypeKey(displayCategory);
+      const multiTypeSubtypeScopes =
+        !scopedMainType
+        && !hasExplicitMainTypeInLabel(displayCategory)
+        && genericSubTypeKey
+        && mainTypes.length > 1
+          ? mainTypes.filter((mainType) => ["appartement", "villa_maison", "residence"].includes(mainType))
+          : [];
+      if (multiTypeSubtypeScopes.length > 1) {
+        multiTypeSubtypeScopes.forEach((mainType) => {
+          const scopedLabel =
+            mainType === "appartement"
+              ? `Appartement ${displayCategory}`.trim()
+              : mainType === "villa_maison"
+                ? `Villa / Maison ${displayCategory}`.trim()
+                : (groupedCategoryMetadata.residenceCanonicalLabelBySubTypeKey.get(genericSubTypeKey) || `Appartement ${displayCategory}`.trim());
+          const normalizedScopedCategory = encodeScopedCategory(mainType, scopedLabel);
+          if (!normalizedScopedCategory || seenNormalizedCategories.has(normalizedScopedCategory)) return;
+          seenNormalizedCategories.add(normalizedScopedCategory);
+          next.push(normalizedScopedCategory);
+        });
+        return;
+      }
       const residenceExplicitLabel =
         !scopedMainType && !hasExplicitMainTypeInLabel(displayCategory) && mainTypes.includes("residence") && genericSubTypeKey
           ? groupedCategoryMetadata.residenceCanonicalLabelBySubTypeKey.get(genericSubTypeKey) || ""

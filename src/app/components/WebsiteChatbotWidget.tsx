@@ -34,6 +34,7 @@ type SessionMessage = {
 const VISITOR_KEY = "dwira_chatbot_visitor_id";
 const WELCOME_TEXT = "Marhbe bik. A7ki m3aya b franca, عربي, english wala tounsi. Tnajem zeda تبعث photo CIN wala reçu paiement men houni.";
 const messageStorageKey = (visitorId: string) => `dwira_chatbot_messages_${visitorId}`;
+let resolvedChatbotApiBasePromise: Promise<string> | null = null;
 
 function getVisitorId() {
   const next = `web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -66,6 +67,54 @@ function getChatbotApiBase() {
   if (isLocalHost) return "http://localhost:8090";
 
   return `${window.location.origin.replace(/\/+$/, "")}/chatbot-api`;
+}
+
+function buildChatbotApiCandidates() {
+  const configured = String(import.meta.env.VITE_CHATBOT_API_URL || "").trim().replace(/\/+$/, "");
+  const origin = window.location.origin.replace(/\/+$/, "");
+  const host = window.location.hostname;
+  const isLocalHost = host === "localhost" || host === "127.0.0.1";
+  const candidates = [
+    configured,
+    window.location.protocol === "http:" ? `http://${host}:8090` : "",
+    isLocalHost ? "http://localhost:8090" : "",
+    isLocalHost ? "http://127.0.0.1:8090" : "",
+    `${origin}/chatbot-api`,
+  ].filter(Boolean);
+  return Array.from(new Set(candidates));
+}
+
+async function probeChatbotApiBase(baseUrl: string) {
+  const normalizedBase = String(baseUrl || "").trim().replace(/\/+$/, "");
+  if (!normalizedBase) return false;
+  try {
+    const response = await fetch(`${normalizedBase}/health`, {
+      method: "GET",
+    });
+    if (!response.ok) return false;
+    const payload = await response.json().catch(() => null);
+    return Boolean(payload?.ok);
+  } catch {
+    return false;
+  }
+}
+
+async function resolveChatbotApiBase() {
+  if (!resolvedChatbotApiBasePromise) {
+    resolvedChatbotApiBasePromise = (async () => {
+      const candidates = buildChatbotApiCandidates();
+      for (const candidate of candidates) {
+        if (await probeChatbotApiBase(candidate)) {
+          return candidate;
+        }
+      }
+      return getChatbotApiBase();
+    })().catch((error) => {
+      resolvedChatbotApiBasePromise = null;
+      throw error;
+    });
+  }
+  return resolvedChatbotApiBasePromise;
 }
 
 function fileToDataUrl(file: File) {
@@ -147,6 +196,17 @@ function writeLocalMessages(visitorId: string, messages: ChatMessage[]) {
   }
 }
 
+function sanitizeAssistantReply(text: string) {
+  return String(text || "").trim();
+}
+
+function getMessageSignature(message: Pick<ChatMessage, "role" | "text" | "attachments">) {
+  const attachmentSignature = Array.isArray(message.attachments)
+    ? message.attachments.map((attachment) => `${attachment.name}|${attachment.previewUrl}`).join("||")
+    : "";
+  return `${message.role}::${String(message.text || "").trim()}::${attachmentSignature}`;
+}
+
 function mergeStoredMessages(rawMessages: SessionMessage[], localMessages: ChatMessage[]): ChatMessage[] {
   const restored = (Array.isArray(rawMessages) ? rawMessages : [])
     .map((message, index) => {
@@ -173,7 +233,10 @@ function mergeStoredMessages(rawMessages: SessionMessage[], localMessages: ChatM
     return localMessages.length > 0 ? localMessages : [buildWelcomeMessage("restored")];
   }
 
-  const extras = localMessages.slice(restored.length).filter((message) => message.text || (message.attachments?.length || 0) > 0);
+  const restoredSignatures = new Set(restored.map((message) => getMessageSignature(message)));
+  const extras = localMessages
+    .slice(restored.length)
+    .filter((message) => (message.text || (message.attachments?.length || 0) > 0) && !restoredSignatures.has(getMessageSignature(message)));
   return extras.length > 0 ? [...restored, ...extras] : restored;
 }
 
@@ -207,7 +270,8 @@ export default function WebsiteChatbotWidget() {
   }, [visitorId, messages]);
 
   const hydrateConversation = async (targetVisitorId = visitorId) => {
-    const response = await fetch(`${getChatbotApiBase()}/chat/session/website/${encodeURIComponent(targetVisitorId)}`);
+    const apiBase = await resolveChatbotApiBase();
+    const response = await fetch(`${apiBase}/chat/session/website/${encodeURIComponent(targetVisitorId)}`);
     if (!response.ok) return;
     const data = await response.json();
     const localMessages = readLocalMessages(targetVisitorId);
@@ -264,7 +328,8 @@ export default function WebsiteChatbotWidget() {
     if (sending || uploading || resetting) return;
     setResetting(true);
     try {
-      await fetch(`${getChatbotApiBase()}/chat/session/reset`, {
+      const apiBase = await resolveChatbotApiBase();
+      await fetch(`${apiBase}/chat/session/reset`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -335,7 +400,8 @@ export default function WebsiteChatbotWidget() {
     setSending(true);
 
     try {
-      const response = await fetch(`${getChatbotApiBase()}/chat/sync`, {
+      const apiBase = await resolveChatbotApiBase();
+      const response = await fetch(`${apiBase}/chat/sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -352,21 +418,32 @@ export default function WebsiteChatbotWidget() {
       });
 
       if (!response.ok) {
-        throw new Error("Assistant indisponible");
+        const payload = await response.json().catch(() => null);
+        const detail = String(payload?.detail || payload?.message || payload?.error || "").trim();
+        throw new Error(detail || "Assistant indisponible");
       }
 
       const data = await response.json();
-      const reply = String(data?.reply || "").trim() || "Merci. Un conseiller vous repondra sous peu.";
+      const reply = sanitizeAssistantReply(String(data?.reply || "").trim()) || "Merci. Un conseiller vous repondra sous peu.";
       const options = Array.isArray(data?.options) ? normalizeOptions(data.options) : [];
-      setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: "assistant", text: reply, options }]);
+      await hydrateConversation(visitorId);
+      setMessages((current) => {
+        const lastAssistantMessage = [...current].reverse().find((message) => message.role === "assistant");
+        if (lastAssistantMessage && lastAssistantMessage.text.trim() === reply) {
+          return current;
+        }
+        return [...current, { id: `a_${Date.now()}`, role: "assistant", text: reply, options }];
+      });
       hydratedVisitorRef.current = visitorId;
-    } catch {
+    } catch (error) {
+      const fallbackText = "Service temporairement indisponible. Essayez encore ou contactez-nous via WhatsApp / Messenger.";
+      const detail = String(error instanceof Error ? error.message : "").trim();
       setMessages((prev) => [
         ...prev,
         {
           id: `a_${Date.now()}`,
           role: "assistant",
-          text: "Service temporairement indisponible. Essayez encore ou contactez-nous via WhatsApp / Messenger.",
+          text: import.meta.env.DEV && detail ? `${fallbackText}\n\n[debug] ${detail}` : fallbackText,
         },
       ]);
     } finally {
