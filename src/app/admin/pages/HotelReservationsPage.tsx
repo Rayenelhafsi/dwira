@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, Hotel, ImagePlus, LoaderCircle, MessageSquareText, Phone, RefreshCw, Save, Send, Trash2, Upload, User, XCircle } from "lucide-react";
+import { CalendarDays, CheckCircle2, Hotel, LoaderCircle, MessageSquareText, Phone, RefreshCw, Save, Trash2, Upload, User, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { HotelReservationDemand, HotelReservationDemandStatus } from "../types";
 import {
   listHotelReservationDemands,
   deleteHotelReservationDemand,
   updateHotelReservationDemand,
+  uploadHotelVoucherPdf,
   uploadHotelVoucherQr,
 } from "../../services/hotels";
 
@@ -128,6 +129,7 @@ export default function HotelReservationsPage() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [uploadingQrId, setUploadingQrId] = useState<string | null>(null);
+  const [uploadingVoucherId, setUploadingVoucherId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -175,6 +177,14 @@ export default function HotelReservationsPage() {
         status: patch.status as HotelReservationDemandStatus | undefined,
         admin_note: patch.admin_note,
         client_note: patch.client_note,
+        client_name: patch.client_name,
+        client_phone: patch.client_phone,
+        amicale_name: patch.amicale_name,
+        hotel_name: patch.hotel_name,
+        boarding_name: patch.boarding_name,
+        room_name: patch.room_name,
+        check_in: patch.check_in,
+        check_out: patch.check_out,
         voucher_id: patch.voucher_id,
         voucher_number: patch.voucher_number,
         voucher_qr_payload: patch.voucher_qr_payload,
@@ -203,6 +213,20 @@ export default function HotelReservationsPage() {
       toast.error(error instanceof Error ? error.message : "Upload QR impossible");
     } finally {
       setUploadingQrId(null);
+    }
+  };
+
+  const handleVoucherUpload = async (row: HotelReservationDemand, file: File | null) => {
+    if (!file) return;
+    setUploadingVoucherId(row.id);
+    try {
+      const updated = await uploadHotelVoucherPdf(row.id, file);
+      setRows((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      toast.success(row.voucher_url ? "Voucher PDF remplace" : "Voucher PDF charge");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload voucher impossible");
+    } finally {
+      setUploadingVoucherId(null);
     }
   };
 
@@ -399,10 +423,10 @@ export default function HotelReservationsPage() {
                   ) : null}
                   {row.voucher_url ? (
                     <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
-                      <p className="font-semibold">Voucher genere</p>
+                      <p className="font-semibold">Voucher PDF</p>
                       <p className="mt-1">Numero: {row.voucher_number || "-"}</p>
                       <p className="mt-1">ID hotel: {row.voucher_id || "-"}</p>
-                      <p className="mt-1">Genere le: {formatDateTime(row.voucher_generated_at)}</p>
+                      <p className="mt-1">Charge le: {formatDateTime(row.voucher_generated_at)}</p>
                       {row.voucher_qr_image_url ? <p className="mt-1">QR image charge.</p> : null}
                       <a href={resolveAssetUrl(row.voucher_url)} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg border border-indigo-300 bg-white px-3 py-2 text-xs font-semibold text-indigo-700">
                         Ouvrir voucher
@@ -433,12 +457,96 @@ export default function HotelReservationsPage() {
                     ))}
                   </select>
                   <input
+                    value={row.amicale_name || ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, amicale_name: event.target.value } : item))}
+                    placeholder="Amicale"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <input
+                    value={row.client_name || ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, client_name: event.target.value } : item))}
+                    placeholder="Nom & prenom"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <input
+                    value={row.client_phone || ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, client_phone: event.target.value } : item))}
+                    placeholder="Telephone"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <input
+                    value={row.hotel_name || ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, hotel_name: event.target.value } : item))}
+                    placeholder="Hotel / reference"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <input
+                    value={row.room_name || ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, room_name: event.target.value } : item))}
+                    placeholder="Type de chambre"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <input
+                    value={row.voucher_number || ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, voucher_number: event.target.value } : item))}
+                    placeholder="Numero voucher"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <input
                     value={row.voucher_id || ""}
                     onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, voucher_id: event.target.value } : item))}
                     placeholder="ID voucher hotel (manuel)"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
                     disabled={savingId === row.id}
                   />
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <input
+                      type="date"
+                      value={row.check_in || ""}
+                      onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, check_in: event.target.value } : item))}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      disabled={savingId === row.id}
+                    />
+                    <input
+                      type="date"
+                      value={row.check_out || ""}
+                      onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, check_out: event.target.value } : item))}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      disabled={savingId === row.id}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Variables modifiables manuellement avant enregistrement ou avant l'upload du voucher PDF.
+                  </p>
+
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">Voucher PDF manuel</p>
+                        <p className="text-xs text-slate-500">Charge un PDF et remplace le voucher existant pour cette demande.</p>
+                      </div>
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+                        {uploadingVoucherId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <Upload size={16} />}
+                        {row.voucher_url ? "Remplacer PDF" : "Upload PDF"}
+                        <input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] || null;
+                            void handleVoucherUpload(row, file);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
 
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -475,21 +583,12 @@ export default function HotelReservationsPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void saveRow(row, { ...row, status: "voucher_en_cours", force_generate_voucher: true }, "Voucher hotel genere")}
+                      onClick={() => void saveRow(row, { ...row, status: "voucher_en_cours" }, "Demande hotel validee")}
                       disabled={savingId === row.id}
                       className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
-                      {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <ImagePlus size={16} />}
-                      Generer voucher
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void saveRow(row, { ...row, status: "voucher_envoye", force_generate_voucher: true }, "Voucher hotel envoye")}
-                      disabled={savingId === row.id}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />}
-                      Envoyer voucher
+                      {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                      Valider demande
                     </button>
                     <button
                       type="button"

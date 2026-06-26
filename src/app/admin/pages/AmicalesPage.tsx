@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { CheckCircle2, ChevronRight, Code2, Eye, FileText, Printer, RefreshCw, Ticket, Trash2, Users } from "lucide-react";
+import { CheckCircle2, ChevronRight, Code2, Eye, FileText, Printer, RefreshCw, Ticket, Trash2, Upload, Users } from "lucide-react";
 import { createAmicaleApi, deleteAmicaleApi, fetchAmicalesAdmin, normalizeAmicaleHotelMarkupPercent, type AmicaleItem, updateAmicaleApi } from "../../utils/amicales";
 import type { HotelReservationDemand, ReservationDemand, ReservationDemandStatus } from "../types";
+import { uploadHotelVoucherPdf } from "../../services/hotels";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -262,6 +263,7 @@ export default function AmicalesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [uploadingVoucherId, setUploadingVoucherId] = useState<string | null>(null);
   const [hotelMarkupById, setHotelMarkupById] = useState<Record<string, string>>({});
 
   const loadData = useCallback(async () => {
@@ -459,7 +461,7 @@ export default function AmicalesPage() {
                 ...(nextStatus === "voucher_en_cours" ? buildHotelVoucherPatch(demand) : {}),
                 admin_note:
                   nextStatus === "voucher_en_cours"
-                    ? "Agence valide la demande amicale et genere le voucher"
+                    ? "Agence valide la demande amicale. Voucher PDF en attente d upload manuel."
                     : "Agence rejette la demande amicale",
               }),
             }
@@ -482,7 +484,7 @@ export default function AmicalesPage() {
         const data = await response.json().catch(() => null);
         throw new Error(String(data?.error || "Mise a jour impossible"));
       }
-      toast.success(nextStatus === "voucher_en_cours" ? "Voucher genere." : "Demande rejetee.");
+      toast.success(nextStatus === "voucher_en_cours" ? "Demande validee. PDF voucher a uploader." : "Demande rejetee.");
       await loadData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Mise a jour impossible");
@@ -491,33 +493,18 @@ export default function AmicalesPage() {
     }
   };
 
-  const handleRegenerateVoucher = async (demand: AmicaleDemandRow) => {
-    setSavingId(demand.id);
+  const handleVoucherUpload = async (demand: AmicaleDemandRow, file: File | null) => {
+    if (!file) return;
+    if (String(demand.source_kind || "").trim() !== "hotel") return;
+    setUploadingVoucherId(demand.id);
     try {
-      const isHotel = String(demand.source_kind || "").trim() === "hotel";
-      const response = isHotel
-        ? await fetch(`${API_URL}/admin/hotel-reservation-demands/${encodeURIComponent(demand.id)}/regenerate-voucher`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              ...buildHotelVoucherPatch(demand),
-            }),
-          })
-        : await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/regenerate-voucher`, {
-            method: "POST",
-            credentials: "include",
-          });
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(String(data?.error || "Regeneration impossible"));
-      }
-      toast.success("Voucher regenere.");
+      await uploadHotelVoucherPdf(demand.id, file);
+      toast.success(demand.voucher_url ? "Voucher PDF remplace." : "Voucher PDF charge.");
       await loadData();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Regeneration impossible");
+      toast.error(error instanceof Error ? error.message : "Upload voucher impossible");
     } finally {
-      setSavingId(null);
+      setUploadingVoucherId(null);
     }
   };
 
@@ -830,7 +817,7 @@ export default function AmicalesPage() {
                   <article key={demand.id} className="rounded-xl border border-gray-200 bg-white p-4">
                     <div className="grid gap-3 lg:grid-cols-3">
                       <div className="space-y-1 text-sm">
-                        <p><span className="font-semibold">Amicale:</span> {String(demand.amicale_name || amicaleNameById.get(String(demand.pricing_amicale_id || "").trim()) || "-")}</p>
+                        <p><span className="font-semibold">Amicale:</span> {String(amicaleNameById.get(String(demand.pricing_amicale_id || "").trim()) || demand.amicale_name || "-")}</p>
                         <p><span className="font-semibold">Nom:</span> {String(demand.client_name || "-")}</p>
                         <p><span className="font-semibold">Matricule:</span> {String(demand.amicale_matricule || "-")}</p>
                         <p><span className="font-semibold">Telephone:</span> {String(demand.amicale_phone || demand.client_phone || "-")}</p>
@@ -924,15 +911,22 @@ export default function AmicalesPage() {
                               </button>
                             </>
                           ) : null}
-                          {String(demand.status || "") === "voucher_en_cours" ? (
-                            <button
-                              type="button"
-                              disabled={savingId === demand.id}
-                              onClick={() => void handleRegenerateVoucher(demand)}
-                              className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
-                            >
-                              Regenerer voucher
-                            </button>
+                          {String(demand.source_kind || "") === "hotel" ? (
+                            <label className={`inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 ${uploadingVoucherId === demand.id ? "opacity-60" : "cursor-pointer"}`}>
+                              <Upload className="h-4 w-4" />
+                              {voucherUrl ? "Remplacer voucher PDF" : "Uploader voucher PDF"}
+                              <input
+                                type="file"
+                                accept="application/pdf,.pdf"
+                                className="hidden"
+                                disabled={uploadingVoucherId === demand.id}
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0] || null;
+                                  void handleVoucherUpload(demand, file);
+                                  event.currentTarget.value = "";
+                                }}
+                              />
+                            </label>
                           ) : null}
                           <button
                             type="button"

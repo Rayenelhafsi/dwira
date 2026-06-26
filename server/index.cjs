@@ -2195,15 +2195,37 @@ function extractSqlDateParts(value) {
   return { year: match[1], month: match[2], day: match[3] };
 }
 
+function extractHotelTravellerPrimaryName(hotelContext) {
+  const travellers = hotelContext && typeof hotelContext === 'object' ? hotelContext.travellers : null;
+  const adults = Array.isArray(travellers?.adults) ? travellers.adults : [];
+  const firstAdult = adults.find((entry) => entry && typeof entry === 'object') || null;
+  const firstName = String(firstAdult?.firstName || '').trim();
+  const lastName = String(firstAdult?.lastName || '').trim();
+  return `${firstName} ${lastName}`.trim() || null;
+}
+
 function formatHotelReservationDemandRow(row) {
   if (!row) return null;
+  const hotelContext = (() => {
+    try {
+      return row.hotel_context_json ? JSON.parse(row.hotel_context_json) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const normalizedPaymentMode = normalizePaymentMode(row.payment_mode, 'avance');
+  const travellerPrimaryName = extractHotelTravellerPrimaryName(hotelContext);
+  const effectiveClientName = normalizedPaymentMode === 'amicale'
+    ? (travellerPrimaryName || row.client_name || row.amicale_name || null)
+    : (row.client_name || null);
   return {
     ...row,
     adults: Math.max(1, Number(row.adults || 1)),
     total_price: row.total_price === null || row.total_price === undefined ? null : Number(row.total_price),
     amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
     child_ages: parseJsonArray(row.child_ages_json),
-    payment_mode: normalizePaymentMode(row.payment_mode, 'avance'),
+    payment_mode: normalizedPaymentMode,
+    client_name: effectiveClientName,
     pricing_amicale_id: row.pricing_amicale_id || null,
     amicale_name: row.amicale_name || null,
     amicale_matricule: row.amicale_matricule || null,
@@ -2228,13 +2250,7 @@ function formatHotelReservationDemandRow(row) {
         return null;
       }
     })(),
-    hotel_context: (() => {
-      try {
-        return row.hotel_context_json ? JSON.parse(row.hotel_context_json) : null;
-      } catch {
-        return null;
-      }
-    })(),
+    hotel_context: hotelContext,
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
@@ -2534,7 +2550,12 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
   const checkInParts = extractSqlDateParts(demand?.check_in);
   const checkOutParts = extractSqlDateParts(demand?.check_out);
   const values = {
-    client_name: String(demand?.client_name || '-'),
+    client_name: String(
+      extractHotelTravellerPrimaryName(hotelContext)
+      || demand?.client_name
+      || demand?.amicale_name
+      || '-'
+    ),
     client_phone: String(demand?.client_phone || '-'),
     hotel_reference: String(demand?.hotel_name || '-')
       + (String(voucherNumber || '').trim() ? ` / Ref ${String(voucherNumber).trim()}` : ''),
@@ -3822,6 +3843,14 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
   const nextStatus = String(patch?.status || current.status || '').trim() || current.status;
   const nextAdminNote = patch?.admin_note !== undefined ? (String(patch.admin_note || '').trim() || null) : (current.admin_note || null);
   const nextClientNote = patch?.client_note !== undefined ? (String(patch.client_note || '').trim() || null) : (current.client_note || null);
+  const nextClientName = patch?.client_name !== undefined ? (String(patch.client_name || '').trim() || null) : (current.client_name || null);
+  const nextClientPhone = patch?.client_phone !== undefined ? (normalizePhoneNumber(patch.client_phone || '') || null) : (current.client_phone || null);
+  const nextAmicaleName = patch?.amicale_name !== undefined ? (String(patch.amicale_name || '').trim() || null) : (current.amicale_name || null);
+  const nextHotelName = patch?.hotel_name !== undefined ? (String(patch.hotel_name || '').trim() || null) : (current.hotel_name || null);
+  const nextBoardingName = patch?.boarding_name !== undefined ? (String(patch.boarding_name || '').trim() || null) : (current.boarding_name || null);
+  const nextRoomName = patch?.room_name !== undefined ? (String(patch.room_name || '').trim() || null) : (current.room_name || null);
+  const nextCheckIn = patch?.check_in !== undefined ? (String(patch.check_in || '').trim() || null) : (current.check_in || null);
+  const nextCheckOut = patch?.check_out !== undefined ? (String(patch.check_out || '').trim() || null) : (current.check_out || null);
   const forceGenerateVoucher = patch?.force_generate_voucher === true || String(patch?.force_generate_voucher || '').trim() === 'true';
   const voucherQrPayload = patch?.voucher_qr_payload !== undefined ? (String(patch.voucher_qr_payload || '').trim() || null) : (current.voucher_qr_payload || null);
   const voucherQrImageUrl = patch?.voucher_qr_image_url !== undefined ? (String(patch.voucher_qr_image_url || '').trim() || null) : (current.voucher_qr_image_url || null);
@@ -3842,12 +3871,24 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
   let providerCancelledAt = current.provider_cancelled_at || null;
   let providerCancelPayloadJson = current.provider_cancel_payload_json || null;
 
-  if (forceGenerateVoucher || nextStatus === 'voucher_en_cours' || nextStatus === 'voucher_envoye') {
+  if (nextStatus === 'voucher_en_cours' || nextStatus === 'voucher_envoye') {
+    agencyValidationAt = now;
+  }
+
+  if (forceGenerateVoucher) {
     resolvedVoucherId = resolvedVoucherId || `hotel-voucher-${safeDemandId}`;
     resolvedVoucherNumber = resolvedVoucherNumber || `HTL-${String(safeDemandId).slice(-8).toUpperCase()}`;
     voucherUrl = await generateHotelVoucherHtml({
       demand: {
         ...current,
+        client_name: nextClientName,
+        client_phone: nextClientPhone,
+        amicale_name: nextAmicaleName,
+        hotel_name: nextHotelName,
+        boarding_name: nextBoardingName,
+        room_name: nextRoomName,
+        check_in: nextCheckIn,
+        check_out: nextCheckOut,
         voucher_id: resolvedVoucherId,
         voucher_number: resolvedVoucherNumber,
         voucher_qr_payload: voucherQrPayload,
@@ -3858,11 +3899,12 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
       qrPayload: voucherQrPayload,
       qrImageUrl: voucherQrImageUrl,
     });
-    agencyValidationAt = now;
     voucherGeneratedAt = now;
     if (nextStatus === 'voucher_envoye') {
       voucherSentAt = now;
     }
+  } else if (nextStatus === 'voucher_envoye' && voucherUrl) {
+    voucherSentAt = now;
   }
 
   if (nextStatus === 'rejete_par_agence') {
@@ -3878,8 +3920,9 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
   }
 
   await pool.query(
-    `UPDATE hotel_reservation_demands
+     `UPDATE hotel_reservation_demands
      SET status = ?, admin_note = ?, client_note = ?,
+         client_name = ?, client_phone = ?, amicale_name = ?, hotel_name = ?, boarding_name = ?, room_name = ?, check_in = ?, check_out = ?,
          voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?, voucher_qr_image_url = ?,
          voucher_url = ?, voucher_generated_at = ?, voucher_sent_at = ?, agency_validation_at = ?,
          provider_booking_state = ?, provider_cancel_fee = ?, provider_cancelled_at = ?, provider_cancel_payload_json = ?,
@@ -3889,6 +3932,14 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
       nextStatus,
       nextAdminNote,
       nextClientNote,
+      nextClientName,
+      nextClientPhone,
+      nextAmicaleName,
+      nextHotelName,
+      nextBoardingName,
+      nextRoomName,
+      nextCheckIn,
+      nextCheckOut,
       resolvedVoucherId,
       resolvedVoucherNumber,
       voucherQrPayload,
@@ -6335,6 +6386,7 @@ app.post('/api/hotel-reservation-demands', async (req, res) => {
     const currency = String(req.body?.currency || '').trim() || 'TND';
     const paymentMode = normalizePaymentMode(req.body?.paymentMode || req.body?.payment_mode, 'avance');
     const pricingAmicaleId = String(req.body?.pricingAmicaleId || req.body?.pricing_amicale_id || req.body?.amicale_id || '').trim() || null;
+    const clientName = String(req.body?.clientName || req.body?.client_name || '').trim() || null;
     const amicaleName = String(req.body?.amicaleName || req.body?.amicale_name || '').trim() || null;
     const amicaleMatricule = String(req.body?.amicaleMatricule || req.body?.amicale_matricule || '').trim() || null;
     const amicalePhone = normalizePhoneNumber(req.body?.amicalePhone || req.body?.amicale_phone || '');
@@ -6400,7 +6452,9 @@ app.post('/api/hotel-reservation-demands', async (req, res) => {
         demandId,
         String(requester?.id || '').trim() || null,
         String(requester?.email || '').trim().toLowerCase() || null,
-        String(requester?.name || '').trim() || amicaleName || String(requester?.email || '').trim() || 'Client',
+        isAmicaleFlow
+          ? (clientName || extractHotelTravellerPrimaryName(hotelContext) || String(requester?.name || '').trim() || String(requester?.email || '').trim() || 'Client')
+          : (String(requester?.name || '').trim() || clientName || String(requester?.email || '').trim() || 'Client'),
         clientPhone,
         hotelId,
         hotelName,
@@ -6721,6 +6775,56 @@ app.post('/api/hotel-reservation-demands/:id/upload-voucher-qr', requireAdminSes
   } catch (error) {
     console.error('Error uploading hotel voucher qr:', error);
     return res.status(500).json({ error: 'Impossible d envoyer le QR du voucher hotel' });
+  }
+});
+
+app.post('/api/hotel-reservation-demands/:id/upload-voucher-pdf', requireAdminSession, (req, res, next) => hotelVoucherPdfUpload.single('voucher')(req, res, next), async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const [rows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+    if (!req.file) return res.status(400).json({ error: 'PDF voucher obligatoire' });
+
+    const now = getAgencySqlDateTime();
+    await deleteLocalFileFromPublicUrl(current.voucher_url, path.join('contracts', 'hotel-vouchers'));
+    await deleteLocalFileFromPublicUrl(current.voucher_url, path.join('uploads', 'hotel-voucher-pdfs'));
+
+    const voucherUrl = `/uploads/hotel-voucher-pdfs/${req.file.filename}`;
+    const resolvedVoucherId = String(current.voucher_id || '').trim() || `hotel-voucher-${demandId}`;
+    const resolvedVoucherNumber = String(current.voucher_number || '').trim() || `HTL-${String(demandId).slice(-8).toUpperCase()}`;
+
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET status = ?, voucher_id = ?, voucher_number = ?, voucher_url = ?,
+           voucher_generated_at = ?, voucher_sent_at = ?, agency_validation_at = ?, updated_at = ?
+       WHERE id = ?`,
+      ['voucher_envoye', resolvedVoucherId, resolvedVoucherNumber, voucherUrl, now, now, now, now, demandId]
+    );
+
+    await trackBusinessAnalyticsEvent(null, 'voucher_generated', {
+      hotelDemandId: demandId,
+      clientUserId: current.client_user_id,
+      clientEmail: current.client_email,
+      clientName: current.client_name,
+      channel: deriveStatsChannelFromReservationDemand(current),
+      propertyTitle: current.hotel_name,
+      currency: current.currency || 'TND',
+      metadata: {
+        hotelId: current.hotel_id,
+        voucherId: resolvedVoucherId,
+        voucherNumber: resolvedVoucherNumber,
+        status: 'voucher_envoye',
+        source: 'manual_pdf_upload',
+      },
+    }).catch(() => {});
+
+    return res.json(await fetchHotelReservationDemandRow(demandId));
+  } catch (error) {
+    console.error('Error uploading hotel voucher pdf:', error);
+    return res.status(500).json({ error: 'Impossible d envoyer le PDF du voucher hotel' });
   }
 });
 
@@ -20392,6 +20496,33 @@ const hotelVoucherQrUpload = multer({
     const allowedMime = mime.startsWith('image/');
     if (allowedExt && allowedMime) return cb(null, true);
     cb(new Error('Only image files (jpg, jpeg, png, webp) are allowed'));
+  },
+});
+
+const hotelVoucherPdfStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const voucherDir = path.join(__dirname, 'uploads', 'hotel-voucher-pdfs');
+    if (!fs.existsSync(voucherDir)) {
+      fs.mkdirSync(voucherDir, { recursive: true });
+    }
+    cb(null, voucherDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.pdf';
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `hotel-voucher-pdf-${uniqueSuffix}${ext === '.pdf' ? ext : '.pdf'}`);
+  },
+});
+
+const hotelVoucherPdfUpload = multer({
+  storage: hotelVoucherPdfStorage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedExt = /\.pdf$/i.test(path.extname(file.originalname || '').toLowerCase());
+    const mime = String(file.mimetype || '').toLowerCase();
+    const allowedMime = mime === 'application/pdf' || mime === 'application/x-pdf';
+    if (allowedExt || allowedMime) return cb(null, true);
+    cb(new Error('Only PDF files are allowed'));
   },
 });
 

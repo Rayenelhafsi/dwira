@@ -478,7 +478,7 @@ export async function listHotelReservationDemands(status?: string) {
 
 export async function updateHotelReservationDemand(
   demandId: string,
-  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_note" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> & {
+  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_note" | "client_name" | "client_phone" | "amicale_name" | "hotel_name" | "boarding_name" | "room_name" | "check_in" | "check_out" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> & {
     force_generate_voucher?: boolean;
   }
 ) {
@@ -495,6 +495,17 @@ export async function uploadHotelVoucherQr(demandId: string, file: File) {
   const formData = new FormData();
   formData.append("qr", file);
   const response = await fetch(buildApiUrl(`/hotel-reservation-demands/${encodeURIComponent(demandId)}/upload-voucher-qr`), {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  return readApiResponse<HotelReservationDemand>(response);
+}
+
+export async function uploadHotelVoucherPdf(demandId: string, file: File) {
+  const formData = new FormData();
+  formData.append("voucher", file);
+  const response = await fetch(buildApiUrl(`/hotel-reservation-demands/${encodeURIComponent(demandId)}/upload-voucher-pdf`), {
     method: "POST",
     credentials: "include",
     body: formData,
