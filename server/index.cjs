@@ -2070,7 +2070,8 @@ const DEFAULT_HOTEL_VOUCHER_LAYOUT = {
     checkout_day: { kind: 'text', label: 'Jour depart', x: 867, y: 647, width: 34, height: 28, fontSize: 18, fontWeight: 700, textAlign: 'center', color: '#172033' },
     checkout_month: { kind: 'text', label: 'Mois depart', x: 944, y: 647, width: 34, height: 28, fontSize: 18, fontWeight: 700, textAlign: 'center', color: '#172033' },
     guests: { kind: 'text', label: 'Nombre de personnes', x: 474, y: 717, width: 535, height: 34, fontSize: 20, fontWeight: 700, textAlign: 'left', color: '#172033' },
-    room_type: { kind: 'text', label: 'Type de chambre', x: 474, y: 783, width: 520, height: 34, fontSize: 20, fontWeight: 700, textAlign: 'left', color: '#172033' },
+    travellers_details: { kind: 'text', label: 'Voyageurs details', x: 474, y: 753, width: 535, height: 64, fontSize: 14, fontWeight: 600, textAlign: 'left', color: '#172033', lineHeight: 18, multiline: true },
+    room_type: { kind: 'text', label: 'Type de chambre', x: 474, y: 826, width: 520, height: 34, fontSize: 20, fontWeight: 700, textAlign: 'left', color: '#172033' },
     voucher_id: { kind: 'text', label: 'Voucher ID', x: 574, y: 897, width: 430, height: 36, fontSize: 22, fontWeight: 700, textAlign: 'left', color: '#172033' },
     qr_image: { kind: 'image', label: 'QR code', x: 406, y: 829, width: 146, height: 146 },
   },
@@ -2204,6 +2205,73 @@ function extractHotelTravellerPrimaryName(hotelContext) {
   return `${firstName} ${lastName}`.trim() || null;
 }
 
+function isHotelVoucherPlaceholderName(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'administrateur' || normalized === 'admin';
+}
+
+function getHotelVoucherDisplayClientName({ hotelContext, clientName, amicaleName }) {
+  const travellerName = extractHotelTravellerPrimaryName(hotelContext);
+  if (travellerName) return travellerName;
+  const normalizedClientName = String(clientName || '').trim();
+  if (normalizedClientName && !isHotelVoucherPlaceholderName(normalizedClientName)) {
+    return normalizedClientName;
+  }
+  const normalizedAmicaleName = String(amicaleName || '').trim();
+  return normalizedAmicaleName || '-';
+}
+
+function buildHotelVoucherTravellerDetails({ hotelContext, clientName, childAges }) {
+  const travellers = hotelContext && typeof hotelContext === 'object' ? hotelContext.travellers : null;
+  const adultEntries = Array.isArray(travellers?.adults) ? travellers.adults : [];
+  const childEntries = Array.isArray(travellers?.children) ? travellers.children : [];
+  const fallbackChildAges = Array.isArray(childAges) ? childAges : [];
+
+  const adultNames = adultEntries
+    .map((entry, index) => {
+      const firstName = String(entry?.firstName || '').trim();
+      const lastName = String(entry?.lastName || '').trim();
+      const fullName = `${firstName} ${lastName}`.trim();
+      if (fullName) return `${index + 1}. ${fullName}`;
+      return null;
+    })
+    .filter(Boolean);
+
+  if (adultNames.length === 0) {
+    const fallbackClientName = String(clientName || '').trim();
+    if (fallbackClientName && !isHotelVoucherPlaceholderName(fallbackClientName)) {
+      adultNames.push(`1. ${fallbackClientName}`);
+    }
+  }
+
+  const childNames = childEntries
+    .map((entry, index) => {
+      const firstName = String(entry?.firstName || '').trim();
+      const lastName = String(entry?.lastName || '').trim();
+      const fullName = `${firstName} ${lastName}`.trim() || `Enfant ${index + 1}`;
+      const ageValue = Number.isFinite(Number(entry?.age))
+        ? Number(entry.age)
+        : (Number.isFinite(Number(fallbackChildAges[index])) ? Number(fallbackChildAges[index]) : null);
+      return `${index + 1}. ${fullName}${ageValue !== null ? ` (${ageValue} ans)` : ''}`;
+    })
+    .filter(Boolean);
+
+  for (let index = childNames.length; index < fallbackChildAges.length; index += 1) {
+    const fallbackAge = Number(fallbackChildAges[index]);
+    if (!Number.isFinite(fallbackAge)) continue;
+    childNames.push(`${index + 1}. Enfant ${index + 1} (${fallbackAge} ans)`);
+  }
+
+  const sections = [];
+  if (adultNames.length > 0) {
+    sections.push(`Adultes: ${adultNames.join(' | ')}`);
+  }
+  if (childNames.length > 0) {
+    sections.push(`Enfants: ${childNames.join(' | ')}`);
+  }
+  return sections.join('\n').trim() || '-';
+}
+
 function normalizeHotelTravellersForAdminUpdate(hotelContext, fallbackChildAges = []) {
   const baseContext = hotelContext && typeof hotelContext === 'object' ? hotelContext : {};
   const rawTravellers = baseContext.travellers && typeof baseContext.travellers === 'object' ? baseContext.travellers : {};
@@ -2238,9 +2306,8 @@ function formatHotelReservationDemandRow(row) {
     }
   })();
   const normalizedPaymentMode = normalizePaymentMode(row.payment_mode, 'avance');
-  const travellerPrimaryName = extractHotelTravellerPrimaryName(hotelContext);
   const effectiveClientName = normalizedPaymentMode === 'amicale'
-    ? (travellerPrimaryName || row.client_name || row.amicale_name || null)
+    ? getHotelVoucherDisplayClientName({ hotelContext, clientName: row.client_name, amicaleName: row.amicale_name })
     : (row.client_name || null);
   return {
     ...row,
@@ -2573,13 +2640,18 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
   const totalGuests = Math.max(1, Number(demand?.adults || 1)) + childCount;
   const checkInParts = extractSqlDateParts(demand?.check_in);
   const checkOutParts = extractSqlDateParts(demand?.check_out);
+  const voucherClientName = getHotelVoucherDisplayClientName({
+    hotelContext,
+    clientName: demand?.client_name,
+    amicaleName: demand?.amicale_name,
+  });
+  const travellerDetails = buildHotelVoucherTravellerDetails({
+    hotelContext,
+    clientName: voucherClientName,
+    childAges: demand?.child_ages,
+  });
   const values = {
-    client_name: String(
-      extractHotelTravellerPrimaryName(hotelContext)
-      || demand?.client_name
-      || demand?.amicale_name
-      || '-'
-    ),
+    client_name: String(voucherClientName || '-'),
     client_phone: String(demand?.client_phone || '-'),
     hotel_reference: String(demand?.hotel_name || '-')
       + (String(voucherNumber || '').trim() ? ` / Ref ${String(voucherNumber).trim()}` : ''),
@@ -2588,11 +2660,13 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
     checkout_day: checkOutParts?.day || '--',
     checkout_month: checkOutParts?.month || '--',
     guests: `${totalGuests} personne(s)${childCount > 0 ? ` dont ${childCount} enfant(s)` : ''}`,
+    travellers_details: travellerDetails,
     room_type: String(demand?.room_name || demand?.boarding_name || '-'),
     voucher_id: String(voucherId || voucherNumber || demand?.id || '-'),
   };
   const renderTextField = (fieldKey, fieldConfig) => {
     const textValue = escapeHtml(String(values[fieldKey] || '-'));
+    const lineHeight = Math.max(1, Number(fieldConfig.lineHeight || fieldConfig.height || 36));
     return `<div class="field text-field" style="
       left:${Number(fieldConfig.x)}px;
       top:${Number(fieldConfig.y)}px;
@@ -2602,7 +2676,8 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
       font-weight:${Number(fieldConfig.fontWeight || 700)};
       text-align:${escapeHtml(String(fieldConfig.textAlign || 'left'))};
       color:${escapeHtml(String(fieldConfig.color || '#172033'))};
-      line-height:${Math.max(1, Number(fieldConfig.height || 36))}px;
+      line-height:${lineHeight}px;
+      white-space:${fieldConfig.multiline ? 'pre-wrap' : 'nowrap'};
     ">${textValue}</div>`;
   };
   const qrField = layout.fields.qr_image || DEFAULT_HOTEL_VOUCHER_LAYOUT.fields.qr_image;
@@ -2695,6 +2770,33 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
       parseInt(normalized.slice(4, 6), 16) / 255,
     );
   };
+  const wrapPdfTextLines = (textValue, fieldConfig, font) => {
+    const rawLines = String(textValue || '-').split('\n');
+    const maxWidth = Math.max(24, Number(fieldConfig.width || 120));
+    const fontSize = Math.max(10, Number(fieldConfig.fontSize || 20));
+    const lines = [];
+    for (const rawLine of rawLines) {
+      const normalizedLine = String(rawLine || '').trim();
+      if (!normalizedLine) {
+        lines.push('');
+        continue;
+      }
+      const words = normalizedLine.split(/\s+/).filter(Boolean);
+      let currentLine = '';
+      for (const word of words) {
+        const candidate = currentLine ? `${currentLine} ${word}` : word;
+        const candidateWidth = font.widthOfTextAtSize(candidate, fontSize);
+        if (candidateWidth <= maxWidth || !currentLine) {
+          currentLine = candidate;
+          continue;
+        }
+        lines.push(currentLine);
+        currentLine = word;
+      }
+      if (currentLine) lines.push(currentLine);
+    }
+    return lines.length > 0 ? lines : ['-'];
+  };
 
   try {
     const pdfDoc = await PDFDocument.create();
@@ -2758,19 +2860,28 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
       const textValue = String(values[fieldKey] || '-');
       const fontSize = Number(fieldConfig.fontSize || 20);
       const font = Number(fieldConfig.fontWeight || 700) >= 700 ? fontBold : fontRegular;
-      const textWidth = font.widthOfTextAtSize(textValue, fontSize);
-      let x = Number(fieldConfig.x);
-      if (String(fieldConfig.textAlign || 'left') === 'center') {
-        x += Math.max(0, (Number(fieldConfig.width) - textWidth) / 2);
-      } else if (String(fieldConfig.textAlign || 'left') === 'right') {
-        x += Math.max(0, Number(fieldConfig.width) - textWidth);
-      }
-      page.drawText(textValue, {
-        x,
-        y: layout.canvasHeight - Number(fieldConfig.y) - fontSize,
-        size: fontSize,
-        font,
-        color: hexToRgb(fieldConfig.color),
+      const baseX = Number(fieldConfig.x);
+      const baseY = layout.canvasHeight - Number(fieldConfig.y) - fontSize;
+      const lineHeight = Math.max(fontSize + 2, Number(fieldConfig.lineHeight || fontSize + 4));
+      const textLines = fieldConfig.multiline ? wrapPdfTextLines(textValue, fieldConfig, font) : [textValue];
+      const maxLines = fieldConfig.multiline
+        ? Math.max(1, Math.floor(Number(fieldConfig.height || lineHeight) / lineHeight))
+        : 1;
+      textLines.slice(0, maxLines).forEach((lineText, index) => {
+        const textWidth = font.widthOfTextAtSize(lineText, fontSize);
+        let x = baseX;
+        if (String(fieldConfig.textAlign || 'left') === 'center') {
+          x += Math.max(0, (Number(fieldConfig.width) - textWidth) / 2);
+        } else if (String(fieldConfig.textAlign || 'left') === 'right') {
+          x += Math.max(0, Number(fieldConfig.width) - textWidth);
+        }
+        page.drawText(lineText, {
+          x,
+          y: baseY - (index * lineHeight),
+          size: fontSize,
+          font,
+          color: hexToRgb(fieldConfig.color),
+        });
       });
     }
 
