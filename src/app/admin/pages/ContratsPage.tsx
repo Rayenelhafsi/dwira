@@ -491,6 +491,7 @@ export default function ContratsPage() {
   const [financialDrafts, setFinancialDrafts] = useState<Record<string, { ownerAmount: string; netProfit: string }>>({});
   const [expandedFinancials, setExpandedFinancials] = useState<Record<string, boolean>>({});
   const [savingFinancialContratId, setSavingFinancialContratId] = useState<string | null>(null);
+  const [reopeningContratId, setReopeningContratId] = useState<string | null>(null);
 
   const [searchLocataire, setSearchLocataire] = useState('');
   const [searchProprietaire, setSearchProprietaire] = useState('');
@@ -1119,6 +1120,45 @@ export default function ContratsPage() {
     } catch (err: any) {
       console.error(err);
       toast.error(err?.message || 'Erreur suppression contrat');
+    }
+  };
+
+  const handleMoveRejectedToPendingPayment = async (contrat: ContratApi) => {
+    setReopeningContratId(contrat.id);
+    try {
+      const contractResponse = await fetch(`${API_URL}/contrats/${encodeURIComponent(contrat.id)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statut: 'actif' }),
+      });
+      if (!contractResponse.ok) {
+        throw new Error(await getApiErrorMessage(contractResponse, 'Reouverture du contrat impossible'));
+      }
+
+      if (String(contrat.reservation_demand_id || '').trim()) {
+        const demandResponse = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(String(contrat.reservation_demand_id || '').trim())}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'contrat_realise',
+            actor_type: 'admin',
+            actor_id: 'admin',
+            history_note: 'Contrat reouvert et remis en attente de paiement par admin',
+          }),
+        });
+        if (!demandResponse.ok) {
+          throw new Error(await getApiErrorMessage(demandResponse, 'Reouverture de la demande liee impossible'));
+        }
+      }
+
+      await fetchData();
+      toast.success('Contrat remis en attente de paiement');
+    } catch (error: any) {
+      toast.error(error?.message || 'Reouverture du contrat impossible');
+    } finally {
+      setReopeningContratId(null);
     }
   };
 
@@ -2354,6 +2394,17 @@ export default function ContratsPage() {
                 <button type="button" onClick={() => handleDownloadPdf(`${contrat.id}-owner`, contrat.owner_url_pdf)} disabled={!contrat.owner_url_pdf} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-200 text-amber-700 text-sm font-medium hover:bg-amber-50 disabled:opacity-50">
                   <Download size={16} /> Telecharger proprietaire
                 </button>
+                {category === 'rejected' ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleMoveRejectedToPendingPayment(contrat)}
+                    disabled={reopeningContratId === contrat.id}
+                    className="col-span-2 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-violet-300 text-violet-700 text-sm font-medium hover:bg-violet-50 disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={16} />
+                    {reopeningContratId === contrat.id ? 'Reouverture...' : 'Deplacer vers attente de paiement'}
+                  </button>
+                ) : null}
                 <label className="col-span-2 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 cursor-pointer">
                   <Upload size={16} />
                   {uploadingContratId === contrat.id ? 'Upload en cours...' : 'Uploader / Remplacer PDF'}

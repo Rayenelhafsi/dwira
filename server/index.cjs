@@ -2204,6 +2204,30 @@ function extractHotelTravellerPrimaryName(hotelContext) {
   return `${firstName} ${lastName}`.trim() || null;
 }
 
+function normalizeHotelTravellersForAdminUpdate(hotelContext, fallbackChildAges = []) {
+  const baseContext = hotelContext && typeof hotelContext === 'object' ? hotelContext : {};
+  const rawTravellers = baseContext.travellers && typeof baseContext.travellers === 'object' ? baseContext.travellers : {};
+  const adults = Array.isArray(rawTravellers.adults) ? rawTravellers.adults : [];
+  const children = Array.isArray(rawTravellers.children) ? rawTravellers.children : [];
+  return {
+    ...baseContext,
+    travellers: {
+      ...rawTravellers,
+      adults: adults.map((item) => ({
+        firstName: String(item?.firstName || '').trim() || null,
+        lastName: String(item?.lastName || '').trim() || null,
+      })),
+      children: children.map((item, index) => ({
+        firstName: String(item?.firstName || '').trim() || null,
+        lastName: String(item?.lastName || '').trim() || null,
+        age: Number.isFinite(Number(item?.age))
+          ? Number(item.age)
+          : (Number.isFinite(Number(fallbackChildAges?.[index])) ? Number(fallbackChildAges[index]) : null),
+      })),
+    },
+  };
+}
+
 function formatHotelReservationDemandRow(row) {
   if (!row) return null;
   const hotelContext = (() => {
@@ -3851,6 +3875,11 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
   const nextRoomName = patch?.room_name !== undefined ? (String(patch.room_name || '').trim() || null) : (current.room_name || null);
   const nextCheckIn = patch?.check_in !== undefined ? (String(patch.check_in || '').trim() || null) : (current.check_in || null);
   const nextCheckOut = patch?.check_out !== undefined ? (String(patch.check_out || '').trim() || null) : (current.check_out || null);
+  const currentHotelContext = safeParseJson(current.hotel_context_json, null);
+  const nextHotelContext = patch?.hotel_context !== undefined
+    ? normalizeHotelTravellersForAdminUpdate(patch.hotel_context, parseJsonArray(current.child_ages_json))
+    : normalizeHotelTravellersForAdminUpdate(currentHotelContext, parseJsonArray(current.child_ages_json));
+  const nextHotelContextJson = nextHotelContext ? JSON.stringify(nextHotelContext) : null;
   const forceGenerateVoucher = patch?.force_generate_voucher === true || String(patch?.force_generate_voucher || '').trim() === 'true';
   const voucherQrPayload = patch?.voucher_qr_payload !== undefined ? (String(patch.voucher_qr_payload || '').trim() || null) : (current.voucher_qr_payload || null);
   const voucherQrImageUrl = patch?.voucher_qr_image_url !== undefined ? (String(patch.voucher_qr_image_url || '').trim() || null) : (current.voucher_qr_image_url || null);
@@ -3889,6 +3918,7 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
         room_name: nextRoomName,
         check_in: nextCheckIn,
         check_out: nextCheckOut,
+        hotel_context: nextHotelContext,
         voucher_id: resolvedVoucherId,
         voucher_number: resolvedVoucherNumber,
         voucher_qr_payload: voucherQrPayload,
@@ -3923,6 +3953,7 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
      `UPDATE hotel_reservation_demands
      SET status = ?, admin_note = ?, client_note = ?,
          client_name = ?, client_phone = ?, amicale_name = ?, hotel_name = ?, boarding_name = ?, room_name = ?, check_in = ?, check_out = ?,
+         hotel_context_json = ?,
          voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?, voucher_qr_image_url = ?,
          voucher_url = ?, voucher_generated_at = ?, voucher_sent_at = ?, agency_validation_at = ?,
          provider_booking_state = ?, provider_cancel_fee = ?, provider_cancelled_at = ?, provider_cancel_payload_json = ?,
@@ -3940,6 +3971,7 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
       nextRoomName,
       nextCheckIn,
       nextCheckOut,
+      nextHotelContextJson,
       resolvedVoucherId,
       resolvedVoucherNumber,
       voucherQrPayload,

@@ -270,7 +270,13 @@ export type HotelReservationDemand = {
   status: HotelReservationDemandStatus;
   client_note?: string | null;
   admin_note?: string | null;
-  hotel_context?: Record<string, unknown> | null;
+  hotel_context?: {
+    travellers?: {
+      adults?: Array<{ firstName?: string | null; lastName?: string | null }>;
+      children?: Array<{ firstName?: string | null; lastName?: string | null; age?: number | null }>;
+    };
+    [key: string]: unknown;
+  } | null;
   created_at: string;
   updated_at: string;
 };
@@ -478,7 +484,7 @@ export async function listHotelReservationDemands(status?: string) {
 
 export async function updateHotelReservationDemand(
   demandId: string,
-  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_note" | "client_name" | "client_phone" | "amicale_name" | "hotel_name" | "boarding_name" | "room_name" | "check_in" | "check_out" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> & {
+  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_note" | "client_name" | "client_phone" | "amicale_name" | "hotel_name" | "boarding_name" | "room_name" | "check_in" | "check_out" | "hotel_context" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> & {
     force_generate_voucher?: boolean;
   }
 ) {

@@ -185,6 +185,7 @@ export default function HotelReservationsPage() {
         room_name: patch.room_name,
         check_in: patch.check_in,
         check_out: patch.check_out,
+        hotel_context: patch.hotel_context,
         voucher_id: patch.voucher_id,
         voucher_number: patch.voucher_number,
         voucher_qr_payload: patch.voucher_qr_payload,
@@ -228,6 +229,33 @@ export default function HotelReservationsPage() {
     } finally {
       setUploadingVoucherId(null);
     }
+  };
+
+  const handleTravellerNameChange = (
+    row: HotelReservationDemand,
+    kind: "adults" | "children",
+    index: number,
+    field: "firstName" | "lastName",
+    value: string
+  ) => {
+    setRows((prev) => prev.map((item) => {
+      if (item.id !== row.id) return item;
+      const context = item.hotel_context && typeof item.hotel_context === "object" ? item.hotel_context : {};
+      const travellers = context.travellers && typeof context.travellers === "object" ? context.travellers : {};
+      const targetList = Array.isArray(travellers[kind]) ? [...travellers[kind] as Array<Record<string, unknown>>] : [];
+      const currentEntry = targetList[index] && typeof targetList[index] === "object" ? targetList[index] as Record<string, unknown> : {};
+      targetList[index] = { ...currentEntry, [field]: value };
+      return {
+        ...item,
+        hotel_context: {
+          ...context,
+          travellers: {
+            ...travellers,
+            [kind]: targetList,
+          },
+        },
+      };
+    }));
   };
 
   const handleDeleteDemand = async (row: HotelReservationDemand) => {
@@ -379,11 +407,27 @@ export default function HotelReservationsPage() {
                       {selectedTravellers.adults.length > 0 ? (
                         <div className="mt-2">
                           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Adultes</p>
-                          <div className="mt-1 space-y-1">
+                          <div className="mt-1 space-y-2">
                             {selectedTravellers.adults.map((adult, index) => (
-                              <p key={`${row.id}-adult-name-${index}`}>
-                                {index + 1}. {String(adult.firstName || "").trim()} {String(adult.lastName || "").trim()}
-                              </p>
+                              <div key={`${row.id}-adult-name-${index}`} className="rounded-lg border border-slate-200 p-2">
+                                <p className="mb-2 text-xs font-medium text-slate-500">Adulte {index + 1}</p>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <input
+                                    value={String(adult.firstName || "")}
+                                    onChange={(event) => handleTravellerNameChange(row, "adults", index, "firstName", event.target.value)}
+                                    placeholder="Prenom"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    disabled={savingId === row.id}
+                                  />
+                                  <input
+                                    value={String(adult.lastName || "")}
+                                    onChange={(event) => handleTravellerNameChange(row, "adults", index, "lastName", event.target.value)}
+                                    placeholder="Nom"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    disabled={savingId === row.id}
+                                  />
+                                </div>
+                              </div>
                             ))}
                           </div>
                         </div>
@@ -391,12 +435,29 @@ export default function HotelReservationsPage() {
                       {selectedTravellers.children.length > 0 ? (
                         <div className="mt-2">
                           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Enfants</p>
-                          <div className="mt-1 space-y-1">
+                          <div className="mt-1 space-y-2">
                             {selectedTravellers.children.map((child, index) => (
-                              <p key={`${row.id}-child-name-${index}`}>
-                                {index + 1}. {String(child.firstName || "").trim()} {String(child.lastName || "").trim()}
-                                {Number.isFinite(Number(child.age)) ? ` (${Number(child.age)} ans)` : ""}
-                              </p>
+                              <div key={`${row.id}-child-name-${index}`} className="rounded-lg border border-slate-200 p-2">
+                                <p className="mb-2 text-xs font-medium text-slate-500">
+                                  Enfant {index + 1}{Number.isFinite(Number(child.age)) ? ` (${Number(child.age)} ans)` : ""}
+                                </p>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <input
+                                    value={String(child.firstName || "")}
+                                    onChange={(event) => handleTravellerNameChange(row, "children", index, "firstName", event.target.value)}
+                                    placeholder="Prenom"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    disabled={savingId === row.id}
+                                  />
+                                  <input
+                                    value={String(child.lastName || "")}
+                                    onChange={(event) => handleTravellerNameChange(row, "children", index, "lastName", event.target.value)}
+                                    placeholder="Nom"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    disabled={savingId === row.id}
+                                  />
+                                </div>
+                              </div>
                             ))}
                           </div>
                         </div>
