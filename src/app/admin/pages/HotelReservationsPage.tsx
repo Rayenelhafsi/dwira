@@ -5,6 +5,7 @@ import type { HotelReservationDemand, HotelReservationDemandStatus } from "../ty
 import {
   listHotelReservationDemands,
   deleteHotelReservationDemand,
+  regenerateHotelVoucher,
   updateHotelReservationDemand,
   uploadHotelVoucherPdf,
   uploadHotelVoucherQr,
@@ -223,11 +224,31 @@ export default function HotelReservationsPage() {
     try {
       const updated = await uploadHotelVoucherPdf(row.id, file);
       setRows((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-      toast.success(row.voucher_url ? "Voucher PDF remplace" : "Voucher PDF charge");
+      toast.success("Voucher PDF remplace");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload voucher impossible");
     } finally {
       setUploadingVoucherId(null);
+    }
+  };
+
+  const handleVoucherRegenerate = async (row: HotelReservationDemand) => {
+    setSavingId(row.id);
+    try {
+      const updated = await regenerateHotelVoucher(row.id, {
+        status: row.status === "voucher_envoye" ? "voucher_envoye" : "voucher_en_cours",
+        voucher_id: row.voucher_id || undefined,
+        voucher_number: row.voucher_number || undefined,
+        voucher_qr_payload: row.voucher_qr_payload || undefined,
+        voucher_qr_image_url: row.voucher_qr_image_url || undefined,
+        admin_note: row.admin_note || undefined,
+      });
+      setRows((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      toast.success("Voucher regenere");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Regeneration voucher impossible");
+    } finally {
+      setSavingId(null);
     }
   };
 
@@ -583,31 +604,60 @@ export default function HotelReservationsPage() {
                     />
                   </div>
                   <p className="text-xs text-slate-500">
-                    Variables modifiables manuellement avant enregistrement ou avant l'upload du voucher PDF.
+                    Variables modifiables manuellement avant enregistrement ou avant remplacement du voucher PDF automatique.
                   </p>
 
-                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-800">Voucher PDF manuel</p>
-                        <p className="text-xs text-slate-500">Charge un PDF et remplace le voucher existant pour cette demande.</p>
+                  {row.voucher_url ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">Remplacement voucher PDF</p>
+                          <p className="text-xs text-slate-500">Charge un PDF pour remplacer le voucher genere automatiquement pour cette demande.</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleVoucherRegenerate(row)}
+                            disabled={savingId === row.id}
+                            className="inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-60"
+                          >
+                            {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                            Regenerer voucher
+                          </button>
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+                            {uploadingVoucherId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <Upload size={16} />}
+                            Remplacer PDF
+                            <input
+                              type="file"
+                              accept="application/pdf,.pdf"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0] || null;
+                                void handleVoucherUpload(row, file);
+                                event.currentTarget.value = "";
+                              }}
+                            />
+                          </label>
+                        </div>
                       </div>
-                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
-                        {uploadingVoucherId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <Upload size={16} />}
-                        {row.voucher_url ? "Remplacer PDF" : "Upload PDF"}
-                        <input
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          className="hidden"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0] || null;
-                            void handleVoucherUpload(row, file);
-                            event.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
+                      <p className="text-sm font-semibold text-slate-800">Voucher PDF automatique</p>
+                      <p className="mt-1 text-xs text-slate-500">Le voucher est genere automatiquement lors de la validation. Le remplacement PDF n'est disponible qu'apres cette generation.</p>
+                      {["voucher_en_cours", "voucher_envoye"].includes(String(row.status || "").trim()) ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleVoucherRegenerate(row)}
+                          disabled={savingId === row.id}
+                          className="mt-3 inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-60"
+                        >
+                          {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                          Regenerer voucher
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
 
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">

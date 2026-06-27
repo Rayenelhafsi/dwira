@@ -155,6 +155,7 @@ export default function HotelsPage() {
       .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
     return parsed.length > 0 ? parsed : defaults.childAges;
   });
+  const isAmicaleHotelFlow = Boolean(linkedAmicaleId);
 
   useEffect(() => {
     if (!linkedAmicaleId) {
@@ -355,15 +356,15 @@ export default function HotelsPage() {
         return rightRecommended - leftRecommended;
       }
 
-      const leftPrice = extractHotelMinPrice(left, hotelAmicaleMarkupPercent) ?? Number.POSITIVE_INFINITY;
-      const rightPrice = extractHotelMinPrice(right, hotelAmicaleMarkupPercent) ?? Number.POSITIVE_INFINITY;
+      const leftPrice = extractHotelMinPrice(left, hotelAmicaleMarkupPercent, isAmicaleHotelFlow) ?? Number.POSITIVE_INFINITY;
+      const rightPrice = extractHotelMinPrice(right, hotelAmicaleMarkupPercent, isAmicaleHotelFlow) ?? Number.POSITIVE_INFINITY;
       if (leftPrice !== rightPrice) {
         return leftPrice - rightPrice;
       }
 
       return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
     }),
-    [hotelAmicaleMarkupPercent, results]
+    [hotelAmicaleMarkupPercent, isAmicaleHotelFlow, results]
   );
 
   return (
@@ -710,10 +711,10 @@ export default function HotelsPage() {
           {!loadingResults && sortedResults.length > 0 && (
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
               {sortedResults.map((hotel) => {
-                const minPrice = extractHotelMinPrice(hotel, hotelAmicaleMarkupPercent);
+                const minPrice = extractHotelMinPrice(hotel, hotelAmicaleMarkupPercent, isAmicaleHotelFlow);
                 const roomOffers = flattenHotelRoomOffers(hotel);
-                const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room, hotelAmicaleMarkupPercent) !== null) || roomOffers[0] || null;
-                const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room, hotelAmicaleMarkupPercent) : null;
+                const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room, hotelAmicaleMarkupPercent, isAmicaleHotelFlow) !== null) || roomOffers[0] || null;
+                const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room, hotelAmicaleMarkupPercent, isAmicaleHotelFlow) : null;
                 const boardings = extractHotelBoardingNames(hotel).slice(0, 2);
                 const facilities = getHotelFacilityTitles(hotel.Facilities, 5);
                 const hasPromotion = hasHotelPromotion(hotel);

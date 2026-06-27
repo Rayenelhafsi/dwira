@@ -16,6 +16,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  Share2,
   ShieldCheck,
   ShieldX,
   Sparkles,
@@ -34,6 +35,7 @@ import { completeSocialProfile, getAuthProviders, loginWithPasskey, registerWith
 import { buildApiUrl } from "../utils/api";
 import { clearAuthPendingLogin, isAuthPendingLogin, saveAuthReturnTo, markAuthPendingLogin } from "../utils/pendingReservation";
 import { fetchAmicalesPublic } from "../utils/amicales";
+import { buildPropertyShareImageUrl, createPropertyShareLink } from "../utils/propertyShare";
 import {
   extractHotelBoardingNames,
   extractHotelMinPrice,
@@ -163,6 +165,7 @@ export default function HotelDetailsPage() {
     () => amicaleOptions.find((item) => item.id === linkedAmicaleId) || null,
     [amicaleOptions, linkedAmicaleId]
   );
+  const isAmicaleHotelFlow = Boolean(linkedAmicaleId);
   const linkedAmicaleHotelMarkupPercent = Number(linkedAmicaleConfig?.hotelMarkupPercent || 0);
 
   useEffect(() => {
@@ -221,7 +224,6 @@ export default function HotelDetailsPage() {
           checkOut,
           adults,
           childAges,
-          onlyAvailable: true,
         });
         if (cancelled) return;
         setSearchHotel(hotels.find((item) => Number(item?.Id) === hotelId) || null);
@@ -265,7 +267,10 @@ export default function HotelDetailsPage() {
     } as HotelDetail;
   }, [hotel, searchHotel]);
   const gallery = useMemo(() => getHotelAlbum(activeHotel), [activeHotel]);
-  const minPrice = useMemo(() => extractHotelMinPrice(activeHotel, linkedAmicaleHotelMarkupPercent), [activeHotel, linkedAmicaleHotelMarkupPercent]);
+  const minPrice = useMemo(
+    () => extractHotelMinPrice(activeHotel, linkedAmicaleHotelMarkupPercent, isAmicaleHotelFlow),
+    [activeHotel, isAmicaleHotelFlow, linkedAmicaleHotelMarkupPercent]
+  );
   const boardings = useMemo(() => extractHotelBoardingNames(activeHotel), [activeHotel]);
   const facilities = useMemo(() => getHotelFacilityTitles(activeHotel?.Facilities, 24), [activeHotel]);
   const tags = useMemo(() => getHotelTagTitles(activeHotel, 16), [activeHotel]);
@@ -306,6 +311,10 @@ export default function HotelDetailsPage() {
   }, [searchHotel, preferredBoardingId, preferredRoomId]);
   const activeRequestOffer = requestOfferIndex !== null ? roomOffers[requestOfferIndex] || null : null;
   const mapsLink = useMemo(() => buildMapsLink(activeHotel), [activeHotel]);
+  const hotelShareImageUrl = useMemo(
+    () => buildPropertyShareImageUrl(gallery[0] || activeHotel?.Image || hotel?.Image || ""),
+    [activeHotel?.Image, gallery, hotel?.Image]
+  );
   const backParams = new URLSearchParams(searchParams);
   backParams.delete("returnTo");
   backParams.set("mode", "hotellerie");
@@ -326,6 +335,43 @@ export default function HotelDetailsPage() {
       return;
     }
     navigate(backHref);
+  };
+
+  const handleShareHotel = async () => {
+    const hotelTitle = String(activeHotel?.Name || hotel?.Name || "Hotel Dwira").trim() || "Hotel Dwira";
+    const cityLabel = String(activeHotel?.City?.Name || "").trim();
+    const shareText = cityLabel
+      ? `Decouvrez ${hotelTitle} a ${cityLabel} sur Dwira Immobilier.`
+      : `Decouvrez ${hotelTitle} sur Dwira Immobilier.`;
+    const shareParams = new URLSearchParams(searchParams);
+    shareParams.delete("returnTo");
+    const shareRelativeUrl = `${location.pathname}${shareParams.toString() ? `?${shareParams.toString()}` : ""}`;
+    const shareUrl = await createPropertyShareLink({
+      relativeUrl: shareRelativeUrl,
+      title: hotelTitle,
+      description: shareText,
+      imageUrl: hotelShareImageUrl,
+    });
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: hotelTitle,
+          text: shareText,
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // Fallback to clipboard when native share is cancelled or unavailable.
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Lien court de l'hotel copie.");
+    } catch {
+      toast.error("Impossible de copier le lien de l'hotel.");
+    }
   };
 
   useEffect(() => {
@@ -540,7 +586,7 @@ export default function HotelDetailsPage() {
       }
     }
 
-    const displayedPrice = pickHotelDisplayedPrice(activeRequestOffer.room, linkedAmicaleHotelMarkupPercent);
+    const displayedPrice = pickHotelDisplayedPrice(activeRequestOffer.room, linkedAmicaleHotelMarkupPercent, isAmicaleHotelFlow);
     setSubmittingReservation(true);
     try {
       const created = await createHotelReservationDemand({
@@ -894,17 +940,27 @@ export default function HotelDetailsPage() {
               <p className="mt-2 text-sm leading-6 text-sky-50/82">
                 Le prix exact depend des dates, de la pension, des supplements et des chambres disponibles pour votre sejour.
               </p>
-              {mapsLink && (
-                <a
-                  href={mapsLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-6 inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-sky-100"
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleShareHotel()}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/16"
                 >
-                  Ouvrir sur la carte
-                  <ExternalLink size={16} />
-                </a>
-              )}
+                  <Share2 size={16} />
+                  Partager
+                </button>
+                {mapsLink && (
+                  <a
+                    href={mapsLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-sky-100"
+                  >
+                    Ouvrir sur la carte
+                    <ExternalLink size={16} />
+                  </a>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1022,7 +1078,7 @@ export default function HotelDetailsPage() {
                 <div className="mt-5 space-y-4">
                   {roomOffers.map((offer, index) => {
                     const room = offer.room;
-                    const displayedPrice = pickHotelDisplayedPrice(room, linkedAmicaleHotelMarkupPercent);
+                    const displayedPrice = pickHotelDisplayedPrice(room, linkedAmicaleHotelMarkupPercent, isAmicaleHotelFlow);
                     const cancellationLines = formatHotelCancellationPolicy(room?.CancellationPolicy);
                     const supplements = Array.isArray(room?.Supplement) ? room.Supplement : [];
                     const views = Array.isArray(room?.View) ? room.View : [];
@@ -1080,7 +1136,7 @@ export default function HotelDetailsPage() {
                               {views.map((view, viewIndex) => (
                                 <span key={`${room?.Id}-view-${view?.Id || viewIndex}`} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
                                   {String(view?.Name || "").trim() || "Vue"}
-                                  {pickHotelDisplayedPrice(view, linkedAmicaleHotelMarkupPercent) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(view, linkedAmicaleHotelMarkupPercent))} TND` : ""}
+                                  {pickHotelDisplayedPrice(view, linkedAmicaleHotelMarkupPercent, isAmicaleHotelFlow) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(view, linkedAmicaleHotelMarkupPercent, isAmicaleHotelFlow))} TND` : ""}
                                 </span>
                               ))}
                             </div>
@@ -1094,7 +1150,7 @@ export default function HotelDetailsPage() {
                               {supplements.map((supplement, supplementIndex) => (
                                 <span key={`${room?.Id}-supp-${supplement?.Id || supplementIndex}`} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
                                   {String(supplement?.Name || "").trim() || "Supplement"}
-                                  {pickHotelDisplayedPrice(supplement, linkedAmicaleHotelMarkupPercent) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(supplement, linkedAmicaleHotelMarkupPercent))} TND` : ""}
+                                  {pickHotelDisplayedPrice(supplement, linkedAmicaleHotelMarkupPercent, isAmicaleHotelFlow) !== null ? ` · ${formatPrice(pickHotelDisplayedPrice(supplement, linkedAmicaleHotelMarkupPercent, isAmicaleHotelFlow))} TND` : ""}
                                   {supplement?.Required ? " · obligatoire" : ""}
                                 </span>
                               ))}
@@ -1203,7 +1259,7 @@ export default function HotelDetailsPage() {
                 <span className="rounded-full bg-white px-3 py-1">{checkIn} au {checkOut}</span>
                 <span className="rounded-full bg-white px-3 py-1">{adults} adulte(s){childAges.length > 0 ? `, ${childAges.length} enfant(s)` : ""}</span>
                 <span className="rounded-full bg-white px-3 py-1">
-                  {activeRequestOffer ? (pickHotelDisplayedPrice(activeRequestOffer.room, linkedAmicaleHotelMarkupPercent) !== null ? `${formatPrice(pickHotelDisplayedPrice(activeRequestOffer.room, linkedAmicaleHotelMarkupPercent))} TND` : "Sur demande") : "Sur demande"}
+                  {activeRequestOffer ? (pickHotelDisplayedPrice(activeRequestOffer.room, linkedAmicaleHotelMarkupPercent, isAmicaleHotelFlow) !== null ? `${formatPrice(pickHotelDisplayedPrice(activeRequestOffer.room, linkedAmicaleHotelMarkupPercent, isAmicaleHotelFlow))} TND` : "Sur demande") : "Sur demande"}
                 </span>
               </div>
               </div>

@@ -26,6 +26,7 @@ export type HotelCancellationPolicy = {
 export type HotelRoomView = {
   Id?: number | string | null;
   Name?: string | null;
+  MyGoBasePrice?: string | number | null;
   Price?: string | number | null;
   PriceWithAffiliateMarkup?: string | number | null;
 };
@@ -33,6 +34,7 @@ export type HotelRoomView = {
 export type HotelRoomSupplement = {
   Id?: number | string | null;
   Name?: string | null;
+  MyGoBasePrice?: string | number | null;
   Price?: string | number | null;
   PriceWithAffiliateMarkup?: string | number | null;
   Required?: boolean | null;
@@ -44,6 +46,7 @@ export type HotelRoomOffer = {
   Photo?: string | null;
   Description?: string | null;
   Quantity?: number | string | null;
+  MyGoBasePrice?: string | number | null;
   Price?: string | number | null;
   BasePrice?: string | number | null;
   PriceWithAffiliateMarkup?: string | number | null;
@@ -68,6 +71,7 @@ export type HotelBoardingOffer = {
   Code?: string | null;
   Name?: string | null;
   Description?: string | null;
+  MyGoBasePrice?: string | number | null;
   Price?: string | number | null;
   PriceWithAffiliateMarkup?: string | number | null;
   MinStay?: number | null;
@@ -77,6 +81,7 @@ export type HotelBoardingOffer = {
 };
 
 export type HotelPriceNode = {
+  MyGoBasePrice?: string | number | null;
   BasePrice?: string | number | null;
   Price?: string | number | null;
   PriceWithAffiliateMarkup?: string | number | null;
@@ -515,6 +520,19 @@ export async function uploadHotelVoucherPdf(demandId: string, file: File) {
     method: "POST",
     credentials: "include",
     body: formData,
+  });
+  return readApiResponse<HotelReservationDemand>(response);
+}
+
+export async function regenerateHotelVoucher(
+  demandId: string,
+  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> = {}
+) {
+  const response = await fetch(buildApiUrl(`/admin/hotel-reservation-demands/${encodeURIComponent(demandId)}/regenerate-voucher`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(patch),
   });
   return readApiResponse<HotelReservationDemand>(response);
 }

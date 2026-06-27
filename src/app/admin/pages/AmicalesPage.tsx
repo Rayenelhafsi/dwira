@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { CheckCircle2, ChevronRight, Code2, Eye, FileText, Printer, RefreshCw, Ticket, Trash2, Upload, Users } from "lucide-react";
 import { createAmicaleApi, deleteAmicaleApi, fetchAmicalesAdmin, normalizeAmicaleHotelMarkupPercent, type AmicaleItem, updateAmicaleApi } from "../../utils/amicales";
 import type { HotelReservationDemand, ReservationDemand, ReservationDemandStatus } from "../types";
-import { uploadHotelVoucherPdf } from "../../services/hotels";
+import { regenerateHotelVoucher, uploadHotelVoucherPdf } from "../../services/hotels";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -461,7 +461,7 @@ export default function AmicalesPage() {
                 ...(nextStatus === "voucher_en_cours" ? buildHotelVoucherPatch(demand) : {}),
                 admin_note:
                   nextStatus === "voucher_en_cours"
-                    ? "Agence valide la demande amicale. Voucher PDF en attente d upload manuel."
+                    ? "Agence valide la demande amicale. Voucher genere automatiquement."
                     : "Agence rejette la demande amicale",
               }),
             }
@@ -484,7 +484,7 @@ export default function AmicalesPage() {
         const data = await response.json().catch(() => null);
         throw new Error(String(data?.error || "Mise a jour impossible"));
       }
-      toast.success(nextStatus === "voucher_en_cours" ? "Demande validee. PDF voucher a uploader." : "Demande rejetee.");
+      toast.success(nextStatus === "voucher_en_cours" ? "Demande validee. Voucher genere automatiquement." : "Demande rejetee.");
       await loadData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Mise a jour impossible");
@@ -505,6 +505,24 @@ export default function AmicalesPage() {
       toast.error(error instanceof Error ? error.message : "Upload voucher impossible");
     } finally {
       setUploadingVoucherId(null);
+    }
+  };
+
+  const handleVoucherRegenerate = async (demand: AmicaleDemandRow) => {
+    if (String(demand.source_kind || "").trim() !== "hotel") return;
+    setSavingId(demand.id);
+    try {
+      await regenerateHotelVoucher(demand.id, {
+        status: demand.status === "voucher_envoye" ? "voucher_envoye" : "voucher_en_cours",
+        voucher_id: demand.voucher_id || undefined,
+        voucher_number: demand.voucher_number || undefined,
+      });
+      toast.success("Voucher regenere.");
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Regeneration voucher impossible");
+    } finally {
+      setSavingId(null);
     }
   };
 
@@ -911,22 +929,35 @@ export default function AmicalesPage() {
                               </button>
                             </>
                           ) : null}
-                          {String(demand.source_kind || "") === "hotel" ? (
-                            <label className={`inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 ${uploadingVoucherId === demand.id ? "opacity-60" : "cursor-pointer"}`}>
-                              <Upload className="h-4 w-4" />
-                              {voucherUrl ? "Remplacer voucher PDF" : "Uploader voucher PDF"}
-                              <input
-                                type="file"
-                                accept="application/pdf,.pdf"
-                                className="hidden"
-                                disabled={uploadingVoucherId === demand.id}
-                                onChange={(event) => {
-                                  const file = event.target.files?.[0] || null;
-                                  void handleVoucherUpload(demand, file);
-                                  event.currentTarget.value = "";
-                                }}
-                              />
-                            </label>
+                          {String(demand.source_kind || "") === "hotel" && ["voucher_en_cours", "voucher_envoye"].includes(String(demand.status || "").trim()) ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={savingId === demand.id}
+                                onClick={() => void handleVoucherRegenerate(demand)}
+                                className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                              >
+                                <RefreshCw className={`h-4 w-4 ${savingId === demand.id ? "animate-spin" : ""}`} />
+                                Regenerer voucher
+                              </button>
+                              {voucherUrl ? (
+                                <label className={`inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 ${uploadingVoucherId === demand.id ? "opacity-60" : "cursor-pointer"}`}>
+                                  <Upload className="h-4 w-4" />
+                                  Remplacer voucher PDF
+                                  <input
+                                    type="file"
+                                    accept="application/pdf,.pdf"
+                                    className="hidden"
+                                    disabled={uploadingVoucherId === demand.id}
+                                    onChange={(event) => {
+                                      const file = event.target.files?.[0] || null;
+                                      void handleVoucherUpload(demand, file);
+                                      event.currentTarget.value = "";
+                                    }}
+                                  />
+                                </label>
+                              ) : null}
+                            </>
                           ) : null}
                           <button
                             type="button"

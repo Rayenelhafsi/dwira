@@ -22,6 +22,15 @@ type AgentDemandRow = ReservationDemand & {
   amicale_logo_url?: string | null;
 };
 
+const hiddenVoucherStatuses = new Set([
+  "rejete_par_amicale",
+  "rejete_par_agence",
+  "demande_rejetee_admin",
+  "demande_annulee_client",
+  "demande_annulee_echeance_contrat",
+  "annulee",
+]);
+
 const statusLabels: Partial<Record<ReservationDemandStatus, string>> = {
   attente_validation_amicale: "Attente validation amicale",
   attente_validation_par_agence: "Attente validation par l agence",
@@ -97,8 +106,8 @@ export default function AgentAmicaleDashboardPage() {
   const loadData = useCallback(async () => {
     try {
       const [demandsResponse, vouchersResponse] = await Promise.all([
-        fetch(`${API_URL}/agent-amicale/reservation-demands`, { credentials: "include" }),
-        fetch(`${API_URL}/agent-amicale/vouchers`, { credentials: "include" }),
+        fetch(`${API_URL}/agent-amicale/reservation-demands`, { credentials: "include", cache: "no-store" }),
+        fetch(`${API_URL}/agent-amicale/vouchers`, { credentials: "include", cache: "no-store" }),
       ]);
       if (demandsResponse.ok) {
         const demandsJson = await demandsResponse.json().catch(() => []);
@@ -115,7 +124,7 @@ export default function AgentAmicaleDashboardPage() {
         const vouchersJson = await vouchersResponse.json().catch(() => []);
         setVoucherRows(
           (Array.isArray(vouchersJson) ? vouchersJson : [])
-            .filter((row): row is AgentDemandRow => Boolean(row && row.voucher_url))
+            .filter((row): row is AgentDemandRow => Boolean(row && row.voucher_url && !hiddenVoucherStatuses.has(String(row.status || "").trim())))
             .sort((a, b) => {
               const da = new Date(String(a.voucher_generated_at || a.updated_at || a.created_at || "")).getTime();
               const db = new Date(String(b.voucher_generated_at || b.updated_at || b.created_at || "")).getTime();

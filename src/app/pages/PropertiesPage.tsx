@@ -290,6 +290,28 @@ const serializeStayRangesParam = (ranges: StayRangeSelection[]) =>
     .filter((item) => item !== "_")
     .join(";");
 
+const stayRangeContainsFlashOffer = (
+  stayRange: StayRangeSelection,
+  flashOffer: Pick<PropertyFlashOffer, "start" | "end">
+) => (
+  isValidStayRange(stayRange.start, stayRange.end)
+  && flashOffer.start >= stayRange.start
+  && flashOffer.end <= stayRange.end
+);
+
+const filterFlashOffersByStayRanges = (
+  flashOffers: PropertyFlashOffer[],
+  stayRanges: StayRangeSelection[],
+  enabled: boolean
+) => {
+  if (!enabled) return flashOffers;
+  const validStayRanges = stayRanges.filter((range) => isValidStayRange(range.start, range.end));
+  if (validStayRanges.length === 0) return flashOffers;
+  return flashOffers.filter((flashOffer) =>
+    validStayRanges.some((stayRange) => stayRangeContainsFlashOffer(stayRange, flashOffer))
+  );
+};
+
 const cleanFeatureTabName = (value: string) =>
   String(value || "")
     .replace(/^\s*\d+\s*[\.\-:)]\s*/g, "")
@@ -2965,7 +2987,11 @@ export default function PropertiesPage() {
     const regularRows: PrimaryDisplayResult[] = [];
     sortedScoredResults.forEach((row) => {
       const baseParams = new URLSearchParams(searchParams.toString());
-      const flashOffers = getPropertyFlashOffers(row.property);
+      const flashOffers = filterFlashOffersByStayRanges(
+        getPropertyFlashOffers(row.property),
+        stayRanges,
+        hasStrictStaySearch
+      );
       const flashEntries = flashOffers.map((flashOffer) => {
         const flashParams = new URLSearchParams(baseParams.toString());
         flashParams.set("mode", "location_saisonniere");
@@ -3013,7 +3039,7 @@ export default function PropertiesPage() {
       });
     });
     return [...flashRows, ...regularRows];
-  }, [searchParams, sortedScoredResults]);
+  }, [hasStrictStaySearch, searchParams, sortedScoredResults, stayRanges]);
   const flashDisplayResults = useMemo(
     () => displayedPrimaryResults.filter((row) => row.cardVariant === "flash"),
     [displayedPrimaryResults]

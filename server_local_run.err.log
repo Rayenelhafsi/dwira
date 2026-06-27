@@ -1,1 +1,0 @@
-[Auth] SESSION_SECRET missing. Using ephemeral in-memory secret; sessions reset on server restart.

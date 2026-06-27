@@ -1318,6 +1318,7 @@ export default function HomePage({
     const matched = hotelAmicaleOptions.find((item) => item.id === activeAmicaleId) || null;
     return Number(matched?.hotelMarkupPercent || 0);
   }, [activeAmicaleId, hotelAmicaleOptions]);
+  const isAmicaleHotelFlow = Boolean(activeAmicaleId);
   const activePartnerAgencyMarginMultiplier = (() => {
     const raw = forcedPartnerAgencyMarginMultiplier ?? Number(searchParams.get("partnerMargin") || 0);
     return Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
@@ -1484,13 +1485,13 @@ export default function HomePage({
           const leftRecommended = Number(left?.Recommended || 0);
           const rightRecommended = Number(right?.Recommended || 0);
           if (leftRecommended !== rightRecommended) return rightRecommended - leftRecommended;
-          const leftPrice = extractHotelMinPrice(left, activeAmicaleHotelMarkupPercent) ?? Number.POSITIVE_INFINITY;
-          const rightPrice = extractHotelMinPrice(right, activeAmicaleHotelMarkupPercent) ?? Number.POSITIVE_INFINITY;
+          const leftPrice = extractHotelMinPrice(left, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow) ?? Number.POSITIVE_INFINITY;
+          const rightPrice = extractHotelMinPrice(right, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow) ?? Number.POSITIVE_INFINITY;
           if (leftPrice !== rightPrice) return leftPrice - rightPrice;
           return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
         })
         .slice(0, 10),
-    [activeAmicaleHotelMarkupPercent, filteredHotelsByCity]
+    [activeAmicaleHotelMarkupPercent, filteredHotelsByCity, isAmicaleHotelFlow]
   );
   const selectedHotelLabel = useMemo(() => {
     if (selectedHotelId <= 0) return "";
@@ -1539,18 +1540,18 @@ export default function HomePage({
   }, [hotelResults]);
   const hotelResultPriceBounds = useMemo(() => {
     const prices = hotelResults
-      .map((hotel) => extractHotelMinPrice(hotel, activeAmicaleHotelMarkupPercent))
+      .map((hotel) => extractHotelMinPrice(hotel, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow))
       .filter((price): price is number => Number.isFinite(price) && Number(price) > 0);
     if (prices.length === 0) return { min: 0, max: 0 };
     return { min: Math.min(...prices), max: Math.max(...prices) };
-  }, [activeAmicaleHotelMarkupPercent, hotelResults]);
+  }, [activeAmicaleHotelMarkupPercent, hotelResults, isAmicaleHotelFlow]);
   const filteredHotelResults = useMemo(() => {
     const keyword = normalizeHotelResultsToken(hotelResultsSearchTerm);
     const budgetMin = hotelResultsBudgetMin ?? hotelResultPriceBounds.min;
     const budgetMax = hotelResultsBudgetMax ?? hotelResultPriceBounds.max;
 
     return hotelResults.filter((hotel) => {
-      const minPrice = extractHotelMinPrice(hotel, activeAmicaleHotelMarkupPercent);
+      const minPrice = extractHotelMinPrice(hotel, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow);
       const roomOffers = flattenHotelRoomOffers(hotel);
       const boardingNames = extractHotelBoardingNames(hotel);
       const facilityTitles = getHotelFacilityTitles(hotel.Facilities, 12);
@@ -1590,6 +1591,7 @@ export default function HomePage({
     hotelResultPriceBounds.max,
     hotelResultPriceBounds.min,
     activeAmicaleHotelMarkupPercent,
+    isAmicaleHotelFlow,
     selectedHotelResultBoardings,
     selectedHotelResultFacilities,
     selectedHotelResultStars,
@@ -1603,8 +1605,8 @@ export default function HomePage({
       const rightPromotion = hasHotelPromotion(right) ? 1 : 0;
       const leftRecommended = Number(left?.Recommended || 0);
       const rightRecommended = Number(right?.Recommended || 0);
-      const leftPrice = extractHotelMinPrice(left, activeAmicaleHotelMarkupPercent) ?? Number.POSITIVE_INFINITY;
-      const rightPrice = extractHotelMinPrice(right, activeAmicaleHotelMarkupPercent) ?? Number.POSITIVE_INFINITY;
+      const leftPrice = extractHotelMinPrice(left, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow) ?? Number.POSITIVE_INFINITY;
+      const rightPrice = extractHotelMinPrice(right, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow) ?? Number.POSITIVE_INFINITY;
       const leftStar = Number(left?.Star || 0);
       const rightStar = Number(right?.Star || 0);
 
@@ -1635,7 +1637,7 @@ export default function HomePage({
       if (leftPrice !== rightPrice) return leftPrice - rightPrice;
       return String(left?.Name || "").localeCompare(String(right?.Name || ""), "fr");
     }),
-    [activeAmicaleHotelMarkupPercent, filteredHotelResults, hotelResultsSort, selectedHotelId]
+    [activeAmicaleHotelMarkupPercent, filteredHotelResults, hotelResultsSort, isAmicaleHotelFlow, selectedHotelId]
   );
   const visibleHotelResults = useMemo(
     () => sortedHotelResults.slice(0, hotelResultsPageSize),
@@ -6068,10 +6070,10 @@ export default function HomePage({
                     const hotelId = Number(hotel.Id || 0);
                     const hotelStarCount = getHotelStarCount(hotel.Category?.Star ?? hotel.Star);
                     const isResultDetailsExpanded = effectiveHotelResultsView === "grid" || Boolean(expandedHotelResultDetailsById[hotelId]);
-                    const minPrice = extractHotelMinPrice(hotel, activeAmicaleHotelMarkupPercent);
+                    const minPrice = extractHotelMinPrice(hotel, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow);
                     const roomOffers = flattenHotelRoomOffers(hotel);
-                    const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room, activeAmicaleHotelMarkupPercent) !== null) || roomOffers[0] || null;
-                    const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room, activeAmicaleHotelMarkupPercent) : null;
+                    const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow) !== null) || roomOffers[0] || null;
+                    const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow) : null;
                     const hasPromotion = hasHotelPromotion(hotel);
                     const hasRefundableOffer = roomOffers.some((offer) => !offer.room?.NotRefundable);
                     const hasOnRequestOffer = roomOffers.some((offer) => Boolean(offer.room?.OnRequest || offer.room?.StopReservation));
@@ -6084,7 +6086,7 @@ export default function HomePage({
                     const hotelAddress = String(hotel.Adress || "").trim();
                     const boardingMap = new Map<string, { key: string; boardingId: number | null; boardingName: string; price: number | null }>();
                     roomOffers.forEach((offer) => {
-                    const offerPrice = pickHotelDisplayedPrice(offer.room, activeAmicaleHotelMarkupPercent);
+                    const offerPrice = pickHotelDisplayedPrice(offer.room, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow);
                       const fallbackBoardingName = String(offer.boardingName || "").trim() || "Offre hotel";
                       const key = offer.boardingId ? `id:${offer.boardingId}` : `name:${fallbackBoardingName.toLowerCase()}`;
                       const current = boardingMap.get(key);
@@ -6125,7 +6127,7 @@ export default function HomePage({
                         })
                         .map((offer, index) => {
                           const room = offer.room;
-                          const roomPrice = pickHotelDisplayedPrice(room, activeAmicaleHotelMarkupPercent);
+                          const roomPrice = pickHotelDisplayedPrice(room, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow);
                           const roomId = Number(room?.Id || 0);
                           const key = roomId > 0 ? `id:${roomId}` : `idx:${index}`;
                           return {
@@ -6195,7 +6197,7 @@ export default function HomePage({
                     } else if (activePartnerAgencyId) {
                       detailParams.set("partner", activePartnerAgencyId);
                     }
-                    detailParams.set("returnTo", `${location.pathname}${location.search}`);
+                    detailParams.set("returnTo", `${routerLocation.pathname}${routerLocation.search}`);
                     const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
                     return (
                       <article

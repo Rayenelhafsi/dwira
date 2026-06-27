@@ -1,8 +1,4 @@
-
-> @figma/my-make-file@0.0.1 server
-> node server/index.cjs
-
-[dotenv@17.3.1] injecting env (44) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.3.1] injecting env (77) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
 [OCR] OpenAI OCR enabled: yes (model=gpt-4.1-mini)
 [DB] source=local host=127.0.0.1 db=dwira user=root
 ?? Connecting to database...
@@ -23,5 +19,13 @@
    - POST   /api/mobile/owners/:ownerId/push-token
    - GET    /api/mobile/owners/:ownerId/availability-requests
    - POST   /api/mobile/owners/:ownerId/availability-requests/:demandId/respond
+   - GET    /api/mobile/admin/calendar-prompt-schedule
+   - PUT    /api/mobile/admin/calendar-prompt-schedule
+   - POST   /api/mobile/admin/calendar-prompt-schedule/dispatch-now
+   - GET    /api/mobile/admin/owner-calendar-prompt-statuses
+   - GET    /api/mobile/admin/calendar-requests
+   - GET    /api/mobile/admin/calendar-requests/:id/diff
+   - GET    /api/mobile/owners/:ownerId/calendar-prompts/pending
+   - POST   /api/mobile/owners/:ownerId/calendar-prompts/:promptId/respond
 ? Database connected successfully
 ? Auth schema and bien workflow ready

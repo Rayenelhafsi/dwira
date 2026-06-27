@@ -310,7 +310,11 @@ function normalizePropertyShareRelativeUrl(rawValue) {
   const pathname = String(parsed.pathname || '').trim();
   if (!pathname || !pathname.startsWith('/')) return null;
   if (pathname.startsWith('/api') || pathname.startsWith('/admin')) return null;
-  if (!pathname.startsWith('/properties/') && !pathname.startsWith('/ventes_flash/properties/')) return null;
+  if (
+    !pathname.startsWith('/properties/')
+    && !pathname.startsWith('/ventes_flash/properties/')
+    && !pathname.startsWith('/hotels/')
+  ) return null;
 
   const queryString = parsed.search ? parsed.search.slice(1) : '';
   if (queryString.length > 3500) return null;
@@ -2004,12 +2008,22 @@ function applyHotelMarkupToPriceTree(node, factor) {
   if (!node || typeof node !== 'object') return node;
   if (Array.isArray(node)) return node.map((entry) => applyHotelMarkupToPriceTree(entry, factor));
   const result = { ...node };
+  const normalizedBasePrice = parseHotelNumericPrice(result.BasePrice);
+  const normalizedDirectPrice = parseHotelNumericPrice(result.Price);
+  const normalizedAffiliatePrice = parseHotelNumericPrice(result.PriceWithAffiliateMarkup);
+  const myGoRawPrice = normalizedDirectPrice ?? normalizedAffiliatePrice ?? normalizedBasePrice;
+  if (myGoRawPrice != null) {
+    result.MyGoBasePrice = roundHotelPrice(myGoRawPrice);
+  }
+  if (normalizedBasePrice == null && myGoRawPrice != null) {
+    result.BasePrice = roundHotelPrice(myGoRawPrice);
+  }
   for (const [key, rawValue] of Object.entries(result)) {
     if (rawValue && typeof rawValue === 'object') {
       result[key] = applyHotelMarkupToPriceTree(rawValue, factor);
       continue;
     }
-    if (!['Price', 'BasePrice', 'PriceWithAffiliateMarkup'].includes(key)) continue;
+    if (!['Price', 'PriceWithAffiliateMarkup'].includes(key)) continue;
     const numeric = parseHotelNumericPrice(rawValue);
     if (numeric == null) continue;
     result[key] = roundHotelPrice(numeric * factor);
@@ -2069,9 +2083,8 @@ const DEFAULT_HOTEL_VOUCHER_LAYOUT = {
     checkin_month: { kind: 'text', label: 'Mois arrivee', x: 715, y: 647, width: 34, height: 28, fontSize: 18, fontWeight: 700, textAlign: 'center', color: '#172033' },
     checkout_day: { kind: 'text', label: 'Jour depart', x: 867, y: 647, width: 34, height: 28, fontSize: 18, fontWeight: 700, textAlign: 'center', color: '#172033' },
     checkout_month: { kind: 'text', label: 'Mois depart', x: 944, y: 647, width: 34, height: 28, fontSize: 18, fontWeight: 700, textAlign: 'center', color: '#172033' },
-    guests: { kind: 'text', label: 'Nombre de personnes', x: 474, y: 717, width: 535, height: 34, fontSize: 20, fontWeight: 700, textAlign: 'left', color: '#172033' },
-    travellers_details: { kind: 'text', label: 'Voyageurs details', x: 474, y: 753, width: 535, height: 64, fontSize: 14, fontWeight: 600, textAlign: 'left', color: '#172033', lineHeight: 18, multiline: true },
-    room_type: { kind: 'text', label: 'Type de chambre', x: 474, y: 826, width: 520, height: 34, fontSize: 20, fontWeight: 700, textAlign: 'left', color: '#172033' },
+    travellers_details: { kind: 'text', label: 'Voyageurs details', x: 680, y: 704, width: 560, height: 40, fontSize: 10, fontWeight: 600, textAlign: 'left', color: '#172033', lineHeight: 12, multiline: true },
+    room_type: { kind: 'text', label: 'Type de chambre', x: 700, y: 780, width: 500, height: 24, fontSize: 13, fontWeight: 700, textAlign: 'left', color: '#172033' },
     voucher_id: { kind: 'text', label: 'Voucher ID', x: 574, y: 897, width: 430, height: 36, fontSize: 22, fontWeight: 700, textAlign: 'left', color: '#172033' },
     qr_image: { kind: 'image', label: 'QR code', x: 406, y: 829, width: 146, height: 146 },
   },
@@ -2093,7 +2106,7 @@ function mergeHotelVoucherField(defaultField, candidateField) {
   merged.width = Math.max(24, Number.isFinite(Number(merged.width)) ? Number(merged.width) : Number(defaultField.width || 120));
   merged.height = Math.max(24, Number.isFinite(Number(merged.height)) ? Number(merged.height) : Number(defaultField.height || 36));
   if (merged.kind === 'text') {
-    merged.fontSize = Math.max(10, Number.isFinite(Number(merged.fontSize)) ? Number(merged.fontSize) : Number(defaultField.fontSize || 20));
+    merged.fontSize = Math.max(6, Number.isFinite(Number(merged.fontSize)) ? Number(merged.fontSize) : Number(defaultField.fontSize || 20));
     merged.fontWeight = Number(merged.fontWeight) >= 700 ? 700 : 400;
     merged.textAlign = ['left', 'center', 'right'].includes(String(merged.textAlign || '').trim()) ? String(merged.textAlign).trim() : (defaultField.textAlign || 'left');
     merged.color = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(merged.color || '').trim()) ? String(merged.color).trim() : (defaultField.color || '#172033');
@@ -2270,6 +2283,13 @@ function buildHotelVoucherTravellerDetails({ hotelContext, clientName, childAges
     sections.push(`Enfants: ${childNames.join(' | ')}`);
   }
   return sections.join('\n').trim() || '-';
+}
+
+function buildHotelVoucherRoomType(demand) {
+  const boardingName = String(demand?.boarding_name || '').trim();
+  const roomName = String(demand?.room_name || '').trim();
+  if (boardingName && roomName) return `${boardingName} - ${roomName}`;
+  return boardingName || roomName || '-';
 }
 
 function normalizeHotelTravellersForAdminUpdate(hotelContext, fallbackChildAges = []) {
@@ -2636,8 +2656,6 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
     }
   }
   resolvedAmicaleLogoUrl = resolvePublicAssetUrl(resolvedAmicaleLogoUrl);
-  const childCount = Array.isArray(demand?.child_ages) ? demand.child_ages.length : 0;
-  const totalGuests = Math.max(1, Number(demand?.adults || 1)) + childCount;
   const checkInParts = extractSqlDateParts(demand?.check_in);
   const checkOutParts = extractSqlDateParts(demand?.check_out);
   const voucherClientName = getHotelVoucherDisplayClientName({
@@ -2659,9 +2677,8 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
     checkin_month: checkInParts?.month || '--',
     checkout_day: checkOutParts?.day || '--',
     checkout_month: checkOutParts?.month || '--',
-    guests: `${totalGuests} personne(s)${childCount > 0 ? ` dont ${childCount} enfant(s)` : ''}`,
     travellers_details: travellerDetails,
-    room_type: String(demand?.room_name || demand?.boarding_name || '-'),
+    room_type: buildHotelVoucherRoomType(demand),
     voucher_id: String(voucherId || voucherNumber || demand?.id || '-'),
   };
   const renderTextField = (fieldKey, fieldConfig) => {
@@ -4015,7 +4032,13 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
     agencyValidationAt = now;
   }
 
-  if (forceGenerateVoucher) {
+  const shouldGenerateVoucher = forceGenerateVoucher
+    || (
+      (nextStatus === 'voucher_en_cours' || nextStatus === 'voucher_envoye')
+      && !String(voucherUrl || '').trim()
+    );
+
+  if (shouldGenerateVoucher) {
     resolvedVoucherId = resolvedVoucherId || `hotel-voucher-${safeDemandId}`;
     resolvedVoucherNumber = resolvedVoucherNumber || `HTL-${String(safeDemandId).slice(-8).toUpperCase()}`;
     voucherUrl = await generateHotelVoucherHtml({
@@ -6703,12 +6726,13 @@ app.put('/api/hotel-reservation-demands/:id', requireAuthenticatedSession, async
   }
 });
 
-app.post('/api/admin/hotel-reservation-demands/:id/validate', requireAdminSession, async (req, res) => {
+app.post('/api/admin/hotel-reservation-demands/:id/validate', requireAdminSession, express.json({ limit: '1mb' }), async (req, res) => {
   try {
     const demandId = String(req.params?.id || '').trim();
     if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
     const demand = await applyAdminHotelVoucherUpdate(demandId, {
       status: 'voucher_en_cours',
+      force_generate_voucher: true,
       voucher_id: req.body?.voucher_id,
       voucher_number: req.body?.voucher_number,
       voucher_qr_payload: req.body?.voucher_qr_payload,
@@ -6930,6 +6954,9 @@ app.post('/api/hotel-reservation-demands/:id/upload-voucher-pdf', requireAdminSe
     const current = rows?.[0] || null;
     if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
     if (!req.file) return res.status(400).json({ error: 'PDF voucher obligatoire' });
+    if (!String(current.voucher_url || '').trim()) {
+      return res.status(400).json({ error: 'Le voucher automatique doit etre genere avant de pouvoir le remplacer par un PDF.' });
+    }
 
     const now = getAgencySqlDateTime();
     await deleteLocalFileFromPublicUrl(current.voucher_url, path.join('contracts', 'hotel-vouchers'));
@@ -25971,6 +25998,7 @@ app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, r
   try {
     await ensureReservationDemandSchema();
     await ensureHotelReservationDemandSchema();
+    res.set('Cache-Control', 'no-store');
     const amicaleId = String(req.agentSession?.amicaleId || '').trim();
     const [propertyRows] = await pool.query(
       `SELECT
@@ -25989,6 +26017,7 @@ app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, r
        LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
        WHERE d.pricing_amicale_id = ?
          AND d.voucher_url IS NOT NULL
+         AND COALESCE(d.status, '') NOT IN ('rejete_par_amicale', 'rejete_par_agence', 'annulee')
        ORDER BY d.voucher_generated_at DESC, d.updated_at DESC`,
       [amicaleId]
     );
@@ -26007,6 +26036,7 @@ app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, r
        LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
        WHERE d.pricing_amicale_id = ?
          AND d.voucher_url IS NOT NULL
+         AND COALESCE(d.status, '') NOT IN ('rejete_par_amicale', 'rejete_par_agence', 'demande_rejetee_admin', 'demande_annulee_client', 'demande_annulee_echeance_contrat')
        ORDER BY d.voucher_generated_at DESC, d.updated_at DESC`,
       [amicaleId]
     );

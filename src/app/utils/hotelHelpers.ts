@@ -45,37 +45,31 @@ export function formatHotelStarLabel(value?: string | number | null) {
   return `${normalized} etoile${normalized === "1" ? "" : "s"}`;
 }
 
-export function extractHotelMinPrice(hotel?: HotelSummary | HotelDetail | null, hotelMarkupPercent = 0) {
+export function extractHotelMinPrice(hotel?: HotelSummary | HotelDetail | null, hotelMarkupPercent = 0, preferBasePrice = false) {
   const prices: number[] = [];
   const priceNode = (hotel as any)?.Price;
+  const hasNumericPrice = (value: unknown) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0;
+  };
 
-  const pushPrice = (value: unknown) => {
-    const adjusted = applyHotelMarkupPercent(Number(value), hotelMarkupPercent);
-    if (adjusted !== null) {
-      prices.push(adjusted);
-    }
+  const pushPrice = (value: { MyGoBasePrice?: unknown; PriceWithAffiliateMarkup?: unknown; Price?: unknown; BasePrice?: unknown } | null | undefined) => {
+    const adjusted = pickHotelDisplayedPrice(value, hotelMarkupPercent, preferBasePrice);
+    if (adjusted !== null) prices.push(adjusted);
   };
 
   const visitRoom = (room: any) => {
     if (!room || typeof room !== "object") return;
-    pushPrice(room.PriceWithAffiliateMarkup);
-    pushPrice(room.Price);
+    pushPrice(room);
     const views = Array.isArray(room.View) ? room.View : [];
-    views.forEach((view) => {
-      pushPrice(view?.PriceWithAffiliateMarkup);
-      pushPrice(view?.Price);
-    });
+    views.forEach((view) => pushPrice(view));
     const supplements = Array.isArray(room.Supplement) ? room.Supplement : [];
-    supplements.forEach((supplement) => {
-      pushPrice(supplement?.PriceWithAffiliateMarkup);
-      pushPrice(supplement?.Price);
-    });
+    supplements.forEach((supplement) => pushPrice(supplement));
   };
 
   const visitBoarding = (boarding: any) => {
     if (!boarding || typeof boarding !== "object") return;
-    pushPrice(boarding.PriceWithAffiliateMarkup);
-    pushPrice(boarding.Price);
+    pushPrice(boarding);
     const paxRows = Array.isArray(boarding.Pax) ? boarding.Pax : [];
     paxRows.forEach((paxRow) => {
       const rooms = Array.isArray(paxRow?.Rooms) ? paxRow.Rooms : [];
@@ -86,8 +80,11 @@ export function extractHotelMinPrice(hotel?: HotelSummary | HotelDetail | null, 
   };
 
   if (priceNode && typeof priceNode === "object") {
-    pushPrice(priceNode.PriceWithAffiliateMarkup);
     const boardings = Array.isArray(priceNode.Boarding) ? priceNode.Boarding : [];
+    const hasTopLevelDisplayedPrice = hasNumericPrice(priceNode.PriceWithAffiliateMarkup) || hasNumericPrice(priceNode.Price);
+    if (hasTopLevelDisplayedPrice || boardings.length === 0) {
+      pushPrice(priceNode);
+    }
     boardings.forEach(visitBoarding);
   }
 
@@ -279,8 +276,14 @@ export function flattenHotelRoomOffers(hotel?: HotelSummary | HotelDetail | null
   return offers;
 }
 
-export function pickHotelDisplayedPrice(value: { PriceWithAffiliateMarkup?: unknown; Price?: unknown; BasePrice?: unknown } | null | undefined, hotelMarkupPercent = 0) {
-  const candidates = [value?.PriceWithAffiliateMarkup, value?.Price, value?.BasePrice];
+export function pickHotelDisplayedPrice(
+  value: { MyGoBasePrice?: unknown; PriceWithAffiliateMarkup?: unknown; Price?: unknown; BasePrice?: unknown } | null | undefined,
+  hotelMarkupPercent = 0,
+  preferBasePrice = false
+) {
+  const candidates = preferBasePrice
+    ? [value?.MyGoBasePrice, value?.BasePrice, value?.Price, value?.PriceWithAffiliateMarkup]
+    : [value?.PriceWithAffiliateMarkup, value?.Price, value?.BasePrice];
   for (const candidate of candidates) {
     const numeric = Number(candidate);
     if (Number.isFinite(numeric) && numeric > 0) return applyHotelMarkupPercent(numeric, hotelMarkupPercent);
