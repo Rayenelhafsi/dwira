@@ -1102,6 +1102,7 @@ export default function PropertyDetailsPage() {
   const [lightboxOriginalIndex, setLightboxOriginalIndex] = useState<number | null>(null);
   const [lightboxPreviewQualityByIndex, setLightboxPreviewQualityByIndex] = useState<Record<number, number>>({});
   const isSaleProperty = property?.priceContext === 'sale';
+  const isReservationOnRequest = Boolean(property?.reservationOnRequest) && !isSaleProperty;
   const guests = adultGuests + childGuests;
   const sourceBien = useMemo(
     () => biens.find((item) => String(item.id) === String(property?.id)),
@@ -5139,14 +5140,16 @@ out body 40;
                   type="button"
                   onClick={() => void handleReservationRequest()}
                   disabled={!reservationValidation.valid}
-                  className="mt-4 w-full rounded-lg bg-emerald-600 py-3 font-bold text-white shadow-md transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
+                  className={`mt-4 w-full rounded-lg py-3 font-bold text-white shadow-md transition-colors disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600 ${
+                    isReservationOnRequest ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-emerald-600 hover:bg-emerald-700'
+                  }`}
                 >
-                  {isSaleProperty ? 'Demander une visite' : 'Reserver'}
+                  {isSaleProperty ? 'Demander une visite' : (isReservationOnRequest ? 'Sur demande' : 'Reserver')}
                 </button>
                 {!isSaleProperty && !reservationValidation.valid && (
                   <p className="mt-2 text-sm font-medium text-red-600">{reservationValidation.message}</p>
                 )}
-                <p className="text-center text-xs text-gray-500 mt-2">{isSaleProperty ? "Votre demande sera transmise a l'agence pour planification de visite" : "Aucun montant ne vous sera debite pour le moment"}</p>
+                <p className="text-center text-xs text-gray-500 mt-2">{isSaleProperty ? "Votre demande sera transmise a l'agence pour planification de visite" : (isReservationOnRequest ? "Reservation sur demande: l'agence doit confirmer avant validation finale" : "Aucun montant ne vous sera debite pour le moment")}</p>
 
                 {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
                    {Array.isArray(pricing.flashPriceSegments) && pricing.flashPriceSegments.length > 1 ? (

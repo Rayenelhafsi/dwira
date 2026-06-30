@@ -65,6 +65,7 @@ export interface Property {
   residenceName?: string | null;
   residenceUnitSubType?: string | null;
   isFeatured?: boolean;
+  reservationOnRequest?: boolean;
   unavailableDates?: DateStatus[];
   pricingPeriods?: SeasonalPricingPeriod[];
   cleaningFee?: number;

@@ -8879,6 +8879,11 @@ async function ensureBiensWorkflowSchema() {
       'ALTER TABLE biens ADD COLUMN is_featured TINYINT(1) NOT NULL DEFAULT 0 AFTER visible_sur_site'
     );
   }
+  if (!(await columnExists('biens', 'reservation_sur_demande'))) {
+    await pool.query(
+      'ALTER TABLE biens ADD COLUMN reservation_sur_demande TINYINT(1) NOT NULL DEFAULT 0 AFTER is_featured'
+    );
+  }
   if (!(await columnExists('biens', 'ui_config_json'))) {
     await pool.query(
       'ALTER TABLE biens ADD COLUMN ui_config_json LONGTEXT NULL AFTER visible_sur_site'
@@ -12129,6 +12134,7 @@ function buildResidenceTemplateBienFromChild(childRow) {
     statut: childRow.statut || 'disponible',
     visible_sur_site: Number(childRow.visible_sur_site || 0),
     is_featured: Number(childRow.is_featured || 0),
+    reservation_sur_demande: Number(childRow.reservation_sur_demande || 0),
     menage_en_cours: Number(childRow.menage_en_cours || 0),
     zone_id: childRow.zone_id || null,
     configuration: String(childRow.residence_unit_sub_type || childRow.configuration || '').trim() || null,
@@ -12535,6 +12541,7 @@ async function syncResidenceChildrenForParent(parentBienId, residenceUnitsOverri
     statut: parent.statut || 'disponible',
     visible_sur_site: Number(parent.visible_sur_site || 0),
     is_featured: Number(parent.is_featured || 0),
+    reservation_sur_demande: Number(parent.reservation_sur_demande || 0),
     ui_config_json: parent.ui_config_json || null,
     location_saisonniere_config_json: parent.location_saisonniere_config_json || null,
     menage_en_cours: Number(parent.menage_en_cours || 0),
@@ -12639,6 +12646,7 @@ async function syncResidenceChildrenForParent(parentBienId, residenceUnitsOverri
         ? 0
         : Number(sourceForUnit.visible_sur_site ?? parent.visible_sur_site ?? 0),
       is_featured: Number(sourceForUnit.is_featured ?? parent.is_featured ?? 0),
+      reservation_sur_demande: Number(sourceForUnit.reservation_sur_demande ?? parent.reservation_sur_demande ?? 0),
       ui_config_json: unitTemplateBien.ui_config ? JSON.stringify(unitTemplateBien.ui_config) : (sourceForUnit.ui_config_json || parent.ui_config_json || null),
       location_saisonniere_config_json: unitTemplateBien.location_saisonniere_config
         ? JSON.stringify(unitTemplateBien.location_saisonniere_config)
@@ -15986,7 +15994,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
     const {
       id,
       reference, titre, nom_bien_mobile, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
+      prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, reservation_sur_demande, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -16084,6 +16092,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
 
     let resolvedVisibleSurSite = visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1;
     const resolvedIsFeatured = is_featured === true || Number(is_featured) === 1 ? 1 : 0;
+    const resolvedReservationSurDemande = reservation_sur_demande === true || Number(reservation_sur_demande) === 1 ? 1 : 0;
     resolvedVisibleSurSite = await resolvePublicationVisibilityFromOwner(resolvedVisibleSurSite, proprietaire_id, resolvedMode);
 
     const persistedConfiguration = (resolvedMode === 'vente' && resolvedType === 'appartement')
@@ -16144,9 +16153,9 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
         prix_nuitee, avance, caution, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
         proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
         syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
-        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, is_featured, ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, folder_id, 
+        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, is_featured, reservation_sur_demande, ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, folder_id, 
         date_ajout, created_at, updated_at, admin_last_saved_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [bienId, resolvedReference, titre, normalizedNomBienMobile || null, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
@@ -16161,6 +16170,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
        statut || 'disponible',
        resolvedVisibleSurSite,
        resolvedIsFeatured,
+       resolvedReservationSurDemande,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        effectiveLocationSaisonniereConfig ? JSON.stringify(effectiveLocationSaisonniereConfig) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null, String(folder_id || '').trim() || null,
@@ -16542,7 +16552,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
     await ensureSeasonalPricingSchema();
     const {
       reference, titre, nom_bien_mobile, description, type, type_bien, mode, mode_bien, nb_chambres, nb_salle_bain,
-      prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
+      prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, reservation_sur_demande, ui_config, location_saisonniere_config, pricing_periods, menage_en_cours, zone_id, proprietaire_id, caracteristique_ids, caracteristique_valeurs,
       tarification_methode, prix_affiche_client, prix_fixe_proprietaire, prix_proprietaire, commission_pourcentage_proprietaire, commission_pourcentage_client, montant_max_reduction_negociation,
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
@@ -16642,6 +16652,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
 
     let resolvedVisibleSurSite = visible_sur_site === false || Number(visible_sur_site) === 0 ? 0 : 1;
     const resolvedIsFeatured = is_featured === true || Number(is_featured) === 1 ? 1 : 0;
+    const resolvedReservationSurDemande = reservation_sur_demande === true || Number(reservation_sur_demande) === 1 ? 1 : 0;
     resolvedVisibleSurSite = await resolvePublicationVisibilityFromOwner(resolvedVisibleSurSite, proprietaire_id, resolvedMode);
 
     const persistedConfiguration = (resolvedMode === 'vente' && resolvedType === 'appartement')
@@ -16701,7 +16712,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
         proche_plage = ?, chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, ascenseur = ?, vue_mer = ?, gaz_ville = ?, cuisine_equipee = ?, place_parking = ?,
         syndic = ?, meuble = ?, independant = ?, eau_puits = ?, eau_sonede = ?, electricite_steg = ?, surface_local_m2 = ?, facade_m = ?, hauteur_plafond_m = ?, activite_recommandee = ?, toilette = ?, reserve_local = ?, vitrine = ?, coin_angle = ?, electricite_3_phases = ?, alarme = ?,
         type_terrain = ?, terrain_facade_m = ?, terrain_surface_m2 = ?, terrain_distance_plage_m = ?, terrain_zone = ?, terrain_constructible = ?, terrain_angle = ?, immeuble_details_json = ?, immeuble_appartements_json = ?,
-        statut = ?, visible_sur_site = ?, is_featured = ?, ui_config_json = ?, location_saisonniere_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, folder_id = ?, updated_at = ?, admin_last_saved_at = ?
+        statut = ?, visible_sur_site = ?, is_featured = ?, reservation_sur_demande = ?, ui_config_json = ?, location_saisonniere_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, folder_id = ?, updated_at = ?, admin_last_saved_at = ?
        WHERE id = ?`,
       [resolvedReference, titre, normalizedNomBienMobile || null, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
@@ -16717,6 +16728,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
        statut || 'disponible',
        resolvedVisibleSurSite,
        resolvedIsFeatured,
+       resolvedReservationSurDemande,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        effectiveLocationSaisonniereConfig ? JSON.stringify(effectiveLocationSaisonniereConfig) : null,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null, String(folder_id || '').trim() || null,
@@ -16915,7 +16927,7 @@ app.get('/api/biens-lite', async (req, res) => {
     const [rows] = await pool.query(`
       SELECT
         id, reference, titre, nom_bien_mobile, description, mode, type, nb_chambres, nb_salle_bain,
-        prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured,
+        prix_nuitee, prix_semaine, avance, caution, statut, visible_sur_site, is_featured, reservation_sur_demande,
         ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, folder_id,
         residence_parent_bien_id, residence_parent_name, residence_unit_key, residence_unit_sub_type, residence_units_json,
         date_ajout, created_at, updated_at, admin_last_saved_at,
@@ -24493,14 +24505,14 @@ async function pushToOwnerDevices(ownerId, payload) {
         apns: {
           headers: {
             'apns-priority': '10',
+            'apns-push-type': 'alert',
           },
           payload: {
             aps: {
-              alert: (isAvailabilityRequest || isOwnerAppUpdate) ? undefined : { title, body },
-              sound: isAvailabilityRequest
-                ? 'availability_request.wav'
-                : 'default',
+              alert: { title, body },
+              sound: 'default',
               badge: 1,
+              'content-available': 1,
             },
           },
         },

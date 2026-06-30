@@ -487,6 +487,7 @@ export interface Bien {
   statut: BienStatut;
   visible_sur_site?: boolean;
   is_featured?: boolean;
+  reservation_sur_demande?: boolean;
   ui_config?: BienUiConfig | null;
   location_saisonniere_config?: LocationSaisonniereConfig | null;
   menage_en_cours: boolean;

@@ -221,6 +221,7 @@ export function PropertyCard({
   const titleText = String(property.title || "").trim();
   const referenceLabel = buildReferenceLabel(property.reference);
   const hasInstantReservation = Boolean(property.seasonalConfig?.reservationInstantanee);
+  const isReservationOnRequest = Boolean(property.reservationOnRequest);
   const isGoldInstantCard = hasInstantReservation && !isFlashCard;
   const residenceBadgeLabel = String(property.residenceName || "").trim();
   const residenceBadgeText = /^residence\b/i.test(residenceBadgeLabel)
@@ -461,10 +462,19 @@ export function PropertyCard({
                 {titleText}
               </p>
             </div>
-            {property.isFeatured && (
-              <span className="shrink-0 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-                Bien vedette
-              </span>
+            {(property.isFeatured || isReservationOnRequest) && (
+              <div className="shrink-0 flex flex-col items-end gap-2">
+                {property.isFeatured ? (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                    Bien vedette
+                  </span>
+                ) : null}
+                {isReservationOnRequest ? (
+                  <span className="rounded-full bg-yellow-100 px-3 py-1 text-xs font-semibold text-yellow-800">
+                    Sur demande
+                  </span>
+                ) : null}
+              </div>
             )}
           </div>
 

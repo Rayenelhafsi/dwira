@@ -12,13 +12,24 @@ const STOP_WORDS = new Set([
 let cachedFeedbackRows = [];
 let cachedAt = 0;
 
+function normalizeLearningToken(token) {
+  const raw = String(token || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (/^s\+?\d+$/.test(raw)) return raw.replace(/^s/, "s+").replace(/\+\+/, "+");
+  if (/^(b?9adech|b?qadech|9addech|gadech|kadech|combien|prix|price|tarif|soum|soumou)$/.test(raw)) return "price_request";
+  if (/^(sallem|sallam|salem|slm|aslema|marhbe|marhba|ahla)$/.test(raw)) return "greeting";
+  if (/^(kelibia|qlibia|9libia|kelibya|libia)$/.test(raw)) return "kelibia";
+  if (/^(win|where|ou|anahi|tekri)$/.test(raw)) return "location_request";
+  return raw;
+}
+
 function tokenize(value) {
   return String(value || "")
     .toLowerCase()
     .replace(/https?:\/\/\S+/g, " ")
-    .replace(/[^a-z0-9\u0600-\u06ff]+/gi, " ")
+    .replace(/[^a-z0-9+\u0600-\u06ff]+/gi, " ")
     .split(/\s+/)
-    .map((token) => token.trim())
+    .map((token) => normalizeLearningToken(token))
     .filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
 }
 
@@ -33,7 +44,11 @@ function scoreFeedbackRow(row, messageTokens, language, state) {
     if (correctedTokens.has(token)) score += 1;
   }
   if (language === "tn" && /tounsi|tn|dialect|messenger|naturel/i.test(String(row?.reason || ""))) score += 2;
-  if (state && String(row?.reason || "").toLowerCase().includes(String(state || "").toLowerCase())) score += 1;
+  if (state) {
+    const normalizedReason = normalizeLooseText(row?.reason || "");
+    const normalizedState = normalizeLooseText(state || "");
+    if (normalizedReason && normalizedState && normalizedReason.includes(normalizedState)) score += 1;
+  }
   return score;
 }
 
@@ -45,6 +60,17 @@ function normalizeLooseText(value) {
     .replace(/[^a-z0-9\u0600-\u06ff]+/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isMetaInstructionText(value) {
+  const normalized = normalizeLooseText(value);
+  if (!normalized) return false;
+  return (
+    normalized.startsWith("avant de repondre comme ca")
+    || normalized.startsWith("il faut d abord dire")
+    || normalized.startsWith("instruction")
+    || normalized.startsWith("repondre plutot comme ceci")
+  );
 }
 
 async function loadFeedbackRows() {
@@ -81,6 +107,9 @@ export async function getReplyCoachingDirectives({ userMessage, language, state 
       forcePropertyList: false,
       preferSearchLinkWhenMany: false,
       preferPropertyLinksWhenFew: false,
+      askMissingDatesFirst: false,
+      askMissingLocationFirst: false,
+      preferredAnswerText: "",
       propertyLinkThreshold: 3,
       matchedRows: [],
     };
@@ -92,6 +121,9 @@ export async function getReplyCoachingDirectives({ userMessage, language, state 
       forcePropertyList: false,
       preferSearchLinkWhenMany: false,
       preferPropertyLinksWhenFew: false,
+      askMissingDatesFirst: false,
+      askMissingLocationFirst: false,
+      preferredAnswerText: "",
       propertyLinkThreshold: 3,
       matchedRows: [],
     };
@@ -104,6 +136,9 @@ export async function getReplyCoachingDirectives({ userMessage, language, state 
       forcePropertyList: false,
       preferSearchLinkWhenMany: false,
       preferPropertyLinksWhenFew: false,
+      askMissingDatesFirst: false,
+      askMissingLocationFirst: false,
+      preferredAnswerText: "",
       propertyLinkThreshold: 3,
       matchedRows: [],
     };
@@ -141,12 +176,31 @@ export async function getReplyCoachingDirectives({ userMessage, language, state 
     1,
     Number(thresholdMatch?.[1] || thresholdMatch?.[2] || 3)
   );
+  const askMissingDatesFirst = (
+    normalizedDirectiveText.includes("dates")
+    || normalizedDirectiveText.includes("date de sejour")
+    || normalizedDirectiveText.includes("date de séjour")
+    || normalizedDirectiveText.includes("check in")
+    || normalizedDirectiveText.includes("check out")
+  );
+  const askMissingLocationFirst = (
+    normalizedDirectiveText.includes("win")
+    || normalizedDirectiveText.includes("zone")
+    || normalizedDirectiveText.includes("location")
+    || normalizedDirectiveText.includes("ou")
+    || normalizedDirectiveText.includes("tekri")
+  );
+  const correctedAnswer = String(matched[0]?.row?.correctedAnswer || "").trim();
+  const preferredAnswerText = isMetaInstructionText(correctedAnswer) ? "" : correctedAnswer;
 
   return {
     matched: matched.length > 0,
     forcePropertyList,
     preferSearchLinkWhenMany,
     preferPropertyLinksWhenFew,
+    askMissingDatesFirst,
+    askMissingLocationFirst,
+    preferredAnswerText,
     propertyLinkThreshold,
     matchedRows: matched.map((entry) => entry.row),
   };

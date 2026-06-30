@@ -109,6 +109,16 @@ function formatLocalIsoDate(date) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function addDaysToIsoDate(start, dayCount) {
+  const normalizedStart = String(start || "").trim();
+  const days = Number(dayCount);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedStart) || !Number.isFinite(days) || days <= 0) return null;
+  const date = new Date(`${normalizedStart}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setDate(date.getDate() + days);
+  return formatLocalIsoDate(date);
+}
+
 function normalizeChronologicalDateRange(start, end) {
   if (!start || !end) return { start, end };
   const startDate = new Date(`${start}T00:00:00`);
@@ -192,7 +202,14 @@ function extractDatesFromText(text) {
     })
     .filter(Boolean);
   if (textualDates.length >= 2) return normalizeChronologicalDateRange(textualDates[0], textualDates[1]);
-  if (textualDates.length === 1) return { start: textualDates[0], end: null };
+  if (textualDates.length === 1) {
+    const durationMatch = normalized.match(/\b(\d{1,2})\s*(jours?|journees?|nuits?|nights?|days?)\b/i);
+    if (durationMatch?.[1]) {
+      const computedEnd = addDaysToIsoDate(textualDates[0], Number(durationMatch[1]));
+      if (computedEnd) return normalizeChronologicalDateRange(textualDates[0], computedEnd);
+    }
+    return { start: textualDates[0], end: null };
+  }
 
   return { start: null, end: null };
 }
@@ -251,6 +268,9 @@ function extractSpecificLocationHint(text) {
     "sidi mansoura",
     "mansoura",
     "kelibia la blanche",
+    "9libia",
+    "libia",
+    "libya",
     "rejiche",
     "dar allouche",
     "ezzahra",
@@ -272,12 +292,14 @@ function extractSpecificLocationHint(text) {
   const matchedZone = knownZones
     .filter((zone) => normalized.includes(zone))
     .sort((a, b) => b.length - a.length)[0];
-  if (!matchedZone) return null;
 
   const matchedCity = knownCities
     .filter((city) => city !== matchedZone && normalized.includes(city))
     .sort((a, b) => b.length - a.length)[0];
 
+  if (!matchedZone) {
+    return matchedCity || null;
+  }
   if (matchedCity && !matchedZone.includes(matchedCity)) {
     return `${matchedZone}, ${matchedCity}`;
   }
@@ -344,7 +366,20 @@ function sanitizeLocation(value) {
   s = s.replace(/\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b.*$/i, "").trim();
   s = s.replace(/[.,;:!?]+$/g, "").trim();
   if (!s) return null;
-  const normalized = s.toLowerCase();
+  const normalized = norm(s)
+    .replace(/[^a-z0-9\u0600-\u06ff\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const latinAliasMap = [
+    { aliases: ["9libia", "qlibia", "kelibia", "klibia", "libia", "libya"], latin: "kelibia" },
+    { aliases: ["mansoura", "mansura"], latin: "mansoura" },
+    { aliases: ["mahdia"], latin: "mahdia" },
+    { aliases: ["sousse", "susa"], latin: "sousse" },
+  ];
+  for (const entry of latinAliasMap) {
+    if (entry.aliases.includes(normalized)) return entry.latin;
+    if (entry.aliases.some((alias) => normalized.includes(alias))) return entry.latin;
+  }
   const aliasMap = [
     { ar: "\u0627\u0644\u0645\u0646\u0635\u0648\u0631\u0629", latin: "mansoura" },
     { ar: "\u0645\u0646\u0635\u0648\u0631\u0629", latin: "mansoura" },
@@ -356,7 +391,7 @@ function sanitizeLocation(value) {
   for (const a of aliasMap) {
     if (normalized.includes(a.ar)) return a.latin;
   }
-  return s;
+  return normalized || s;
 }
 
 function isTunisianLatinizedText(text) {
@@ -438,8 +473,13 @@ ${userMessage}`.trim();
   const inferredPrefs = inferPreferencesFromText(userMessage);
   const aiPrefs = Array.isArray(parsed.preferences) ? parsed.preferences.map((x) => norm(x)) : [];
   parsed.preferences = Array.from(new Set([...aiPrefs, ...inferredPrefs]));
-  parsed.type = canonicalMainType(parsed.type || userMessage);
-  parsed.subType = canonicalSubType(parsed.subType || parsed.type || "");
+  const fallbackMainType = canonicalMainType(userMessage);
+  const aiMainType = canonicalMainType(parsed.type || "");
+  parsed.type = aiMainType && aiMainType !== "autre" ? aiMainType : fallbackMainType;
+  parsed.subType = canonicalSubType(parsed.subType || userMessage || parsed.type || "");
+  if ((!parsed.type || parsed.type === "autre") && parsed.subType && /^s\+\d+$/i.test(String(parsed.subType))) {
+    parsed.type = "appartement";
+  }
   const inferredResponseMode = inferResponseModeFromText(userMessage);
   const aiResponseMode = canonicalResponseMode(parsed.responseMode || "");
   parsed.responseMode =
@@ -461,6 +501,9 @@ ${userMessage}`.trim();
   const explicitYear = hasExplicitYearInText(userMessage);
   parsed.dates.start = (!explicitYear && fallbackDates.start) ? fallbackDates.start : (parsed?.dates?.start || fallbackDates.start || null);
   parsed.dates.end = (!explicitYear && fallbackDates.end) ? fallbackDates.end : (parsed?.dates?.end || fallbackDates.end || null);
+  const normalizedRange = normalizeChronologicalDateRange(parsed.dates.start, parsed.dates.end);
+  parsed.dates.start = normalizedRange.start || null;
+  parsed.dates.end = normalizedRange.end || null;
   parsed.guests = Number.isFinite(Number(parsed.guests)) ? Number(parsed.guests) : fallbackGuests;
   parsed.bedrooms = Number.isFinite(Number(parsed.bedrooms)) ? Number(parsed.bedrooms) : fallbackBedrooms;
   parsed.budget = Number.isFinite(Number(parsed.budget)) ? Number(parsed.budget) : fallbackBudget;
@@ -488,7 +531,12 @@ ${userMessage}`.trim();
     || (Number.isFinite(Number(parsed.guests)) && Number(parsed.guests) > 0)
     || hasIdentityPayload(userMessage)
   );
-  if (carriesBookingData && String(parsed.intent || "").trim().toLowerCase() === "greeting") {
+  if (parsed.location && String(parsed.intent || "").trim().toLowerCase() === "greeting") {
+    parsed.intent = "search_property";
+  }
+  if (parsed.location && String(parsed.responseMode || "").trim().toLowerCase() === "greeting") {
+    parsed.responseMode = "property_list";
+  }  if (carriesBookingData && String(parsed.intent || "").trim().toLowerCase() === "greeting") {
     parsed.intent = "booking";
   }
   if (carriesBookingData && String(parsed.responseMode || "").trim().toLowerCase() === "greeting") {

@@ -1,5 +1,6 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import { ImagePlus, MessageCircle, Send, X } from "lucide-react";
+import { createChatbotFeedback } from "../services/chatbotFeedback";
 
 type ChatOption = {
   id: string | number;
@@ -22,6 +23,18 @@ type ChatMessage = {
   text: string;
   options?: ChatOption[];
   attachments?: ChatAttachment[];
+};
+
+type FeedbackDraft = {
+  beforeReplyInstruction: string;
+  correctedAnswer: string;
+  reason: string;
+};
+
+type SendChatMessageParams = {
+  attachments?: ChatAttachment[];
+  targetVisitorId?: string;
+  text: string;
 };
 
 type SessionMessage = {
@@ -240,12 +253,27 @@ function mergeStoredMessages(rawMessages: SessionMessage[], localMessages: ChatM
   return extras.length > 0 ? [...restored, ...extras] : restored;
 }
 
+function findPreviousUserMessage(messages: ChatMessage[], assistantMessageId: string) {
+  const index = messages.findIndex((message) => message.id === assistantMessageId);
+  if (index <= 0) return "";
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = messages[cursor];
+    if (candidate?.role === "user" && String(candidate.text || "").trim()) {
+      return String(candidate.text || "").trim();
+    }
+  }
+  return "";
+}
+
 export default function WebsiteChatbotWidget() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [feedbackSavingId, setFeedbackSavingId] = useState<string | null>(null);
+  const [feedbackOpenId, setFeedbackOpenId] = useState<string | null>(null);
+  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, FeedbackDraft>>({});
   const [visitorId, setVisitorId] = useState(() => getVisitorId());
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -383,6 +411,155 @@ export default function WebsiteChatbotWidget() {
     setPendingAttachments((prev) => prev.filter((attachment) => attachment.id !== attachmentId));
   };
 
+  const openFeedbackDraft = (messageId: string) => {
+    setFeedbackOpenId(messageId);
+    setFeedbackDrafts((current) => ({
+      ...current,
+      [messageId]: current[messageId] || { beforeReplyInstruction: "", correctedAnswer: "", reason: "" },
+    }));
+  };
+
+  const closeFeedbackDraft = (messageId: string) => {
+    setFeedbackOpenId((current) => (current === messageId ? null : current));
+  };
+
+  const updateFeedbackDraft = (messageId: string, patch: Partial<FeedbackDraft>) => {
+    setFeedbackDrafts((current) => ({
+      ...current,
+      [messageId]: {
+        beforeReplyInstruction: current[messageId]?.beforeReplyInstruction || "",
+        correctedAnswer: current[messageId]?.correctedAnswer || "",
+        reason: current[messageId]?.reason || "",
+        ...patch,
+      },
+    }));
+  };
+
+  const sendChatMessage = async ({ text, attachments = [], targetVisitorId }: SendChatMessageParams) => {
+    const normalizedText = String(text || "").trim();
+    const attachmentsToSend = Array.isArray(attachments) ? attachments : [];
+    if (!normalizedText && attachmentsToSend.length === 0) return null;
+
+    const effectiveVisitorId = String(targetVisitorId || visitorId).trim() || visitorId;
+    const apiBase = await resolveChatbotApiBase();
+    const response = await fetch(`${apiBase}/chat/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        platform: "website",
+        platformUserId: effectiveVisitorId,
+        message: normalizedText,
+        attachments: attachmentsToSend.map((attachment) => ({
+          type: "image",
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          dataUrl: attachment.dataUrl,
+        })),
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      const detail = String(payload?.detail || payload?.message || payload?.error || "").trim();
+      throw new Error(detail || "Assistant indisponible");
+    }
+
+    const data = await response.json();
+    return {
+      options: Array.isArray(data?.options) ? normalizeOptions(data.options) : [],
+      reply: sanitizeAssistantReply(String(data?.reply || "").trim()) || "Merci. Un conseiller vous repondra sous peu.",
+    };
+  };
+
+  const submitFeedback = async (assistantMessage: ChatMessage, shouldRetest = false) => {
+    const draftState = feedbackDrafts[assistantMessage.id] || { beforeReplyInstruction: "", correctedAnswer: "", reason: "" };
+    const beforeReplyInstruction = String(draftState.beforeReplyInstruction || "").trim();
+    const correctedAnswer = String(draftState.correctedAnswer || "").trim();
+    const reason = String(draftState.reason || "").trim();
+    const composedReason = [beforeReplyInstruction ? `Avant de repondre comme ca, il faut d'abord dire: ${beforeReplyInstruction}` : "", reason]
+      .filter(Boolean)
+      .join("\n");
+    const question = findPreviousUserMessage(messages, assistantMessage.id);
+    const botAnswer = String(assistantMessage.text || "").trim();
+    if (!question || (!correctedAnswer && !composedReason) || feedbackSavingId) return;
+
+    setFeedbackSavingId(assistantMessage.id);
+    try {
+      await createChatbotFeedback({
+        question,
+        botAnswer,
+        correctedAnswer: correctedAnswer || null,
+        reason: composedReason || null,
+      });
+      setFeedbackDrafts((current) => ({
+        ...current,
+        [assistantMessage.id]: { beforeReplyInstruction: "", correctedAnswer: "", reason: "" },
+      }));
+      setFeedbackOpenId((current) => (current === assistantMessage.id ? null : current));
+      if (!shouldRetest) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: `a_feedback_${Date.now()}`,
+            role: "assistant",
+            text: "Merci. Correction tsajlet, w bch t3aweni n7assen الردود fi حالات شبيهة.",
+          },
+        ]);
+        return;
+      }
+
+      const nextVisitorId = replaceVisitorId();
+      setVisitorId(nextVisitorId);
+      resetLocalConversation(nextVisitorId);
+      const retestQuestion: ChatMessage = {
+        id: `u_retest_${Date.now()}`,
+        role: "user",
+        text: question,
+      };
+      setMessages((current) => [...current, retestQuestion]);
+      const retestResult = await sendChatMessage({
+        text: question,
+        targetVisitorId: nextVisitorId,
+      });
+      setMessages((current) => [
+        ...current,
+        {
+          id: `a_retest_info_${Date.now()}`,
+          role: "assistant",
+          text: "Retest lancé fi discussion jdida bech nra ken l correction tetsabba9 tawa.",
+        },
+        {
+          id: `a_retest_${Date.now() + 1}`,
+          role: "assistant",
+          text: String(retestResult?.reply || "").trim(),
+          options: Array.isArray(retestResult?.options) ? retestResult.options : [],
+        },
+      ]);
+      hydratedVisitorRef.current = nextVisitorId;
+    } catch (error) {
+      const detail = String(error instanceof Error ? error.message : "").trim();
+      setMessages((current) => [
+        ...current,
+        {
+          id: `a_feedback_err_${Date.now()}`,
+          role: "assistant",
+          text: import.meta.env.DEV && detail ? `Impossible d'enregistrer la correction.\n[debug] ${detail}` : "Impossible d'enregistrer la correction pour le moment.",
+        },
+      ]);
+    } finally {
+      setFeedbackSavingId(null);
+    }
+  };
+
+  const canSubmitFeedback = (messageId: string) => {
+    const draftState = feedbackDrafts[messageId];
+    return Boolean(
+      String(draftState?.beforeReplyInstruction || "").trim()
+      || String(draftState?.correctedAnswer || "").trim()
+      || String(draftState?.reason || "").trim()
+    );
+  };
+
   const sendMessage = async () => {
     const text = draft.trim();
     const attachmentsToSend = pendingAttachments;
@@ -400,32 +577,12 @@ export default function WebsiteChatbotWidget() {
     setSending(true);
 
     try {
-      const apiBase = await resolveChatbotApiBase();
-      const response = await fetch(`${apiBase}/chat/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: "website",
-          platformUserId: visitorId,
-          message: text,
-          attachments: attachmentsToSend.map((attachment) => ({
-            type: "image",
-            name: attachment.name,
-            mimeType: attachment.mimeType,
-            dataUrl: attachment.dataUrl,
-          })),
-        }),
+      const result = await sendChatMessage({
+        text,
+        attachments: attachmentsToSend,
       });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        const detail = String(payload?.detail || payload?.message || payload?.error || "").trim();
-        throw new Error(detail || "Assistant indisponible");
-      }
-
-      const data = await response.json();
-      const reply = sanitizeAssistantReply(String(data?.reply || "").trim()) || "Merci. Un conseiller vous repondra sous peu.";
-      const options = Array.isArray(data?.options) ? normalizeOptions(data.options) : [];
+      const reply = String(result?.reply || "").trim() || "Merci. Un conseiller vous repondra sous peu.";
+      const options = Array.isArray(result?.options) ? result.options : [];
       await hydrateConversation(visitorId);
       setMessages((current) => {
         const lastAssistantMessage = [...current].reverse().find((message) => message.role === "assistant");
@@ -513,6 +670,76 @@ export default function WebsiteChatbotWidget() {
                           {option.pricePerNightTnd ? <div>{option.pricePerNightTnd} TND / nuit</div> : null}
                         </div>
                       ))}
+                    </div>
+                  ) : null}
+
+                  {message.role === "assistant" && !String(message.id || "").startsWith("welcome_") ? (
+                    <div className="mt-3 border-t border-slate-100 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => openFeedbackDraft(message.id)}
+                        className="text-[11px] font-medium text-emerald-700 transition hover:text-emerald-900"
+                      >
+                        Corriger cette reponse
+                      </button>
+
+                      {feedbackOpenId === message.id ? (
+                        <div className="mt-2 space-y-2 rounded-xl border border-emerald-100 bg-emerald-50/60 p-2.5">
+                          <textarea
+                            value={feedbackDrafts[message.id]?.beforeReplyInstruction || ""}
+                            onChange={(event) => updateFeedbackDraft(message.id, { beforeReplyInstruction: event.target.value })}
+                            rows={2}
+                            placeholder="Avant de repondre comme ca, il faut d'abord dire..."
+                            className="w-full rounded-lg border border-emerald-200 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none focus:border-emerald-500"
+                          />
+                          <textarea
+                            value={feedbackDrafts[message.id]?.correctedAnswer || ""}
+                            onChange={(event) => updateFeedbackDraft(message.id, { correctedAnswer: event.target.value })}
+                            rows={3}
+                            placeholder="Ce qu'il aurait mieux fait de repondre..."
+                            className="w-full rounded-lg border border-emerald-200 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none focus:border-emerald-500"
+                          />
+                          <textarea
+                            value={feedbackDrafts[message.id]?.reason || ""}
+                            onChange={(event) => updateFeedbackDraft(message.id, { reason: event.target.value })}
+                            rows={2}
+                            placeholder="Instruction courte: dans un cas proche, repondre plutot comme ceci..."
+                            className="w-full rounded-lg border border-emerald-200 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none focus:border-emerald-500"
+                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => closeFeedbackDraft(message.id)}
+                              disabled={feedbackSavingId === message.id}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600"
+                            >
+                              Annuler
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void submitFeedback(message)}
+                              disabled={
+                                feedbackSavingId === message.id
+                                || !canSubmitFeedback(message.id)
+                              }
+                              className="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {feedbackSavingId === message.id ? "Envoi..." : "Enregistrer"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void submitFeedback(message, true)}
+                              disabled={
+                                feedbackSavingId === message.id
+                                || !canSubmitFeedback(message.id)
+                              }
+                              className="rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {feedbackSavingId === message.id ? "Retest..." : "Enregistrer + retester"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

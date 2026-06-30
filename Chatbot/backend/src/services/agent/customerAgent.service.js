@@ -1,6 +1,7 @@
 import { openai } from "../../config/openai.js";
 import { config } from "../../config/env.js";
 import { retrieveContext } from "../rag/retrieval.service.js";
+import { buildReplyCoachingContext, getReplyCoachingDirectives } from "../ai/recommendationLearning.service.js";
 import { getPropertyByReference, searchAvailableProperties } from "../propertySearch.service.js";
 import {
   createReservationDemandDirectFromChat,
@@ -128,20 +129,24 @@ function buildSearchLandingRelativeUrl(constraints) {
   const budget = toPositiveNullableNumber(constraints?.budget);
   const bedrooms = toPositiveNullableNumber(constraints?.bedrooms);
   const preferences = Array.isArray(constraints?.preferences) ? constraints.preferences.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean) : [];
+  const mappedType = type && type !== "autre"
+    ? (type === "villa_maison" ? "villa_maison" : type)
+    : "";
+  const categoryLabel = subType || (bedrooms ? `s+${bedrooms}` : "");
+  const categoryParam = categoryLabel
+    ? (mappedType ? `__scoped__::${mappedType}::${categoryLabel}` : categoryLabel)
+    : "";
 
   if (location) params.set("locations", location);
-  if (subType) params.set("q", subType);
   if (startDate || endDate) {
     if (startDate) params.set("checkIn", startDate);
     if (endDate) params.set("checkOut", endDate);
     const rangeStart = startDate || "";
     const rangeEnd = endDate || "";
-    if (rangeStart || rangeEnd) params.set("stayRanges", `${rangeStart}:${rangeEnd}`);
+    if (rangeStart || rangeEnd) params.set("stayRanges", `${rangeStart}_${rangeEnd}`);
   }
-  if (type && type !== "autre") {
-    const mappedType = type === "villa_maison" ? "villa_maison" : type;
-    params.set("mainTypes", mappedType);
-  }
+  if (mappedType) params.set("mainTypes", mappedType);
+  if (categoryParam) params.set("categories", categoryParam);
   if (guests && guests > 1) params.set("guestsMin", String(guests));
   if (budget) params.set("maxPrice", String(budget));
   if (preferences.length > 0) {
@@ -158,7 +163,6 @@ function buildSearchLandingRelativeUrl(constraints) {
     if (seaside.length > 0) params.set("seaside", Array.from(new Set(seaside)).join(","));
     if (comfort.length > 0) params.set("comfort", Array.from(new Set(comfort)).join(","));
   }
-  if (bedrooms && !subType) params.set("q", `s+${bedrooms}`);
   const queryString = params.toString();
   return `/logements${queryString ? `?${queryString}` : ""}`;
 }
@@ -334,6 +338,41 @@ function buildManyOptionsReply(language, constraints, searchUrl) {
     searchUrl,
     "Une fois votre choix fait, envoyez-moi la reference et je continue avec vous.",
   ].join("\n");
+}
+
+function shouldAskDatesBeforeLargeDiscovery(constraints) {
+  const hasDates = Boolean(parseDate(constraints?.startDate) && parseDate(constraints?.endDate));
+  if (hasDates) return false;
+  const hasLocation = Boolean(String(constraints?.location || "").trim());
+  const hasTypedNeed = Boolean(
+    String(constraints?.subType || "").trim()
+    || String(constraints?.type || "").trim()
+    || toPositiveNullableNumber(constraints?.bedrooms)
+  );
+  return hasLocation && hasTypedNeed;
+}
+
+function buildAskDatesReply(language, constraints) {
+  const lang = String(language || "fr").trim().toLowerCase();
+  const location = String(constraints?.location || "").trim();
+  if (lang === "tn") {
+    return location
+      ? `Behi, fi ${location}. Min wa9teh lwa9teh theb tekri ?`
+      : "Min wa9teh lwa9teh theb tekri ?";
+  }
+  if (lang === "en") {
+    return location
+      ? `Okay, in ${location}. What are your stay dates?`
+      : "What are your stay dates?";
+  }
+  if (lang === "ar") {
+    return location
+      ? `باهي، في ${location}. من أي تاريخ إلى أي تاريخ؟`
+      : "من أي تاريخ إلى أي تاريخ؟";
+  }
+  return location
+    ? `D'accord, a ${location}. Quelles sont vos dates de sejour ?`
+    : "Quelles sont vos dates de sejour ?";
 }
 
 async function buildNoAvailabilityReply(language, constraints) {
@@ -538,12 +577,14 @@ function buildDeterministicTnReply(state, extracted, options) {
   return "";
 }
 
-async function buildDeterministicTnDiscoveryOutcome(state, extracted, options, totalCount) {
+async function buildDeterministicTnDiscoveryOutcome(state, extracted, options, totalCount, directives = {}) {
   const responseMode = String(extracted?.responseMode || "").trim().toLowerCase();
   if (!["property_list", "zone_summary", "zone_price_summary"].includes(responseMode)) return "";
+  if (shouldAskDatesBeforeLargeDiscovery(state?.constraints)) return buildAskDatesReply("tn", state?.constraints);
   const safeCount = Math.max(Array.isArray(options) ? options.length : 0, Number(totalCount || 0));
   if (safeCount <= 0) return buildNoAvailabilityReply("tn", state?.constraints);
-  if (safeCount <= 3) return buildFewOptionsReply("tn", state?.constraints, options);
+  const threshold = Math.max(1, Number(directives?.propertyLinkThreshold || 3));
+  if (safeCount <= threshold) return buildFewOptionsReply("tn", state?.constraints, options);
   const relativeUrl = buildSearchLandingRelativeUrl(state?.constraints);
   const shareUrl = await createSearchShareLink(relativeUrl);
   return buildManyOptionsReply("tn", state?.constraints, shareUrl);
@@ -566,12 +607,14 @@ async function preloadSelectedProperty(state) {
   state.constraints.selectedPropertyRef = property.reference || selectedReference;
 }
 
-async function buildDeterministicDiscoveryOutcome(language, extracted, constraints, options, totalCount) {
+async function buildDeterministicDiscoveryOutcome(language, extracted, constraints, options, totalCount, directives = {}) {
   const responseMode = String(extracted?.responseMode || "").trim().toLowerCase();
   if (!["property_list", "zone_summary", "zone_price_summary"].includes(responseMode)) return "";
+  if (shouldAskDatesBeforeLargeDiscovery(constraints)) return buildAskDatesReply(language, constraints);
   const safeCount = Math.max(Array.isArray(options) ? options.length : 0, Number(totalCount || 0));
   if (safeCount <= 0) return buildNoAvailabilityReply(language, constraints);
-  if (safeCount <= 3) return buildFewOptionsReply(language, constraints, options);
+  const threshold = Math.max(1, Number(directives?.propertyLinkThreshold || 3));
+  if (safeCount <= threshold) return buildFewOptionsReply(language, constraints, options);
   const relativeUrl = buildSearchLandingRelativeUrl(constraints);
   const shareUrl = await createSearchShareLink(relativeUrl);
   return buildManyOptionsReply(language, constraints, shareUrl);
@@ -675,6 +718,73 @@ function buildFallbackReply(language, constraints) {
     return "فهمت طلبك. نجم نبحثلك في الموقع بذكاء، نوريك الاختيارات المناسبة، نتابع مرجع عقار معين، او نكمل معاك الحجز. ابعثلي المنطقة او التواريخ او الميزانية او عدد الاشخاص او المرجع مباشرة.";
   }
   return "J'ai compris. Je peux chercher intelligemment sur le site, proposer des choix, suivre une reference precise, ou continuer la reservation avec vous. Donnez-moi la zone, les dates, le budget, le nombre de personnes, ou la reference du bien.";
+}
+
+function hasMeaningfulConstraintValue(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return Boolean(text && text !== "autre" && text !== "other" && text !== "unknown" && text !== "auto");
+}
+
+function isGreetingOnlyMessage(userMessage, extracted, constraints = {}) {
+  const messageText = norm(userMessage || "");
+  const responseMode = String(extracted?.responseMode || "").trim().toLowerCase();
+  const intent = String(extracted?.intent || "").trim().toLowerCase();
+  const hasSearchSignal = Boolean(
+    String(constraints?.location || "").trim()
+    || hasMeaningfulConstraintValue(constraints?.type)
+    || hasMeaningfulConstraintValue(constraints?.subType)
+    || String(constraints?.selectedPropertyRef || "").trim()
+    || parseDate(constraints?.startDate)
+    || parseDate(constraints?.endDate)
+    || toPositiveNullableNumber(constraints?.guests)
+    || toPositiveNullableNumber(constraints?.budget)
+    || toPositiveNullableNumber(constraints?.bedrooms)
+  );
+  if (hasSearchSignal) return false;
+  if (responseMode === "greeting" || intent === "greeting") return true;
+  return /^(sallem|salem|slm|aslema|aslama|marhbe|mar7be|ahla|ahlan|bonjour|bonsoir|hello|hi|cc|coucou)\W*$/i.test(messageText);
+}
+
+function buildGreetingOnlyReply(language) {
+  const lang = String(language || "fr").trim().toLowerCase();
+  if (lang === "tn") return "Sallem! Kif najem n3awnek lyoum? Tnajem t9olli zone, dates, budget, wala reference elli t7eb عليها.";
+  if (lang === "en") return "Hello! How can I help you today? You can send me the area, dates, budget, or a property reference.";
+  if (lang === "ar") return "أهلا! كيفاش نجم نعاونك اليوم؟ تنجم تبعثلي المنطقة، التواريخ، الميزانية، أو مرجع العقار.";
+  return "Bonjour ! Comment puis-je vous aider aujourd'hui ? Vous pouvez m'envoyer la zone, les dates, le budget, ou la reference du bien.";
+}
+
+function buildCoachingOverrideReply(language, constraints, directives = {}) {
+  const hasDates = Boolean(parseDate(constraints?.startDate) && parseDate(constraints?.endDate));
+  const hasLocation = Boolean(String(constraints?.location || "").trim());
+  const needsDates = Boolean(directives?.askMissingDatesFirst) && !hasDates;
+  const needsLocation = Boolean(directives?.askMissingLocationFirst) && !hasLocation;
+  if (!needsDates && !needsLocation) return "";
+  const preferred = String(directives?.preferredAnswerText || "").trim();
+  if (preferred) return preferred;
+
+  const lang = String(language || "fr").trim().toLowerCase();
+  if (lang === "tn") {
+    if (needsDates && needsLocation) return "Win theb tekri, w mn wa9teh l wa9teh ?";
+    if (needsLocation) return "Win theb tekri ?";
+    if (needsDates) return "Mn wa9teh l wa9teh theb tekri ?";
+    return "";
+  }
+  if (lang === "en") {
+    if (needsDates && needsLocation) return "Which area do you want, and what are your stay dates?";
+    if (needsLocation) return "Which area do you want?";
+    if (needsDates) return "What are your stay dates?";
+    return "";
+  }
+  if (lang === "ar") {
+    if (needsDates && needsLocation) return "في أي منطقة تحب، ومن أي تاريخ إلى أي تاريخ؟";
+    if (needsLocation) return "في أي منطقة تحب؟";
+    if (needsDates) return "من أي تاريخ إلى أي تاريخ؟";
+    return "";
+  }
+  if (needsDates && needsLocation) return "Vous cherchez dans quelle zone, et pour quelles dates ?";
+  if (needsLocation) return "Vous cherchez dans quelle zone ?";
+  if (needsDates) return "Quelles sont vos dates de sejour ?";
+  return "";
 }
 
 function inferConversationState({ constraints, options, attemptedReservation }) {
@@ -1071,6 +1181,17 @@ export async function runCustomerAgentTurn(input) {
   const language = String(constraints?.language || extracted?.language || client?.language || "fr").trim().toLowerCase();
   await preloadSelectedProperty(state);
   await preloadDiscoveryOptions(state, extracted);
+  const coachingState = String(conversation?.state || "").trim() || "unknown";
+  const coachingBlock = await buildReplyCoachingContext({
+    userMessage: state.userMessage,
+    language,
+    state: coachingState,
+  });
+  const coachingDirectives = await getReplyCoachingDirectives({
+    userMessage: state.userMessage,
+    language,
+    state: coachingState,
+  });
   const systemPrompt = [
     "You are the Dwira AI agent.",
     "You are not a scripted chatbot. You must behave like a smart rental agent that understands the customer, searches the live site inventory intelligently, follows one client across the conversation, and moves the booking forward.",
@@ -1092,6 +1213,8 @@ export async function runCustomerAgentTurn(input) {
     "Do not dump large counts of results. Do not expose internal search labels.",
     "Ask only the next blocking piece of information when something is missing.",
     "If there are several matches, summarize the best choices and mention references and direct links naturally.",
+    "When REPLY_COACHING contains similar successful cases, treat it as high-priority behavior memory for similar situations.",
+    "Apply coaching memory only when it fits the current case and never override live facts, availability, prices, or references.",
     "Output plain text only. No markdown bullets with stars, no JSON.",
   ].join(" ");
 
@@ -1114,6 +1237,14 @@ export async function runCustomerAgentTurn(input) {
     {
       role: "system",
       content: `DISCOVERY_OPTIONS:\n${JSON.stringify((Array.isArray(state.currentOptions) ? state.currentOptions : []).slice(0, 3), null, 2)}`,
+    },
+    {
+      role: "system",
+      content: `REPLY_COACHING:\n${coachingBlock || "none"}`,
+    },
+    {
+      role: "system",
+      content: `COACHING_DIRECTIVES:\n${JSON.stringify(coachingDirectives || {}, null, 2)}`,
     },
     {
       role: "user",
@@ -1165,26 +1296,34 @@ export async function runCustomerAgentTurn(input) {
     finalReply = buildFallbackReply(language, state.constraints);
   }
 
-  const options = Array.isArray(state.currentOptions) ? state.currentOptions.slice(0, 3) : [];
+  const greetingOnly = isGreetingOnlyMessage(state.userMessage, extracted, state.constraints);
+  const askDatesBeforeDiscovery = shouldAskDatesBeforeLargeDiscovery(state.constraints);
+  const coachingOverrideReply = buildCoachingOverrideReply(language, state.constraints, coachingDirectives);
+  const options = (greetingOnly || askDatesBeforeDiscovery || coachingOverrideReply) ? [] : (Array.isArray(state.currentOptions) ? state.currentOptions.slice(0, 3) : []);
   const totalCount = Number(state?.constraints?.browse?.lastShownCount || 0);
   const deterministicReply = buildDeterministicDiscoveryReply(language, extracted, state.constraints, options);
   const hasTnStyleMessage = /\b(sallem|salem|slm|aslema|marhbe|ahla|chnw|chnowa|nheb|andek|b9adech|fama)\b/.test(norm(state.userMessage));
   const deterministicTnReply = (language === "tn" || hasTnStyleMessage) ? buildDeterministicTnReply(state, extracted, options) : "";
-  const deterministicDiscoveryOutcome = await buildDeterministicDiscoveryOutcome(language, extracted, state.constraints, options, totalCount);
+  const deterministicDiscoveryOutcome = await buildDeterministicDiscoveryOutcome(language, extracted, state.constraints, options, totalCount, coachingDirectives);
   const deterministicTnDiscoveryOutcome = (language === "tn" || hasTnStyleMessage)
-    ? await buildDeterministicTnDiscoveryOutcome(state, extracted, options, totalCount)
+    ? await buildDeterministicTnDiscoveryOutcome(state, extracted, options, totalCount, coachingDirectives)
     : "";
-  if ((!String(finalReply || "").trim() || /je n.ai pas trouv|ma fama hata|no availability currently/i.test(String(finalReply || ""))) && deterministicReply) {
+  if (greetingOnly) {
+    finalReply = buildGreetingOnlyReply(language);
+  } else if ((!String(finalReply || "").trim() || /je n.ai pas trouv|ma fama hata|no availability currently/i.test(String(finalReply || ""))) && deterministicReply) {
     finalReply = deterministicReply;
   }
-  if (deterministicDiscoveryOutcome) {
+  if (!greetingOnly && deterministicDiscoveryOutcome) {
     finalReply = deterministicDiscoveryOutcome;
   }
-  if (deterministicTnReply) {
+  if (!greetingOnly && deterministicTnReply) {
     finalReply = deterministicTnReply;
   }
-  if (deterministicTnDiscoveryOutcome) {
+  if (!greetingOnly && deterministicTnDiscoveryOutcome) {
     finalReply = deterministicTnDiscoveryOutcome;
+  }
+  if (!greetingOnly && coachingOverrideReply) {
+    finalReply = coachingOverrideReply;
   }
   finalReply = sanitizeAgentReply(finalReply);
   const newState = inferConversationState({
@@ -1201,6 +1340,8 @@ export async function runCustomerAgentTurn(input) {
     diagnostics: {
       mode: "agent_rag",
       toolsUsed: state.toolsUsed,
+      coachingMatched: Boolean(coachingDirectives?.matched),
+      coachingRows: Array.isArray(coachingDirectives?.matchedRows) ? coachingDirectives.matchedRows.length : 0,
     },
   };
 }

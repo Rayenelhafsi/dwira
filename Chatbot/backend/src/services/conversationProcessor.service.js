@@ -97,8 +97,16 @@ function normalizeConversationContext(existing, extracted, rawMessage = "") {
     childGuests: Number.isFinite(childGuests) && childGuests >= 0 ? childGuests : 0,
     budget: Number.isFinite(extractedBudget) && extractedBudget > 0 ? extractedBudget : base.budget || null,
     location: String(extracted?.location || base.location || "").trim() || null,
-    type: String(extracted?.type || base.type || "").trim().toLowerCase() || null,
-    subType: String(extracted?.subType || base.subType || "").trim().toLowerCase() || null,
+    type: (
+      isMeaningfulValue(extracted?.type)
+        ? String(extracted.type).trim().toLowerCase()
+        : String(base.type || "").trim().toLowerCase()
+    ) || null,
+    subType: (
+      isMeaningfulValue(extracted?.subType)
+        ? String(extracted.subType).trim().toLowerCase()
+        : String(base.subType || "").trim().toLowerCase()
+    ) || null,
     bedrooms: Number.isFinite(Number(extracted?.bedrooms)) && Number(extracted.bedrooms) > 0 ? Number(extracted.bedrooms) : base.bedrooms || null,
     floor: String(base.floor || "").trim().toLowerCase() || null,
     preferences: Array.from(new Set([...(Array.isArray(base.preferences) ? base.preferences : []), ...(Array.isArray(extracted?.preferences) ? extracted.preferences : [])])),
