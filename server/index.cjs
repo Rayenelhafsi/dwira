@@ -5630,14 +5630,22 @@ async function sendMessengerPropertyReply({ senderId, pageId, propertyUrl, prope
 }
 
 // Middleware
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (isLocalDevOrigin(origin)) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    return callback(new Error('CORS blocked for this origin'));
-  },
-  credentials: true,
+app.use(cors((req, callback) => {
+  const origin = String(req.headers.origin || '').trim();
+  const isAppleFormPostCallback = (
+    req.method === 'POST'
+    && req.path === '/api/auth/apple/callback'
+    && origin === 'https://appleid.apple.com'
+  );
+
+  if (!origin || isLocalDevOrigin(origin) || ALLOWED_ORIGINS.includes(origin) || isAppleFormPostCallback) {
+    return callback(null, {
+      origin: true,
+      credentials: true,
+    });
+  }
+
+  return callback(new Error('CORS blocked for this origin'));
 }));
 app.use(express.json({
   limit: '2mb',
