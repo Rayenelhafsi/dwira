@@ -8626,7 +8626,7 @@ async function ensureAuthSchema() {
 
   if (!(await columnExists('utilisateurs', 'auth_provider'))) {
     await pool.query(
-      "ALTER TABLE utilisateurs ADD COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone', 'email', 'passkey') NOT NULL DEFAULT 'local'"
+      "ALTER TABLE utilisateurs ADD COLUMN auth_provider ENUM('local', 'google', 'facebook', 'apple', 'phone', 'email', 'passkey') NOT NULL DEFAULT 'local'"
     );
   }
 
@@ -8641,10 +8641,15 @@ async function ensureAuthSchema() {
   const authProviderColumnType = String(authProviderRows?.[0]?.column_type || '');
   if (
     authProviderColumnType
-    && (!authProviderColumnType.includes("'phone'") || !authProviderColumnType.includes("'email'") || !authProviderColumnType.includes("'passkey'"))
+    && (
+      !authProviderColumnType.includes("'apple'")
+      || !authProviderColumnType.includes("'phone'")
+      || !authProviderColumnType.includes("'email'")
+      || !authProviderColumnType.includes("'passkey'")
+    )
   ) {
     await pool.query(
-      "ALTER TABLE utilisateurs MODIFY COLUMN auth_provider ENUM('local', 'google', 'facebook', 'phone', 'email', 'passkey') NOT NULL DEFAULT 'local'"
+      "ALTER TABLE utilisateurs MODIFY COLUMN auth_provider ENUM('local', 'google', 'facebook', 'apple', 'phone', 'email', 'passkey') NOT NULL DEFAULT 'local'"
     );
   }
 
@@ -9800,9 +9805,100 @@ async function ensureMessengerSchema() {
 }
 
 async function upsertSocialUser({ email, name, avatar, provider, providerUserId }) {
-  const userId = `u${Date.now()}`;
   const now = getAgencySqlDateTime();
+  const userId = `u${Date.now()}`;
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  const normalizedProviderUserId = String(providerUserId || '').trim();
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedName = String(name || '').trim() || 'Client';
   const safeAvatar = resolveSocialAvatarUrl({ provider, providerUserId, avatar });
+  const isSyntheticAppleEmail = (value) => /@apple\.dwira\.local$/i.test(String(value || '').trim());
+
+  if (normalizedProvider && normalizedProviderUserId) {
+    const [providerRows] = await pool.query(
+      `SELECT id, nom, email, role, avatar, telephone, address, cin, cin_image_url, profile_completed_at, client_type,
+              auth_provider, provider_user_id, last_login_at, updated_at
+       FROM utilisateurs
+       WHERE auth_provider = ?
+         AND provider_user_id = ?
+       LIMIT 1`,
+      [normalizedProvider, normalizedProviderUserId]
+    );
+
+    if (providerRows[0]) {
+      const currentEmail = String(providerRows[0].email || '').trim().toLowerCase();
+      const resolvedEmail = normalizedEmail && (!currentEmail || isSyntheticAppleEmail(currentEmail))
+        ? normalizedEmail
+        : currentEmail;
+      await pool.query(
+        `UPDATE utilisateurs
+         SET nom = ?,
+             email = ?,
+             avatar = ?,
+             last_login_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+        [normalizedName, resolvedEmail || normalizedEmail, safeAvatar, now, now, providerRows[0].id]
+      );
+
+      return {
+        id: providerRows[0].id,
+        email: resolvedEmail || normalizedEmail,
+        name: normalizedName,
+        role: providerRows[0].role,
+        avatar: safeAvatar,
+        clientType: providerRows[0].client_type || null,
+        telephone: providerRows[0].telephone || null,
+        cin: providerRows[0].cin || null,
+        cinImageUrl: providerRows[0].cin_image_url || null,
+        authProvider: providerRows[0].auth_provider,
+        providerUserId: providerRows[0].provider_user_id || null,
+        lastLoginAt: now,
+        updatedAt: now,
+        profileCompleted: isLegalIdentityProfileCompleted(providerRows[0]),
+      };
+    }
+  }
+
+  const [emailRows] = await pool.query(
+    `SELECT id, nom, email, role, avatar, telephone, address, cin, cin_image_url, profile_completed_at, client_type,
+            auth_provider, provider_user_id, last_login_at, updated_at
+     FROM utilisateurs
+     WHERE email = ?
+     LIMIT 1`,
+    [normalizedEmail]
+  );
+
+  if (emailRows[0]) {
+    await pool.query(
+      `UPDATE utilisateurs
+       SET nom = ?,
+           avatar = ?,
+           auth_provider = ?,
+           provider_user_id = ?,
+           last_login_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [normalizedName, safeAvatar, normalizedProvider, normalizedProviderUserId || null, now, now, emailRows[0].id]
+    );
+
+    return {
+      id: emailRows[0].id,
+      email: emailRows[0].email,
+      name: normalizedName,
+      role: emailRows[0].role,
+      avatar: safeAvatar,
+      clientType: emailRows[0].client_type || null,
+      telephone: emailRows[0].telephone || null,
+      cin: emailRows[0].cin || null,
+      cinImageUrl: emailRows[0].cin_image_url || null,
+      authProvider: normalizedProvider,
+      providerUserId: normalizedProviderUserId || null,
+      lastLoginAt: now,
+      updatedAt: now,
+      profileCompleted: isLegalIdentityProfileCompleted(emailRows[0]),
+    };
+  }
 
   await pool.query(
     `INSERT INTO utilisateurs (id, nom, email, role, avatar, created_at, auth_provider, provider_user_id, last_login_at, updated_at)
@@ -9814,7 +9910,7 @@ async function upsertSocialUser({ email, name, avatar, provider, providerUserId 
        provider_user_id = new_user.provider_user_id,
        last_login_at = new_user.last_login_at,
        updated_at = new_user.updated_at`,
-    [userId, name, email.toLowerCase(), safeAvatar, provider, providerUserId || null, now, now]
+    [userId, normalizedName, normalizedEmail, safeAvatar, normalizedProvider, normalizedProviderUserId || null, now, now]
   );
 
   const [rows] = await pool.query(
@@ -9822,7 +9918,7 @@ async function upsertSocialUser({ email, name, avatar, provider, providerUserId 
             auth_provider, provider_user_id, last_login_at, updated_at
      FROM utilisateurs
      WHERE email = ? LIMIT 1`,
-    [email.toLowerCase()]
+    [normalizedEmail]
   );
   if (!rows[0]) return null;
   return {
