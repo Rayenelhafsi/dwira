@@ -1051,6 +1051,8 @@ export default function HomePage({
   const filterControlsRef = useRef<HTMLDivElement>(null);
   const locationDesktopPopupRef = useRef<HTMLDivElement>(null);
   const locationMobilePopupRef = useRef<HTMLDivElement>(null);
+  const hotelDestinationDesktopListRef = useRef<HTMLDivElement>(null);
+  const hotelDestinationMobileListRef = useRef<HTMLDivElement>(null);
   const calendarMobilePopupRef = useRef<HTMLDivElement>(null);
   const categoryMobilePopupRef = useRef<HTMLDivElement>(null);
   const seasideDesktopPopupRef = useRef<HTMLDivElement>(null);
@@ -1140,6 +1142,9 @@ export default function HomePage({
   const [hotelResultsView, setHotelResultsView] = useState<HotelResultsView>(() => (
     String(searchParams.get("hotelView") || "").trim() === "list" ? "list" : "grid"
   ));
+  const [isMobileHotelSearchOverlayViewport, setIsMobileHotelSearchOverlayViewport] = useState<boolean>(() => (
+    typeof window !== "undefined" ? window.innerWidth < 768 : false
+  ));
   const [isMobileHotelResultsViewport, setIsMobileHotelResultsViewport] = useState<boolean>(() => (
     typeof window !== "undefined" ? window.innerWidth < 1024 : false
   ));
@@ -1176,6 +1181,13 @@ export default function HomePage({
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const syncViewport = () => setIsMobileHotelResultsViewport(window.innerWidth < 1024);
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const syncViewport = () => setIsMobileHotelSearchOverlayViewport(window.innerWidth < 768);
     syncViewport();
     window.addEventListener("resize", syncViewport);
     return () => window.removeEventListener("resize", syncViewport);
@@ -1287,13 +1299,27 @@ export default function HomePage({
     [searchParams]
   );
   useEffect(() => {
-    if (!hotelDestinationOpen && !hotelTravellersOpen && !hotelCalendarOpen && !showLoginPrompt && !hotelReserveModal && !hotelSearchLoadingModal) return;
+    const shouldLockBodyScroll =
+      hotelCalendarOpen
+      || showLoginPrompt
+      || Boolean(hotelReserveModal)
+      || hotelSearchLoadingModal
+      || (isMobileHotelSearchOverlayViewport && (hotelDestinationOpen || hotelTravellersOpen));
+    if (!shouldLockBodyScroll) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [hotelDestinationOpen, hotelTravellersOpen, hotelCalendarOpen, showLoginPrompt, hotelReserveModal, hotelSearchLoadingModal]);
+  }, [
+    hotelCalendarOpen,
+    showLoginPrompt,
+    hotelReserveModal,
+    hotelSearchLoadingModal,
+    hotelDestinationOpen,
+    hotelTravellersOpen,
+    isMobileHotelSearchOverlayViewport,
+  ]);
   useEffect(() => {
     if (showChatbotWidget) return;
     const idleCallback = window.requestIdleCallback?.(() => setShowChatbotWidget(true), { timeout: 1800 });
@@ -1451,6 +1477,12 @@ export default function HomePage({
     () => filteredHotelCities,
     [filteredHotelCities]
   );
+  const getHotelCityCountLabel = useCallback((cityId: number) => {
+    const normalizedCityId = Number(cityId) || 0;
+    if (normalizedCityId <= 0) return "";
+    if (!Object.prototype.hasOwnProperty.call(hotelCountsByCityId, normalizedCityId)) return "";
+    return `(${hotelCountsByCityId[normalizedCityId] || 0})`;
+  }, [hotelCountsByCityId]);
   const filteredHotelsByCity = useMemo(
     () =>
       hotelsByCity
@@ -2652,6 +2684,15 @@ export default function HomePage({
       cancelled = true;
     };
   }, [hotelCityId, hotelDestinationOpen, hotelsByCity.length, isHotelMode]);
+  useEffect(() => {
+    if (!hotelDestinationOpen || hotelDestinationTab !== "hotels") return;
+    const scrollToTop = () => {
+      if (hotelDestinationDesktopListRef.current) hotelDestinationDesktopListRef.current.scrollTop = 0;
+      if (hotelDestinationMobileListRef.current) hotelDestinationMobileListRef.current.scrollTop = 0;
+    };
+    const frameId = window.requestAnimationFrame(scrollToTop);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [hotelCityId, hotelDestinationOpen, hotelDestinationTab]);
   useEffect(() => {
     if (selectedLocations.length === 0) {
       setLocation("");
@@ -4540,7 +4581,7 @@ export default function HomePage({
                               ))}
                             </div>
                           </div>
-                          <div className="max-h-80 overflow-y-auto" onScroll={handleHotelDestinationScroll}>
+                          <div ref={hotelDestinationDesktopListRef} className="max-h-80 overflow-y-auto" onScroll={handleHotelDestinationScroll}>
                             {hotelDestinationTab === "hotels" && selectedHotelCity && (
                               <div className="border-b border-slate-100 bg-white px-4 py-4">
                                 <button
@@ -4567,7 +4608,9 @@ export default function HomePage({
                                     <p className="text-sm font-semibold text-slate-900">{city.Name}</p>
                                     <p className="text-xs text-slate-500">Tunisie</p>
                                   </div>
-                                  <span className="shrink-0 text-sm font-semibold text-violet-500">({hotelCountsByCityId[Number(city.Id)] || 0})</span>
+                                  {getHotelCityCountLabel(Number(city.Id)) ? (
+                                    <span className="shrink-0 text-sm font-semibold text-violet-500">{getHotelCityCountLabel(Number(city.Id))}</span>
+                                  ) : null}
                                 </button>
                               ) : null
                             ))}
@@ -5227,6 +5270,11 @@ export default function HomePage({
                   </button>
                   {showComfortDropdown && (
                     <div ref={comfortDesktopPopupRef} className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block p-2 space-y-2">
+                      <div className="sticky top-0 z-10 bg-white pb-2">
+                        <button type="button" onClick={confirmComfortSelection} className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
+                          Confirmer confort
+                        </button>
+                      </div>
                       <div className="px-2 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Bord de mer</div>
                       {availableSeasideOptions.map((key) => {
                         const image = getHomeFilterOptionImage("seaside", key);
@@ -5263,9 +5311,6 @@ export default function HomePage({
                           </button>
                         );
                       })}
-                      <button type="button" onClick={confirmComfortSelection} className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
-                        Confirmer confort
-                      </button>
                     </div>
                   )}
                 </div>
@@ -5621,6 +5666,11 @@ export default function HomePage({
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={comfortMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
+              <div className="sticky top-0 z-10 bg-white pb-2">
+                <button type="button" onClick={confirmComfortSelection} className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
+                  Confirmer confort
+                </button>
+              </div>
               <div className="px-2 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Bord de mer</div>
               {availableSeasideOptions.map((key) => {
                 const image = getHomeFilterOptionImage("seaside", key);
@@ -5657,9 +5707,6 @@ export default function HomePage({
                   </button>
                 );
               })}
-              <button type="button" onClick={confirmComfortSelection} className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
-                Confirmer confort
-              </button>
             </div>
           </div>
         )}
@@ -7065,7 +7112,7 @@ export default function HomePage({
                   ))}
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto pb-8" onScroll={handleHotelDestinationScroll}>
+              <div ref={hotelDestinationMobileListRef} className="min-h-0 flex-1 overflow-y-auto pb-8" onScroll={handleHotelDestinationScroll}>
                 {hotelDestinationTab === "hotels" && selectedHotelCity && (
                   <div className="bg-white px-4 pb-2 pt-4">
                     <button
@@ -7092,7 +7139,9 @@ export default function HomePage({
                         <p className="text-[16px] font-semibold text-slate-900">{city.Name}</p>
                         <p className="text-[12px] text-slate-500">Tunisie</p>
                       </div>
-                      <span className="shrink-0 text-sm font-semibold text-violet-500">({hotelCountsByCityId[Number(city.Id)] || 0})</span>
+                      {getHotelCityCountLabel(Number(city.Id)) ? (
+                        <span className="shrink-0 text-sm font-semibold text-violet-500">{getHotelCityCountLabel(Number(city.Id))}</span>
+                      ) : null}
                     </button>
                   ) : null
                 ))}

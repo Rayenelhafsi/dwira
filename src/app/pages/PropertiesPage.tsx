@@ -2,7 +2,9 @@
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ListFilter, Layers, ConciergeBell, ChevronDown, ChevronUp, RotateCcw, Share2, Flame } from "lucide-react";
+import { Calendar, Check, MapPin, Search, SlidersHorizontal, Sparkles, Users, X, Waves, Wind, Percent, Coins, ChevronDown, ChevronUp, RotateCcw, Share2, Flame, ChevronLeft, ChevronRight } from "lucide-react";
+import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isBefore, isSameDay, isSameMonth, isWithinInterval, parseISO, startOfMonth, startOfWeek, subMonths } from "date-fns";
+import { fr } from "date-fns/locale";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
 import type { Property } from "../data/properties";
@@ -289,6 +291,28 @@ const serializeStayRangesParam = (ranges: StayRangeSelection[]) =>
     .map((range) => `${String(range.start || "").trim()}_${String(range.end || "").trim()}`)
     .filter((item) => item !== "_")
     .join(";");
+const toggleStringInList = (items: string[], value: string) =>
+  items.includes(value) ? items.filter((item) => item !== value) : [...items, value];
+const buildHierarchicalLocationLabel = (parts: Array<string | null | undefined>) =>
+  parts.map((item) => String(item || "").trim()).filter(Boolean).join(" / ");
+const dedupeHierarchicalLocations = (values: string[]) => {
+  const byNormalized = new Map<string, string>();
+  for (const raw of values) {
+    const item = String(raw || "").trim();
+    if (!item) continue;
+    byNormalized.set(item.toLowerCase(), item);
+  }
+  const unique = Array.from(byNormalized.values());
+  return unique.filter((item) => {
+    const token = item.toLowerCase();
+    return !unique.some((other) => {
+      if (other === item) return false;
+      const otherParts = other.toLowerCase().split("/").map((part) => part.trim()).filter(Boolean);
+      if (otherParts.length <= 1) return false;
+      return token === otherParts[otherParts.length - 1];
+    });
+  });
+};
 
 const stayRangeContainsFlashOffer = (
   stayRange: StayRangeSelection,
@@ -506,6 +530,13 @@ const getSelectedSubTypeMatchKeys = (value: string, selectedMainTypes: PropertyM
       .map((mainType) => buildMainTypeSubTypeMatchKey(mainType, displayLabel))
       .filter(Boolean)
   ));
+};
+const normalizeResidenceExclusiveMainTypes = (
+  mainTypes: PropertyMainType[],
+  preferredMainType?: PropertyMainType | "",
+) => {
+  void preferredMainType;
+  return Array.from(new Set(mainTypes.filter(Boolean)));
 };
 const isResidenceGroupedProperty = (property: any) =>
   Boolean(String(property?.residenceName || property?.filterProfile?.residenceName || "").trim());
@@ -829,7 +860,6 @@ export default function PropertiesPage() {
   const trackedSearchResultsSignatureRef = useRef("");
   const [modeFeaturesByType, setModeFeaturesByType] = useState<Record<string, FeatureApiRow[]>>({});
   const [modeFeatureTabsByType, setModeFeatureTabsByType] = useState<Record<string, FeatureTabApiRow[]>>({});
-  const [advancedPanel, setAdvancedPanel] = useState<"tabs" | "services">("tabs");
   const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [publicPartnerSlug, setPublicPartnerSlug] = useState<string | null>(null);
@@ -931,6 +961,24 @@ export default function PropertiesPage() {
   const primaryStayRange = stayRanges[0] || { start: "", end: "" };
   const checkIn = primaryStayRange.start;
   const checkOut = primaryStayRange.end;
+  const today = useMemo(() => new Date(), []);
+  const [currentMonth, setCurrentMonth] = useState(() => new Date());
+  const [calendarCheckIn, setCalendarCheckIn] = useState<Date | null>(checkIn ? parseISO(checkIn) : null);
+  const [calendarCheckOut, setCalendarCheckOut] = useState<Date | null>(checkOut ? parseISO(checkOut) : null);
+  const [draftStayRanges, setDraftStayRanges] = useState<StayRangeSelection[]>(stayRanges.filter((range) => range.start && range.end));
+  const [locationPays, setLocationPays] = useState("Tunisie");
+  const [locationGouvernerat, setLocationGouvernerat] = useState("");
+  const [locationRegion, setLocationRegion] = useState("");
+  const [locationZone, setLocationZone] = useState("");
+  const [locationSelectionStep, setLocationSelectionStep] = useState<"gouvernerat" | "region" | "zone">("gouvernerat");
+  const [draftSelectedLocations, setDraftSelectedLocations] = useState<string[]>([]);
+  const [draftSelectedGouvernerats, setDraftSelectedGouvernerats] = useState<string[]>([]);
+  const [draftSelectedRegions, setDraftSelectedRegions] = useState<string[]>([]);
+  const [draftSelectedZones, setDraftSelectedZones] = useState<string[]>([]);
+  const [typeSelectionStep, setTypeSelectionStep] = useState<"main" | "sub">("main");
+  const [draftMainType, setDraftMainType] = useState<PropertyMainType | "">("");
+  const [draftSelectedMainTypes, setDraftSelectedMainTypes] = useState<PropertyMainType[]>([]);
+  const [draftCategories, setDraftCategories] = useState<string[]>([]);
 
   useEffect(() => {
     if (loading) return;
@@ -1256,6 +1304,205 @@ export default function PropertiesPage() {
     if (selectedLocations.length === 0) return null;
     return locationImageMap.get(selectedLocations[0]) || null;
   }, [selectedLocations, locationImageMap]);
+  const normalizedZones = useMemo(
+    () =>
+      (Array.isArray(zones) ? zones : []).filter((zone): zone is typeof zones[number] =>
+        Boolean(String(zone?.id || "").trim()) && Boolean(String(zone?.nom || "").trim())
+      ),
+    [zones]
+  );
+  const normalizeLocationToken = (value?: string | null) =>
+    String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const isSameLocationToken = (left?: string | null, right?: string | null) =>
+    normalizeLocationToken(left) !== "" && normalizeLocationToken(left) === normalizeLocationToken(right);
+  const isTokenInList = (values: string[], target?: string | null) => {
+    const normalizedTarget = normalizeLocationToken(target);
+    if (!normalizedTarget) return false;
+    return values.some((value) => normalizeLocationToken(value) === normalizedTarget);
+  };
+  const dedupeLocationValues = (values: string[]) => {
+    const byToken = new Map<string, string>();
+    for (const rawValue of values) {
+      const value = String(rawValue || "").trim();
+      if (!value) continue;
+      const token = normalizeLocationToken(value);
+      if (!token || byToken.has(token)) continue;
+      byToken.set(token, value);
+    }
+    return Array.from(byToken.values()).sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  };
+  const hydrateLocationDraftsFromSelection = useCallback((values: string[]) => {
+    const nextGouvernerats = new Set<string>();
+    const nextRegions = new Set<string>();
+    const nextZones = new Set<string>();
+
+    values.forEach((rawValue) => {
+      const parts = String(rawValue || "")
+        .split("/")
+        .map((item) => String(item || "").trim())
+        .filter(Boolean);
+      if (parts.length >= 1) nextGouvernerats.add(parts[0]);
+      if (parts.length >= 2) nextRegions.add(parts[parts.length - 2]);
+      if (parts.length >= 3) nextZones.add(parts[parts.length - 1]);
+    });
+
+    setDraftSelectedGouvernerats(Array.from(nextGouvernerats));
+    setDraftSelectedRegions(Array.from(nextRegions));
+    setDraftSelectedZones(Array.from(nextZones));
+    if (nextZones.size > 0) setLocationSelectionStep("zone");
+    else if (nextRegions.size > 0) setLocationSelectionStep("region");
+    else setLocationSelectionStep("gouvernerat");
+  }, []);
+  const findZoneForRegion = (regionValue?: string | null) =>
+    normalizedZones.find((zone) => {
+      if (!isSameLocationToken(zone.region, regionValue)) return false;
+      if (locationPays && !isSameLocationToken(zone.pays, locationPays)) return false;
+      if (locationGouvernerat && !isSameLocationToken(zone.gouvernerat, locationGouvernerat)) return false;
+      return true;
+    }) || normalizedZones.find((zone) => isSameLocationToken(zone.region, regionValue)) || null;
+  const findZoneForQuartier = (zoneValue?: string | null) =>
+    normalizedZones.find((zone) => {
+      if (!isSameLocationToken(zone.quartier || zone.nom, zoneValue)) return false;
+      if (locationPays && !isSameLocationToken(zone.pays, locationPays)) return false;
+      if (locationGouvernerat && !isSameLocationToken(zone.gouvernerat, locationGouvernerat)) return false;
+      if (locationRegion && !isSameLocationToken(zone.region, locationRegion)) return false;
+      return true;
+    }) || normalizedZones.find((zone) => isSameLocationToken(zone.quartier || zone.nom, zoneValue)) || null;
+  const cascadeGouverneratOptions = useMemo(
+    () =>
+      dedupeLocationValues(
+        normalizedZones
+          .filter((zone) => !locationPays || isSameLocationToken(zone.pays, locationPays))
+          .map((zone) => String(zone.gouvernerat || "").trim())
+          .filter(Boolean)
+      ),
+    [locationPays, normalizedZones]
+  );
+  const draftCascadeRegionOptions = useMemo(
+    () =>
+      dedupeLocationValues(
+        normalizedZones
+          .filter((zone) => draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+          .map((zone) => String(zone.region || "").trim())
+          .filter(Boolean)
+      ),
+    [draftSelectedGouvernerats, normalizedZones]
+  );
+  const draftCascadeZoneOptions = useMemo(
+    () =>
+      dedupeLocationValues(
+        normalizedZones
+          .filter((zone) =>
+            (draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+            && (draftSelectedRegions.length === 0 || isTokenInList(draftSelectedRegions, zone.region))
+          )
+          .map((zone) => String(zone.quartier || zone.nom || "").trim())
+          .filter(Boolean)
+      ),
+    [draftSelectedGouvernerats, draftSelectedRegions, normalizedZones]
+  );
+  const applyGovernorateSelection = (value: string) => {
+    setLocationGouvernerat(value);
+    setDraftSelectedGouvernerats((prev) => {
+      const next = toggleStringInList(prev, value);
+      const nextRegions = draftSelectedRegions.filter((region) =>
+        normalizedZones.some((zone) => isTokenInList(next, zone.gouvernerat) && isSameLocationToken(zone.region, region))
+      );
+      const nextZones = draftSelectedZones.filter((zoneName) =>
+        normalizedZones.some((zone) =>
+          isTokenInList(next, zone.gouvernerat)
+          && (!nextRegions.length || isTokenInList(nextRegions, zone.region))
+          && isSameLocationToken(zone.quartier || zone.nom, zoneName)
+        )
+      );
+      setDraftSelectedRegions(nextRegions);
+      setDraftSelectedZones(nextZones);
+      return next;
+    });
+  };
+  const applyRegionSelection = (value: string) => {
+    const resolvedZone = findZoneForRegion(value);
+    if (resolvedZone?.gouvernerat) setLocationGouvernerat(String(resolvedZone.gouvernerat));
+    setLocationRegion(value);
+    setDraftSelectedRegions((prev) => {
+      const next = toggleStringInList(prev, value);
+      const nextZones = draftSelectedZones.filter((zoneName) =>
+        normalizedZones.some((zone) =>
+          isTokenInList(draftSelectedGouvernerats, zone.gouvernerat)
+          && isTokenInList(next, zone.region)
+          && isSameLocationToken(zone.quartier || zone.nom, zoneName)
+        )
+      );
+      setDraftSelectedZones(nextZones);
+      return next;
+    });
+  };
+  const applyZoneSelection = (value: string) => {
+    const resolvedZone = findZoneForQuartier(value);
+    if (resolvedZone?.gouvernerat) setLocationGouvernerat(String(resolvedZone.gouvernerat));
+    if (resolvedZone?.region) setLocationRegion(String(resolvedZone.region));
+    setLocationZone(value);
+    setDraftSelectedZones((prev) => toggleStringInList(prev, value));
+  };
+  const getLocationOptionImage = (level: "gouvernerat" | "region" | "zone", value: string) => {
+    const rows = normalizedZones.filter((zone) => {
+      if (level === "gouvernerat") return isSameLocationToken(zone.gouvernerat, value);
+      if (level === "region") return isSameLocationToken(zone.region, value);
+      return isSameLocationToken(zone.quartier || zone.nom, value);
+    });
+    const pickFirstNonEmpty = (field: "gouvernerat_image_url" | "region_image_url" | "quartier_image_url" | "image_url") =>
+      String(rows.find((item) => String(item[field] || "").trim())?.[field] || "").trim();
+    const levelImage =
+      level === "gouvernerat"
+        ? pickFirstNonEmpty("gouvernerat_image_url")
+        : level === "region"
+          ? pickFirstNonEmpty("region_image_url")
+          : pickFirstNonEmpty("quartier_image_url");
+    return resolveZoneImageUrl(levelImage || pickFirstNonEmpty("image_url"));
+  };
+  const locationCardSelectionClass = (selected: boolean) =>
+    selected
+      ? "border-emerald-300 ring-2 ring-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.75),0_0_22px_rgba(52,211,153,0.65)]"
+      : "border-gray-200";
+  const renderSelectionCheckbox = (selected: boolean) => (
+    <span
+      className={`absolute right-3 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[10px] border backdrop-blur-md transition-all duration-200 ${
+        selected
+          ? "border-emerald-300 bg-emerald-500/95 text-white shadow-[0_10px_25px_rgba(16,185,129,0.35)]"
+          : "border-white/75 bg-white/92 text-transparent shadow-[0_10px_24px_rgba(15,23,42,0.18)]"
+      }`}
+      aria-hidden="true"
+    >
+      <Check size={16} strokeWidth={3} />
+    </span>
+  );
+  const renderSelectionLabel = (label: string) => (
+    <span className="flex min-h-[3rem] max-w-[calc(100%-3.75rem)] min-w-[7rem] items-center rounded-xl border border-white/20 bg-black/30 px-4 py-2 text-left text-sm font-semibold leading-snug text-white shadow-[0_10px_25px_rgba(15,23,42,0.22)] backdrop-blur-md [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]">
+      {label}
+    </span>
+  );
+  const locationStepMeta = {
+    gouvernerat: {
+      title: "Gouvernorat",
+      subtitle: "Choisissez un ou plusieurs gouvernorats en Tunisie.",
+      options: cascadeGouverneratOptions,
+    },
+    region: {
+      title: "Région",
+      subtitle: "Affinez votre recherche avec une ou plusieurs régions.",
+      options: draftCascadeRegionOptions,
+    },
+    zone: {
+      title: "Zone",
+      subtitle: "Choisissez une ou plusieurs zones puis confirmez.",
+      options: draftCascadeZoneOptions,
+    },
+  } as const;
   const availableTypeOptions = useMemo(() => {
     const byCategory = new Map<string, { label: string; imageUrl: string }>();
     for (const property of modeProperties) {
@@ -1575,10 +1822,14 @@ export default function PropertiesPage() {
       return areStringArraysEqual(prev, next) ? prev : next;
     });
   }, [normalizeSelectedCategories, selectedMainTypes]);
-  const removeCategoriesForMainType = (categories: string[], mainType: PropertyMainType) => {
+  const removeCategoriesForMainType = (
+    categories: string[],
+    mainType: PropertyMainType,
+    currentSelectedTypes: PropertyMainType[] = selectedMainTypes,
+  ) => {
     const selectedGroup = groupedTypeOptions.find((group) => group.mainType === mainType);
     if (!selectedGroup) return categories;
-    const remainingGroups = groupedTypeOptions.filter((group) => selectedMainTypes.includes(group.mainType) && group.mainType !== mainType);
+    const remainingGroups = groupedTypeOptions.filter((group) => currentSelectedTypes.includes(group.mainType) && group.mainType !== mainType);
     const stillAllowedMatchKeys = new Set(
       remainingGroups.flatMap((group) => group.subTypes.map((item) => getGroupedSubTypeMatchKey(group.mainType, item)).filter(Boolean))
     );
@@ -1610,8 +1861,101 @@ export default function PropertiesPage() {
           }
         });
       });
-    return Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
+      return Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label, "fr"));
   }, [groupedTypeOptions, selectedMainTypes]);
+  const draftSecondaryTypeOptions = useMemo(() => {
+    if (!draftMainType) return availableTypeOptions;
+    const selectedGroup = groupedTypeOptions.find((group) => group.mainType === draftMainType);
+    return selectedGroup?.subTypes || [];
+  }, [availableTypeOptions, draftMainType, groupedTypeOptions]);
+  const isCategorySelectedForMainTypes = useCallback((categories: string[], label: string, mainTypes: PropertyMainType[], scopeMainType?: PropertyMainType | "") => {
+    const scopedLabel = scopeMainType ? encodeScopedCategory(scopeMainType, label) : label;
+    const normalizedCategories = normalizeSelectedCategories(categories, mainTypes);
+    const normalizedLabel = normalizeSelectedCategories([scopedLabel], mainTypes)[0] || scopedLabel;
+    return normalizedCategories.includes(normalizedLabel);
+  }, [normalizeSelectedCategories]);
+  const openTypeSelection = useCallback(() => {
+    const normalizedMainTypes = normalizeResidenceExclusiveMainTypes(selectedMainTypes);
+    const normalizedMainType = normalizedMainTypes.includes("residence") ? "residence" : (normalizedMainTypes[0] || "");
+    setDraftMainType(normalizedMainType);
+    setDraftSelectedMainTypes(normalizedMainTypes);
+    setDraftCategories(normalizeSelectedCategories(selectedCategories, normalizedMainTypes));
+    setTypeSelectionStep(normalizedMainType ? "sub" : "main");
+  }, [normalizeSelectedCategories, selectedCategories, selectedMainTypes]);
+  const toggleDraftMainTypeSelection = useCallback((mainType: PropertyMainType) => {
+    const isRemoving = draftSelectedMainTypes.includes(mainType);
+    const nextSelectedMainTypes = isRemoving
+      ? draftSelectedMainTypes.filter((item) => item !== mainType)
+      : normalizeResidenceExclusiveMainTypes([...draftSelectedMainTypes, mainType], mainType);
+    setDraftSelectedMainTypes(nextSelectedMainTypes);
+    if (isRemoving) {
+      setDraftCategories((prev) => removeCategoriesForMainType(prev, mainType, draftSelectedMainTypes));
+      if (draftMainType === mainType) {
+        setDraftMainType(nextSelectedMainTypes[0] || "");
+        setTypeSelectionStep(nextSelectedMainTypes.length > 0 ? "sub" : "main");
+      }
+      return;
+    }
+    setDraftMainType(mainType);
+    setTypeSelectionStep("sub");
+  }, [draftMainType, draftSelectedMainTypes, removeCategoriesForMainType]);
+  const toggleDraftCategory = useCallback((cat: string, scopeMainType?: PropertyMainType | "") => {
+    const resolvedScopeMainType = scopeMainType || draftMainType;
+    const scopedCategory = resolvedScopeMainType ? encodeScopedCategory(resolvedScopeMainType, cat) : cat;
+    const normalizedCategory = normalizeSelectedCategories([scopedCategory], draftSelectedMainTypes)[0] || scopedCategory;
+    setDraftCategories((prev) => {
+      const normalizedPrev = normalizeSelectedCategories(prev, draftSelectedMainTypes);
+      const next = normalizedPrev.includes(normalizedCategory)
+        ? normalizedPrev.filter((item) => item !== normalizedCategory)
+        : [...normalizedPrev, normalizedCategory];
+      return normalizeSelectedCategories(next, draftSelectedMainTypes);
+    });
+  }, [draftMainType, draftSelectedMainTypes, normalizeSelectedCategories]);
+  const confirmTypeSelection = useCallback(() => {
+    const normalizedMainTypes = normalizeResidenceExclusiveMainTypes(draftSelectedMainTypes, draftMainType || undefined);
+    setSelectedMainTypes(normalizedMainTypes);
+    setSelectedCategories(normalizeSelectedCategories(draftCategories, normalizedMainTypes));
+  }, [draftCategories, draftMainType, draftSelectedMainTypes, normalizeSelectedCategories]);
+  useEffect(() => {
+    setDraftStayRanges(stayRanges.filter((range) => range.start && range.end));
+    const firstRange = stayRanges[0] || { start: "", end: "" };
+    setCalendarCheckIn(firstRange.start ? parseISO(firstRange.start) : null);
+    setCalendarCheckOut(firstRange.end ? parseISO(firstRange.end) : null);
+  }, [stayRanges]);
+  useEffect(() => {
+    setLocationPays("Tunisie");
+    hydrateLocationDraftsFromSelection(selectedLocations);
+    setDraftSelectedLocations(selectedLocations);
+    const firstLabel = selectedLocations[0] || "";
+    const parts = firstLabel.split("/").map((item) => item.trim()).filter(Boolean);
+    setLocationGouvernerat(parts[0] || "");
+    setLocationRegion(parts.length >= 2 ? parts[parts.length - 2] : "");
+    setLocationZone(parts.length >= 3 ? parts[parts.length - 1] : "");
+  }, [hydrateLocationDraftsFromSelection, selectedLocations]);
+  useEffect(() => {
+    const zoneLabels = draftSelectedZones.map((zoneName) => {
+      const resolvedZone = normalizedZones.find((zone) =>
+        (draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+        && (draftSelectedRegions.length === 0 || isTokenInList(draftSelectedRegions, zone.region))
+        && isSameLocationToken(zone.quartier || zone.nom, zoneName)
+      );
+      return buildHierarchicalLocationLabel([resolvedZone?.gouvernerat || "", resolvedZone?.region || "", zoneName]);
+    }).filter(Boolean);
+    const regionLabels = zoneLabels.length === 0
+      ? draftSelectedRegions.map((regionName) => {
+          const resolvedZone = normalizedZones.find((zone) =>
+            (draftSelectedGouvernerats.length === 0 || isTokenInList(draftSelectedGouvernerats, zone.gouvernerat))
+            && isSameLocationToken(zone.region, regionName)
+          );
+          return buildHierarchicalLocationLabel([resolvedZone?.gouvernerat || "", regionName]);
+        }).filter(Boolean)
+      : [];
+    const governorateLabels = zoneLabels.length === 0 && regionLabels.length === 0 ? draftSelectedGouvernerats : [];
+    setDraftSelectedLocations(dedupeHierarchicalLocations([...zoneLabels, ...regionLabels, ...governorateLabels]));
+  }, [draftSelectedGouvernerats, draftSelectedRegions, draftSelectedZones, normalizedZones]);
+  useEffect(() => {
+    openTypeSelection();
+  }, [openTypeSelection]);
   const availableStandingOptions = useMemo(() => {
     const standingSet = new Set<string>();
     modeProperties.forEach((property) => {
@@ -1833,6 +2177,10 @@ export default function PropertiesPage() {
     () => Array.from(tabFeatureOptionsMap.keys()),
     [tabFeatureOptionsMap]
   );
+  const detailedFeatureTabsList = useMemo(
+    () => featureTabsList.filter((tab) => normalizeFeatureName(tab) !== "informationsgenerales"),
+    [featureTabsList]
+  );
 
   useEffect(() => {
     const allowedFeatures = new Set(Array.from(tabFeatureOptionsMap.values()).flat());
@@ -1951,8 +2299,16 @@ export default function PropertiesPage() {
   const handleShareSearch = async () => {
     const params = buildManagedSearchParams();
     const queryString = params.toString();
-    const relativeUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ""}`;
+    const hasFlashResultsToShare = flashDisplayResults.length > 0;
+    const sharePath = hasFlashResultsToShare ? "/ventes_flash" : window.location.pathname;
+    const relativeUrl = `${sharePath}${queryString ? `?${queryString}` : ""}`;
     let shareUrl = `${window.location.origin}${relativeUrl}`;
+    const shareTitle = hasFlashResultsToShare ? "Ventes flash Dwira" : "Recherche Dwira";
+    const shareText = hasFlashResultsToShare
+      ? "Consultez cette selection de ventes flash filtrees sur Dwira."
+      : "Consultez cette recherche filtree sur Dwira.";
+    const copySuccessMessage = hasFlashResultsToShare ? "Lien de vente flash copié." : "Lien de recherche copié.";
+    const copyErrorMessage = hasFlashResultsToShare ? "Impossible de copier le lien de vente flash." : "Impossible de copier le lien de recherche.";
 
     try {
       const base = String(API_URL || "").replace(/\/+$/, "");
@@ -1975,8 +2331,8 @@ export default function PropertiesPage() {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "Recherche Dwira",
-          text: "Consultez cette recherche filtrée sur Dwira.",
+          title: shareTitle,
+          text: shareText,
           url: shareUrl,
         });
         return;
@@ -1987,9 +2343,9 @@ export default function PropertiesPage() {
 
     try {
       await navigator.clipboard.writeText(shareUrl);
-      toast.success("Lien de recherche copié.");
+      toast.success(copySuccessMessage);
     } catch {
-      toast.error("Impossible de copier le lien de recherche.");
+      toast.error(copyErrorMessage);
     }
   };
 
@@ -2008,6 +2364,51 @@ export default function PropertiesPage() {
   };
   const toggleLocation = (loc: string) => {
     setSelectedLocations((prev) => (prev.includes(loc) ? prev.filter((item) => item !== loc) : [...prev, loc]));
+  };
+  const resetCurrentLocationPath = () => {
+    setLocationGouvernerat("");
+    setLocationRegion("");
+    setLocationZone("");
+    setDraftSelectedGouvernerats([]);
+    setDraftSelectedRegions([]);
+    setDraftSelectedZones([]);
+    setLocationSelectionStep("gouvernerat");
+  };
+  const confirmLocationSelection = () => {
+    const nextLocations = dedupeHierarchicalLocations(draftSelectedLocations);
+    setSelectedLocations(nextLocations);
+  };
+  const removeDraftLocationChip = (value: string) => {
+    const parts = String(value || "").split("/").map((item) => item.trim()).filter(Boolean);
+    if (parts.length >= 3) {
+      const target = parts[parts.length - 1];
+      setDraftSelectedZones((prev) => prev.filter((item) => !isSameLocationToken(item, target)));
+      return;
+    }
+    if (parts.length === 2) {
+      const target = parts[parts.length - 1];
+      setDraftSelectedRegions((prev) => prev.filter((item) => !isSameLocationToken(item, target)));
+      setDraftSelectedZones((prev) =>
+        prev.filter((zoneName) =>
+          !normalizedZones.some((zone) => isSameLocationToken(zone.region, target) && isSameLocationToken(zone.quartier || zone.nom, zoneName))
+        )
+      );
+      return;
+    }
+    if (parts.length === 1) {
+      const target = parts[0];
+      setDraftSelectedGouvernerats((prev) => prev.filter((item) => !isSameLocationToken(item, target)));
+      setDraftSelectedRegions((prev) =>
+        prev.filter((regionName) =>
+          !normalizedZones.some((zone) => isSameLocationToken(zone.gouvernerat, target) && isSameLocationToken(zone.region, regionName))
+        )
+      );
+      setDraftSelectedZones((prev) =>
+        prev.filter((zoneName) =>
+          !normalizedZones.some((zone) => isSameLocationToken(zone.gouvernerat, target) && isSameLocationToken(zone.quartier || zone.nom, zoneName))
+        )
+      );
+    }
   };
   const toggleMainType = (mainType: PropertyMainType) => {
     setSelectedMainTypes((prev) => {
@@ -2030,6 +2431,65 @@ export default function PropertiesPage() {
       if (prev.length <= 1) return [{ start: "", end: "" }];
       return prev.filter((_, rangeIndex) => rangeIndex !== index);
     });
+  };
+  const addDraftStayRange = () => {
+    if (!calendarCheckIn || !calendarCheckOut) return;
+    const range = {
+      start: format(calendarCheckIn, "yyyy-MM-dd"),
+      end: format(calendarCheckOut, "yyyy-MM-dd"),
+    };
+    setDraftStayRanges((prev) =>
+      prev.some((item) => item.start === range.start && item.end === range.end) ? prev : [...prev, range]
+    );
+    setCalendarCheckIn(null);
+    setCalendarCheckOut(null);
+  };
+  const confirmCalendarSelection = () => {
+    const nextRanges = [...draftStayRanges];
+    if (calendarCheckIn && calendarCheckOut) {
+      const range = {
+        start: format(calendarCheckIn, "yyyy-MM-dd"),
+        end: format(calendarCheckOut, "yyyy-MM-dd"),
+      };
+      if (!nextRanges.some((item) => item.start === range.start && item.end === range.end)) {
+        nextRanges.push(range);
+      }
+    }
+    setStayRanges(nextRanges.length > 0 ? nextRanges : [{ start: "", end: "" }]);
+  };
+  const handleCalendarDateClick = (date: Date) => {
+    if (isBefore(date, today)) return;
+    if (!calendarCheckIn || (calendarCheckIn && calendarCheckOut)) {
+      setCalendarCheckIn(date);
+      setCalendarCheckOut(null);
+      return;
+    }
+    if (date < calendarCheckIn) {
+      setCalendarCheckIn(date);
+      setCalendarCheckOut(calendarCheckIn);
+      return;
+    }
+    setCalendarCheckOut(date);
+  };
+  const isDateInRange = (date: Date) => {
+    if (!calendarCheckIn || !calendarCheckOut) return false;
+    return isWithinInterval(date, {
+      start: calendarCheckIn < calendarCheckOut ? calendarCheckIn : calendarCheckOut,
+      end: calendarCheckIn < calendarCheckOut ? calendarCheckOut : calendarCheckIn,
+    });
+  };
+  const getDayClassName = (date: Date) => {
+    const isCurrentMonth = isSameMonth(date, currentMonth);
+    const isPast = isBefore(date, today);
+    const isStart = calendarCheckIn && isSameDay(date, calendarCheckIn);
+    const isEnd = calendarCheckOut && isSameDay(date, calendarCheckOut);
+    const isInRange = isDateInRange(date);
+    let className = "flex h-10 w-10 items-center justify-center rounded-full text-sm transition-all ";
+    if (!isCurrentMonth) className += "text-gray-300 ";
+    else if (isPast) className += "cursor-not-allowed text-gray-300 ";
+    else if (isStart || isEnd || isInRange) className += "bg-emerald-600 font-bold text-white shadow-lg ";
+    else className += "text-gray-700 hover:bg-emerald-50 ";
+    return className;
   };
 
   const toggleFeatureName = (name: string) => {
@@ -2893,11 +3353,10 @@ export default function PropertiesPage() {
     }
   }, [sortMode]);
   useEffect(() => {
-    if (advancedPanel !== "tabs") return;
-    if (featureTabsList.length === 0) return;
+    if (detailedFeatureTabsList.length === 0) return;
     if (expandedFeatureTabs.length > 0) return;
-    setExpandedFeatureTabs([featureTabsList[0]]);
-  }, [advancedPanel, featureTabsList, expandedFeatureTabs]);
+    setExpandedFeatureTabs([detailedFeatureTabsList[0]]);
+  }, [detailedFeatureTabsList, expandedFeatureTabs]);
   useEffect(() => {
     if (selectedCharacteristicsCategory) setSelectedCharacteristicsCategory("");
     if (activeCharacteristicsCategoryModal) setActiveCharacteristicsCategoryModal("");
@@ -3163,6 +3622,12 @@ export default function PropertiesPage() {
       }, 80);
     }
   }, [hasStrictStaySearch, sortedScoredResults.length, alternativeScoredResults.length]);
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(currentMonth);
+  const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+  const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  const weekDays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
   const handleQuickSearch = () => {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
       setIsFilterOpen(false);
@@ -3427,157 +3892,251 @@ export default function PropertiesPage() {
                     />
                   </div>
 
-                  <label className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                    <MapPin size={14} className="text-emerald-600" /> Emplacement
-                  </label>
-                  <div className="relative overflow-hidden rounded-xl">
-                    {selectedLocationImage && (
-                      <img
-                        src={resolveZoneImageUrl(selectedLocationImage)}
-                        alt={selectedLocations[0] || "Emplacement"}
-                        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                      />
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                      <MapPin size={14} className="text-emerald-600" /> Emplacement
+                    </label>
+                    {draftSelectedLocations.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {draftSelectedLocations.map((item) => (
+                          <span key={`adv-location-${item}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                            {item}
+                            <button type="button" onClick={() => removeDraftLocationChip(item)}>
+                              <X size={12} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
                     )}
-                    {selectedLocationImage && <div className="pointer-events-none absolute inset-0 bg-black/35" />}
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value) toggleLocation(value);
-                      }}
-                      className={`relative z-10 w-full rounded-xl border p-2.5 text-sm outline-none ${
-                        selectedLocationImage
-                          ? "border-white/70 bg-transparent font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]"
-                          : "border-gray-200 bg-white text-gray-700 focus:border-emerald-500"
-                      }`}
-                    >
-                      <option value="">Ajouter un emplacement</option>
-                      {uniqueLocations.map((loc) => (
-                        <option key={loc} value={loc}>
-                          {loc}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="max-h-40 overflow-y-auto pr-1">
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedLocations([])}
-                        className={`h-16 rounded-xl border px-3 text-left ${selectedLocations.length === 0 ? "border-emerald-300 bg-emerald-50 ring-2 ring-emerald-400" : "border-gray-200 bg-white"}`}
-                      >
-                        <span className={`text-xs font-semibold ${selectedLocations.length === 0 ? "text-emerald-700" : "text-gray-700"}`}>Tous les emplacements</span>
-                      </button>
-                      {uniqueLocations.map((loc) => (
+                    <div className="rounded-[26px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-emerald-50/60 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">Tunisie</p>
+                          <h3 className="mt-2 text-lg font-bold text-gray-900">{locationStepMeta[locationSelectionStep].title}</h3>
+                          <p className="mt-1 text-sm text-gray-600">{locationStepMeta[locationSelectionStep].subtitle}</p>
+                        </div>
+                        <div className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                          {locationSelectionStep === "gouvernerat" ? "1/3" : locationSelectionStep === "region" ? "2/3" : "3/3"}
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
                         <button
-                          key={`location-card-${loc}`}
                           type="button"
-                          onClick={() => toggleLocation(loc)}
-                          className={`relative h-16 overflow-hidden rounded-xl border px-3 text-left ${selectedLocations.includes(loc) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                          onClick={() => {
+                            setDraftSelectedLocations([]);
+                            resetCurrentLocationPath();
+                            setSelectedLocations([]);
+                          }}
+                          className={`w-full rounded-xl px-4 py-3 text-left text-sm transition-colors ${selectedLocations.length === 0 ? "bg-emerald-50 font-semibold text-emerald-700" : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
                         >
-                          <img src={resolveZoneImageUrl(locationImageMap.get(loc) || null)} alt={loc} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                          <div className="pointer-events-none absolute inset-0 bg-black/35" />
-                          <span className="relative z-10 text-xs font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{loc}</span>
+                          Tous les emplacements
                         </button>
-                      ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (locationSelectionStep === "gouvernerat") return;
+                            setLocationSelectionStep(locationSelectionStep === "zone" ? "region" : "gouvernerat");
+                          }}
+                          disabled={locationSelectionStep === "gouvernerat"}
+                          className="w-full rounded-xl border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Précédent
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (locationSelectionStep === "gouvernerat") {
+                              setLocationSelectionStep("region");
+                              return;
+                            }
+                            if (locationSelectionStep === "region") {
+                              setLocationSelectionStep("zone");
+                              return;
+                            }
+                            confirmLocationSelection();
+                          }}
+                          className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
+                        >
+                          {locationSelectionStep === "zone" ? "Confirmer la sélection" : "Suivant"}
+                        </button>
+                      </div>
+                      <div className="mt-4 grid grid-cols-1 gap-3">
+                        {locationStepMeta[locationSelectionStep].options.map((item) => {
+                          const level = locationSelectionStep;
+                          const selected = level === "gouvernerat"
+                            ? isTokenInList(draftSelectedGouvernerats, item)
+                            : level === "region"
+                              ? isTokenInList(draftSelectedRegions, item)
+                              : isTokenInList(draftSelectedZones, item);
+                          return (
+                            <button
+                              key={`adv-location-step-${level}-${item}`}
+                              type="button"
+                              onClick={() => {
+                                if (level === "gouvernerat") applyGovernorateSelection(item);
+                                if (level === "region") applyRegionSelection(item);
+                                if (level === "zone") applyZoneSelection(item);
+                              }}
+                              className={`group relative h-28 overflow-hidden rounded-2xl border ${locationCardSelectionClass(selected)}`}
+                            >
+                              {renderSelectionCheckbox(selected)}
+                              <img src={getLocationOptionImage(level, item)} alt={item} className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+                              <div className={`pointer-events-none absolute inset-0 ${selected ? "bg-emerald-950/25" : "bg-black/40"}`} />
+                              <div className="relative z-10 flex h-full items-center p-4 text-left">
+                                {renderSelectionLabel(item)}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
+                </div>
+
+                <div className="space-y-3 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4 lg:col-span-5">
+                  <label className="text-sm font-bold text-gray-900">Type de bien</label>
+                  {draftSelectedMainTypes.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {draftSelectedMainTypes.map((item) => (
+                        <span key={`adv-main-${item}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                          {MAIN_TYPE_LABELS[item]}
+                          <button type="button" onClick={() => toggleDraftMainTypeSelection(item)}>
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white p-2.5 sm:p-3">
+                    <button
+                      type="button"
+                      className={`w-full rounded-xl px-4 py-3 text-left text-sm transition-colors ${draftCategories.length === 0 && draftSelectedMainTypes.length === 0 ? "bg-emerald-50 font-semibold text-emerald-700" : "text-gray-700 hover:bg-gray-50"}`}
+                      onClick={() => {
+                        setDraftMainType("");
+                        setDraftSelectedMainTypes([]);
+                        setDraftCategories([]);
+                        setTypeSelectionStep("main");
+                        setSelectedMainTypes([]);
+                        setSelectedCategories([]);
+                      }}
+                    >
+                      Tous les types
+                    </button>
+                    <p className="mt-3 px-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{typeSelectionStep === "main" ? "Type principal" : "Sous-type"}</p>
+                    <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "main" ? "translate-x-0 opacity-100" : "-translate-x-8 pointer-events-none absolute inset-0 opacity-0"}`}>
+                      <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+                        {groupedTypeOptions.map((group) => (
+                          <button
+                            key={`adv-main-type-${group.mainType}`}
+                            type="button"
+                            onClick={() => toggleDraftMainTypeSelection(group.mainType)}
+                            className={`relative h-24 overflow-hidden rounded-lg border text-left sm:h-28 sm:rounded-xl lg:h-24 xl:h-28 ${draftSelectedMainTypes.includes(group.mainType) ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                          >
+                            {renderSelectionCheckbox(draftSelectedMainTypes.includes(group.mainType))}
+                            <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                            <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                            <span className="relative z-10 px-3 sm:px-4">{renderSelectionLabel(group.label)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={`mt-3 transition-all duration-300 ${typeSelectionStep === "sub" ? "translate-x-0 opacity-100" : "pointer-events-none absolute inset-0 translate-x-8 opacity-0"}`}>
+                      <button type="button" onClick={() => setTypeSelectionStep("main")} className="mb-3 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">
+                        <ChevronLeft size={14} /> Retour types principaux
+                      </button>
+                      {draftSelectedMainTypes.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                          Selectionnez d'abord un type principal.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3">
+                          {draftSecondaryTypeOptions.map((cat) => {
+                            const scopeMainType = cat.selectionScope || draftMainType || cat.matchMainType;
+                            const isSelected = isCategorySelectedForMainTypes(draftCategories, cat.label, draftSelectedMainTypes, scopeMainType);
+                            return (
+                              <button
+                                key={`adv-sub-type-${scopeMainType || "any"}-${cat.label}`}
+                                type="button"
+                                onClick={() => toggleDraftCategory(cat.label, scopeMainType)}
+                                className={`relative h-20 overflow-hidden rounded-lg border text-left sm:h-24 sm:rounded-xl ${isSelected ? "ring-2 ring-emerald-400" : "border-gray-200"}`}
+                              >
+                                {renderSelectionCheckbox(isSelected)}
+                                <img src={resolveTypeImageUrl(cat.imageUrl)} alt={getCategoryDisplayLabel(cat.label)} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+                                <div className="pointer-events-none absolute inset-0 bg-black/40" />
+                                <span className="relative z-10 px-2.5 sm:px-3">{renderSelectionLabel(getCategoryDisplayLabel(cat.label))}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <button type="button" onClick={confirmTypeSelection} className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700">
+                    Valider le type
+                  </button>
+
                   {selectedMode === "location_saisonniere" && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <div className="col-span-2 space-y-2">
-                          {stayRanges.map((range, index) => (
-                            <div key={`stay-range-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                              <div>
-                                <label className="mb-1 block text-xs font-bold text-gray-700">Arrivee {index + 1}</label>
-                                <input
-                                  type="date"
-                                  value={range.start}
-                                  onChange={(e) => updateStayRange(index, "start", e.target.value)}
-                                  className="w-full rounded-lg border border-gray-200 bg-white p-2 text-sm outline-none focus:border-emerald-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="mb-1 block text-xs font-bold text-gray-700">Depart {index + 1}</label>
-                                <input
-                                  type="date"
-                                  value={range.end}
-                                  onChange={(e) => updateStayRange(index, "end", e.target.value)}
-                                  className="w-full rounded-lg border border-gray-200 bg-white p-2 text-sm outline-none focus:border-emerald-500"
-                                />
-                              </div>
-                              <div className="flex items-end">
-                                <button
-                                  type="button"
-                                  onClick={() => removeStayRange(index)}
-                                  className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                                >
-                                  Suppr.
-                                </button>
-                              </div>
-                            </div>
+                    <div className="space-y-3 border-t border-gray-200 pt-3">
+                      <label className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                        <Calendar size={14} className="text-emerald-600" /> Date de séjour
+                      </label>
+                      {draftStayRanges.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {draftStayRanges.map((range) => (
+                            <span key={`adv-stay-${range.start}-${range.end}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                              {format(parseISO(range.start), "d MMM", { locale: fr })} - {format(parseISO(range.end), "d MMM", { locale: fr })}
+                              <button type="button" onClick={() => setDraftStayRanges((prev) => prev.filter((item) => item.start !== range.start || item.end !== range.end))}>
+                                <X size={12} />
+                              </button>
+                            </span>
                           ))}
+                        </div>
+                      )}
+                      <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                        <div className="mb-4 flex items-center justify-between">
+                          <button type="button" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="rounded-lg p-2 text-gray-700 hover:bg-gray-100">
+                            <ChevronLeft size={20} />
+                          </button>
+                          <h3 className="font-bold capitalize text-gray-900">{format(currentMonth, "MMMM yyyy", { locale: fr })}</h3>
+                          <button type="button" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="rounded-lg p-2 text-gray-700 hover:bg-gray-100">
+                            <ChevronRight size={20} />
+                          </button>
+                        </div>
+                        <div className="mb-2 grid grid-cols-7 gap-1">
+                          {weekDays.map((day) => (
+                            <div key={day} className="py-2 text-center text-xs font-semibold text-gray-500">{day}</div>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-7 gap-1">
+                          {days.map((day, idx) => (
+                            <button key={`adv-calendar-${idx}`} type="button" onClick={() => handleCalendarDateClick(day)} className={getDayClassName(day)}>
+                              {format(day, "d")}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
                           <button
                             type="button"
-                            onClick={addStayRange}
-                            className="rounded-lg border border-dashed border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                            onClick={addDraftStayRange}
+                            disabled={!calendarCheckIn || !calendarCheckOut}
+                            className="w-full rounded-xl border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Ajouter une periode
+                            Ajouter cette période
                           </button>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-xs">
+                              <div className="h-3 w-3 rounded-full bg-emerald-600" />
+                              <span className="text-gray-600">Sélectionné</span>
+                            </div>
+                            <button type="button" onClick={confirmCalendarSelection} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                              Valider
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
                   )}
-
-                  <label className="text-sm font-bold text-gray-900">Type principal</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {groupedTypeOptions.map((group) => (
-                      <button
-                        key={`main-type-${group.mainType}`}
-                        type="button"
-                        onClick={() => {
-                          toggleMainType(group.mainType);
-                        }}
-                        className={`relative h-24 overflow-hidden rounded-xl border text-left ${
-                          selectedMainTypes.includes(group.mainType) ? "ring-2 ring-emerald-400" : "border-gray-200"
-                        }`}
-                      >
-                        <img src={resolveTypeImageUrl(group.imageUrl)} alt={group.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                        <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                        <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{group.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <label className="text-sm font-bold text-gray-900">Sous-type</label>
-                  {selectedMainTypes.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
-                      Selectionnez d'abord un type principal.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {secondaryTypeOptions.map((cat) => (
-                        <button
-                          key={`sub-type-${cat.selectionScope || cat.matchMainType || "any"}-${cat.label}`}
-                          type="button"
-                          onClick={() => toggleCategory(cat.label, cat.selectionScope || cat.matchMainType)}
-                          className={`relative h-24 overflow-hidden rounded-xl border text-left ${
-                            isSubTypeSelected(cat.label, cat.selectionScope || cat.matchMainType) ? "ring-2 ring-emerald-400" : "border-gray-200"
-                          }`}
-                        >
-                          <img src={resolveTypeImageUrl(cat.imageUrl)} alt={cat.label} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-                          <div className="pointer-events-none absolute inset-0 bg-black/40" />
-                          <span className="relative z-10 px-3 text-sm font-semibold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">{cat.label}</span>
-                          {isSubTypeSelected(cat.label, cat.selectionScope || cat.matchMainType) && (
-                            <span className="absolute right-2 top-2 z-10 rounded-full bg-emerald-600 p-1 text-white">
-                              <Check size={12} />
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
                 </div>
 
                 <div className="space-y-4 rounded-2xl border border-gray-100 bg-gray-50/60 p-4 lg:col-span-3">
@@ -3739,174 +4298,6 @@ export default function PropertiesPage() {
                   </button>
                 </div>
 
-                <div className="space-y-3 rounded-2xl border border-gray-100 bg-gray-50/60 p-4 lg:col-span-5">
-                  <label className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                    <ListFilter size={14} className="text-emerald-600" />
-                    Filtres detailles
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 rounded-xl border border-gray-200 bg-white p-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setAdvancedPanel("tabs")}
-                      className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${advancedPanel === "tabs" ? "bg-emerald-100 text-emerald-800" : "text-gray-600 hover:bg-gray-100"}`}
-                    >
-                      Onglets
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAdvancedPanel("services")}
-                      className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${advancedPanel === "services" ? "bg-emerald-100 text-emerald-800" : "text-gray-600 hover:bg-gray-100"}`}
-                    >
-                      Services payants
-                    </button>
-                  </div>
-                  {advancedPanel === "tabs" && (
-                    <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-1 lg:max-h-[38rem]">
-                      {featureTabsList.length === 0 && <p className="text-sm text-gray-500">Aucun onglet detecte.</p>}
-                      {featureTabsList.map((tab) => (
-                        <div key={`tab-filter-${tab}`} className="rounded-xl border border-gray-200 bg-white">
-                          <button
-                            type="button"
-                            onClick={() => toggleExpandedTab(tab)}
-                            className={`w-full rounded-xl px-4 py-3 text-left text-sm transition-colors hover:bg-gray-50 ${expandedFeatureTabs.includes(tab) ? "text-emerald-800" : "text-gray-700"}`}
-                          >
-                            <span className="inline-flex items-center gap-2">
-                              <Layers size={14} className={expandedFeatureTabs.includes(tab) ? "text-emerald-600" : "text-gray-400"} />
-                              <span className="font-medium">{tab}</span>
-                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600">
-                                {(tabFeatureOptionsMap.get(tab) || []).length} choix
-                              </span>
-                              {expandedFeatureTabs.includes(tab) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                            </span>
-                          </button>
-                          {expandedFeatureTabs.includes(tab) && (
-                            <div className="border-t border-gray-100 px-4 py-3">
-                              <p className="mb-2 text-xs text-gray-500">Choisissez les options de cet onglet.</p>
-                              <div className="flex flex-wrap gap-2">
-                                {(tabFeatureOptionsMap.get(tab) || []).map((featureName) => (
-                                  <button
-                                    key={`feature-${tab}-${featureName}`}
-                                    type="button"
-                                    onClick={() => toggleFeatureName(featureName)}
-                                    className={`rounded-full border px-3 py-2 text-xs transition-colors ${
-                                      selectedFeatureNames.includes(featureName)
-                                        ? "border-emerald-500 bg-emerald-100 text-emerald-800 font-semibold"
-                                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                                    }`}
-                                  >
-                                    {featureName}
-                                  </button>
-                                ))}
-                                {(tabFeatureOptionsMap.get(tab) || []).length === 0 && (
-                                  <p className="text-xs text-gray-500">Aucun choix disponible pour cette categorie.</p>
-                                )}
-                              </div>
-                              {normalizeFeatureName(tab).includes("capacite") && (
-                                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                  <label className="space-y-1">
-                                    <span className="text-xs font-semibold text-gray-700">Nombre chambres double (min)</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      value={minDoubleRooms}
-                                      onChange={(e) => setMinDoubleRooms(Math.max(0, Number(e.target.value || 0)))}
-                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                                    />
-                                  </label>
-                                  <label className="space-y-1">
-                                    <span className="text-xs font-semibold text-gray-700">Nombre de chambres parentale (min)</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      value={minParentRooms}
-                                      onChange={(e) => setMinParentRooms(Math.max(0, Number(e.target.value || 0)))}
-                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                                    />
-                                  </label>
-                                  <label className="space-y-1">
-                                    <span className="text-xs font-semibold text-gray-700">Nombre de chambres simple (min)</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      value={minSimpleRooms}
-                                      onChange={(e) => setMinSimpleRooms(Math.max(0, Number(e.target.value || 0)))}
-                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                                    />
-                                  </label>
-                                  <label className="space-y-1">
-                                    <span className="text-xs font-semibold text-gray-700">Nombre de salle de bain (min)</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      value={minBathroomsCount}
-                                      onChange={(e) => setMinBathroomsCount(Math.max(0, Number(e.target.value || 0)))}
-                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                                    />
-                                  </label>
-                                </div>
-                              )}
-                              {normalizeFeatureName(tab).includes("confort") && (
-                                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                  <label className="space-y-1">
-                                    <span className="text-xs font-semibold text-gray-700">Nombres de chambres climatise (min)</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      value={minClimatizedRooms}
-                                      onChange={(e) => setMinClimatizedRooms(Math.max(0, Number(e.target.value || 0)))}
-                                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                                    />
-                                  </label>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {advancedPanel === "services" && (
-                    <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
-                      <p className="text-sm text-gray-600">
-                        Ouvrez le popup pour parcourir les services par categorie et type de tarification.
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                        <span className="rounded-full bg-gray-100 px-2 py-1">
-                          {paidServicesCatalog.length} services
-                        </span>
-                        <span className="rounded-full bg-gray-100 px-2 py-1">
-                          {paidServiceCategories.length} categories
-                        </span>
-                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-800">
-                          {selectedPaidServices.length} selectionne(s)
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowPaidServicesModal(true)}
-                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
-                      >
-                        <ConciergeBell size={16} />
-                        Ouvrir services payants
-                      </button>
-                      {selectedPaidServices.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {selectedPaidServices.map((label) => (
-                            <button
-                              key={`selected-service-chip-${label}`}
-                              type="button"
-                              onClick={() => togglePaidService(label)}
-                              className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800"
-                            >
-                              {label}
-                              <X size={12} />
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
               </div>
             </motion.div>
             )}
@@ -3944,7 +4335,7 @@ export default function PropertiesPage() {
                 className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Share2 size={16} />
-                <span>Partager la recherche</span>
+                <span>{flashDisplayResults.length > 0 ? "Partager vente flash" : "Partager la recherche"}</span>
               </button>
             </div>
 

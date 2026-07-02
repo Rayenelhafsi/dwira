@@ -20,7 +20,7 @@ import { buildPropertyShareImageUrl, createPropertyShareLink } from "../utils/pr
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
-import { calculateAccommodationPricing, getPeriodMinStayForDate, getReservationMinStayRequirement, getReservationWeekdayRule, validateCheckinWeekdayRule, validateReservationWeekdayRule, resolveCurrentPricing } from "../utils/seasonalPricing";
+import { calculateAccommodationPricing, getPeriodMinStayForDate, getReservationMinStayRequirement, getReservationWeekdayRule, shouldRelaxStayRulesForGap, validateCheckinWeekdayRule, validateReservationWeekdayRule, resolveCurrentPricing } from "../utils/seasonalPricing";
 import { computeGuestLimits } from "../utils/guestLimits";
 import { SmartImage } from "../components/SmartImage";
 import { MapContainer, TileLayer, Circle } from "react-leaflet";
@@ -593,7 +593,7 @@ const decodeBase64Utf8 = (value: string): string | null => {
 
 const parseDmsCoordinates = (value: string): LatLng | null => {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
-  const match = text.match(/(\d{1,2})[°º]\s*(\d{1,2})['’]\s*(\d{1,2}(?:\.\d+)?)["”]?\s*([NS])\s+(\d{1,3})[°º]\s*(\d{1,2})['’]\s*(\d{1,2}(?:\.\d+)?)["”]?\s*([EW])/i);
+  const match = text.match(/(\d{1,2})[??]\s*(\d{1,2})['?]\s*(\d{1,2}(?:\.\d+)?)['"?]?\s*([NS])\s+(\d{1,3})[??]\s*(\d{1,2})['?]\s*(\d{1,2}(?:\.\d+)?)['"?]?\s*([EW])/i);
   if (!match) return null;
   const latDeg = Number(match[1]);
   const latMin = Number(match[2]);
@@ -1469,7 +1469,6 @@ out body 40;
     if (!selectedStart) return null;
     return getPeriodMinStayForDate(property?.pricingPeriods || [], selectedStart, pricingAmicaleId);
   }, [pricingAmicaleId, property?.pricingPeriods, selectedStart]);
-  const displayedMinStay = periodMinStay || minStay;
   const activeStayRuleLabel = useMemo(() => {
     if (!selectedStart || !selectedPricingPeriod) return "";
     const start = String(selectedPricingPeriod.start || "").slice(0, 10);
@@ -1480,8 +1479,33 @@ out body 40;
     if (!startYear || !startMonth || !startDay || !endYear || !endMonth || !endDay) return "";
     return `${startDay}/${startMonth}/${startYear} - ${endDay}/${endMonth}/${endYear}`;
   }, [selectedPricingPeriod, selectedStart]);
+  const effectiveUnavailableDates = liveUnavailableDates
+    ?? (hasResidenceSubtypeAggregation
+      ? aggregatedResidenceUnavailableDates
+      : (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []));
+  const selectedRangeRuleRelaxation = useMemo(() => {
+    if (!selectedStart || !selectedEnd || activeLockedFlashOffer) return { active: false, gap: null };
+    const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
+    const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
+    const startDate = format(start, 'yyyy-MM-dd');
+    const endDate = format(end, 'yyyy-MM-dd');
+    const requiredMinStay = getReservationMinStayRequirement({
+      startDate,
+      endDate,
+      periods: property?.pricingPeriods || [],
+      fallbackMinStay: minStay,
+      amicaleId: pricingAmicaleId,
+    });
+    return shouldRelaxStayRulesForGap({
+      startDate,
+      endDate,
+      unavailableDates: effectiveUnavailableDates || [],
+      requiredMinStay,
+    });
+  }, [activeLockedFlashOffer, effectiveUnavailableDates, minStay, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
   const activeWeekdayRule = useMemo(() => {
     if (!selectedStart || !selectedEnd) return { requiredCheckinDay: null, requiredCheckoutDay: null };
+    if (selectedRangeRuleRelaxation.active) return { requiredCheckinDay: null, requiredCheckoutDay: null };
     const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
     const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
     return getReservationWeekdayRule({
@@ -1490,7 +1514,8 @@ out body 40;
       periods: property?.pricingPeriods || [],
       amicaleId: pricingAmicaleId,
     });
-  }, [pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
+  }, [pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedRangeRuleRelaxation.active, selectedStart]);
+  const displayedMinStay = selectedRangeRuleRelaxation.active ? 1 : (periodMinStay || minStay);
   const reservationValidation = useMemo(() => {
     if (isSaleProperty) return { valid: true, message: "" };
     if (!selectedStart || !selectedEnd) return { valid: false, message: "Selectionnez vos dates d'arrivee et de depart." };
@@ -1514,13 +1539,20 @@ out body 40;
 
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
     const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
-    const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(matchingLockedFlashRange?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
+    const minStayForSelectionBase = skipLockedFlashStayRules ? Math.max(1, Number(matchingLockedFlashRange?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
       fallbackMinStay: minStay,
       amicaleId: pricingAmicaleId,
     });
+    const shouldRelaxStayRules = !skipLockedFlashStayRules && shouldRelaxStayRulesForGap({
+      startDate,
+      endDate,
+      unavailableDates: effectiveUnavailableDates || [],
+      requiredMinStay: minStayForSelectionBase,
+    }).active;
+    const minStayForSelection = shouldRelaxStayRules ? 1 : minStayForSelectionBase;
     if (nights < minStayForSelection) {
       return { valid: false, message: `Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).` };
     }
@@ -1528,7 +1560,7 @@ out body 40;
       return { valid: false, message: `Sejour maximum autorise: ${maxStay} nuit(s).` };
     }
 
-    const weekdayRuleCheck = skipLockedFlashStayRules ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
+    const weekdayRuleCheck = (skipLockedFlashStayRules || shouldRelaxStayRules) ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
@@ -1550,7 +1582,7 @@ out body 40;
     }
 
     return { valid: true, message: "" };
-  }, [activeLockedFlashOffer, amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRanges, findMatchingLockedFlashRange, flashOfferEnabled, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
+  }, [activeLockedFlashOffer, amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRanges, effectiveUnavailableDates, findMatchingLockedFlashRange, flashOfferEnabled, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -2782,13 +2814,20 @@ out body 40;
 
       const matchingLockedFlashRange = findMatchingLockedFlashRange(startDate, endDate);
       const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
-      const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(matchingLockedFlashRange?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
+      const minStayForSelectionBase = skipLockedFlashStayRules ? Math.max(1, Number(matchingLockedFlashRange?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
         startDate,
         endDate,
         periods: property?.pricingPeriods || [],
         fallbackMinStay: minStay,
         amicaleId: pricingAmicaleId,
       });
+      const shouldRelaxStayRules = !skipLockedFlashStayRules && shouldRelaxStayRulesForGap({
+        startDate,
+        endDate,
+        unavailableDates: effectiveUnavailableDates || [],
+        requiredMinStay: minStayForSelectionBase,
+      }).active;
+      const minStayForSelection = shouldRelaxStayRules ? 1 : minStayForSelectionBase;
       if (nights < minStayForSelection) {
         failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
         return;
@@ -2798,7 +2837,7 @@ out body 40;
         return;
       }
 
-      const weekdayRuleCheck = skipLockedFlashStayRules ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
+      const weekdayRuleCheck = (skipLockedFlashStayRules || shouldRelaxStayRules) ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
         startDate,
         endDate,
         periods: property?.pricingPeriods || [],
@@ -3035,12 +3074,6 @@ out body 40;
       }))
     };
   };
-
-  const effectiveUnavailableDates = liveUnavailableDates
-    ?? (hasResidenceSubtypeAggregation
-      ? aggregatedResidenceUnavailableDates
-      : (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []));
-
   // Check if selected range includes pending dates and get the payment deadline
   const getPendingDateInfo = () => {
     if (!selectedStart || !selectedEnd || !effectiveUnavailableDates) return null;
@@ -3104,13 +3137,38 @@ out body 40;
         metadata: { ctaKind: 'share', channel: trackingChannel },
       }).catch(() => {});
     }
-    const shareRelativeUrl = `${location.pathname}${location.search}`;
+    const baseSharePath = (() => {
+      if (!flashOfferEnabled) return location.pathname;
+      if (location.pathname.startsWith("/ventes_flash/properties/")) return location.pathname;
+      if (location.pathname.startsWith("/properties/")) return `/ventes_flash${location.pathname}`;
+      if (property) return `/ventes_flash${buildPropertyDetailsPath(property)}`;
+      return location.pathname;
+    })();
+    const shareRelativeUrl = `${baseSharePath}${location.search}`;
+    const flashDateLabel = activeLockedFlashOffer
+      ? `${activeLockedFlashOffer.start} au ${activeLockedFlashOffer.end}`
+      : "";
+    const shareTitle = flashOfferEnabled
+      ? `${activeLockedFlashOffer?.title || "Vente flash"} - ${propertyDisplayTitle || property?.title || "Logement Dwira"}`
+      : propertyDisplayTitle || property?.title || "Logement Dwira";
+    const shareDescription = flashOfferEnabled
+      ? (
+        property?.location
+          ? `Decouvrez cette vente flash pour ${propertyDisplayTitle || property?.title || "ce logement"} a ${property.location}${flashDateLabel ? `, valable du ${flashDateLabel}` : ""} sur Dwira Immobilier.`
+          : `Decouvrez cette vente flash pour ${propertyDisplayTitle || property?.title || "ce logement"}${flashDateLabel ? `, valable du ${flashDateLabel}` : ""} sur Dwira Immobilier.`
+      )
+      : (
+        property?.location
+          ? `Decouvrez ${propertyDisplayTitle || property?.title || "ce logement"} a ${property.location} sur Dwira Immobilier.`
+          : `Decouvrez ${propertyDisplayTitle || property?.title || "ce logement"} sur Dwira Immobilier.`
+      );
+    const shareText = flashOfferEnabled
+      ? `Decouvrez cette vente flash : ${propertyDisplayTitle || property?.title || "ce logement"}${flashDateLabel ? ` du ${flashDateLabel}` : ""}`
+      : `Decouvrez ce logement: ${property?.title}`;
     const shareUrl = await createPropertyShareLink({
       relativeUrl: shareRelativeUrl,
-      title: propertyDisplayTitle || property?.title || "Logement Dwira",
-      description: property?.location
-        ? `Découvrez ${propertyDisplayTitle || property?.title || "ce logement"} à ${property.location} sur Dwira Immobilier.`
-        : `Découvrez ${propertyDisplayTitle || property?.title || "ce logement"} sur Dwira Immobilier.`,
+      title: shareTitle,
+      description: shareDescription,
       imageUrl: propertyShareImageUrl,
     });
     
@@ -3118,8 +3176,8 @@ out body 40;
     if (navigator.share) {
       try {
         await navigator.share({
-          title: propertyDisplayTitle || property?.title || 'Logement',
-          text: `Découvrez ce logement: ${property?.title}`,
+          title: shareTitle,
+          text: shareText,
           url: shareUrl,
         });
         return;
@@ -3216,13 +3274,20 @@ out body 40;
     }
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
     const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
-    const minStayForSelection = skipLockedFlashStayRules ? Math.max(1, Number(matchingLockedFlashRange?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
+    const minStayForSelectionBase = skipLockedFlashStayRules ? Math.max(1, Number(matchingLockedFlashRange?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
       fallbackMinStay: minStay,
       amicaleId: pricingAmicaleId,
     });
+    const shouldRelaxStayRules = !skipLockedFlashStayRules && shouldRelaxStayRulesForGap({
+      startDate,
+      endDate,
+      unavailableDates: effectiveUnavailableDates || [],
+      requiredMinStay: minStayForSelectionBase,
+    }).active;
+    const minStayForSelection = shouldRelaxStayRules ? 1 : minStayForSelectionBase;
     if (!isSaleProperty && nights < minStayForSelection) {
       failRule(`Sejour minimum pour cette periode: ${minStayForSelection} nuit(s).`);
       return;
@@ -3231,13 +3296,13 @@ out body 40;
       failRule(`Sejour maximum: ${maxStay} nuit(s).`);
       return;
     }
-    const weekdayRuleCheck = skipLockedFlashStayRules ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
+    const weekdayRuleCheck = (skipLockedFlashStayRules || shouldRelaxStayRules) ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
       amicaleId: pricingAmicaleId,
     });
-    if (!isSaleProperty && !skipLockedFlashStayRules && !weekdayRuleCheck.ok) {
+    if (!isSaleProperty && !skipLockedFlashStayRules && !shouldRelaxStayRules && !weekdayRuleCheck.ok) {
       const checkinMessage = weekdayRuleCheck.requiredCheckinDay ? `check-in: ${weekdayRuleCheck.requiredCheckinDay}` : null;
       const checkoutMessage = weekdayRuleCheck.requiredCheckoutDay ? `check-out: ${weekdayRuleCheck.requiredCheckoutDay}` : null;
       const detail = [checkinMessage, checkoutMessage].filter(Boolean).join(' | ');

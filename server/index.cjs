@@ -21319,6 +21319,37 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       next.setDate(next.getDate() + days);
       return toSqlDateOnly(next);
     };
+    const findBoundedAvailabilityGapForSelection = async (selectionStart, selectionEnd) => {
+      const [previousRows] = await pool.query(
+        `SELECT DATE_FORMAT(end_date, '%Y-%m-%d') AS boundary_date
+         FROM unavailable_dates
+         WHERE bien_id = ?
+           AND status IN ('blocked', 'booked', 'pending')
+           AND end_date <= ?
+         ORDER BY end_date DESC
+         LIMIT 1`,
+        [bien_id, selectionStart]
+      );
+      const [nextRows] = await pool.query(
+        `SELECT DATE_FORMAT(start_date, '%Y-%m-%d') AS boundary_date
+         FROM unavailable_dates
+         WHERE bien_id = ?
+           AND status IN ('blocked', 'booked', 'pending')
+           AND start_date >= ?
+         ORDER BY start_date ASC
+         LIMIT 1`,
+        [bien_id, selectionEnd]
+      );
+      const gapStart = toSqlDateOnly(previousRows?.[0]?.boundary_date);
+      const gapEnd = toSqlDateOnly(nextRows?.[0]?.boundary_date);
+      if (!gapStart || !gapEnd || gapStart >= gapEnd) return null;
+      if (selectionStart < gapStart || selectionEnd > gapEnd) return null;
+      return {
+        start: gapStart,
+        end: gapEnd,
+        nights: computeNights(gapStart, gapEnd),
+      };
+    };
     const [periodRules] = await pool.query(
       `SELECT minimum_nuitees, checkin_jour, checkout_jour,
               DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
@@ -21357,8 +21388,13 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
           : (hasUncoveredNight
               ? Math.max(cfgMinStay, requiredMinNightsFromPeriods)
               : requiredMinNightsFromPeriods));
-    if (requestType === 'reservation' && requestedNights < requiredMinNights) {
-      return res.status(400).json({ error: `Sejour minimum pour cette periode: ${requiredMinNights} nuit(s)` });
+    const boundedGap = requestType === 'reservation' && requiredMinNightsFromFlash === null
+      ? await findBoundedAvailabilityGapForSelection(start_date, end_date)
+      : null;
+    const shouldRelaxGapStayRules = Boolean(boundedGap && boundedGap.nights > 0 && boundedGap.nights < requiredMinNights);
+    const effectiveRequiredMinNights = shouldRelaxGapStayRules ? 1 : requiredMinNights;
+    if (requestType === 'reservation' && requestedNights < effectiveRequiredMinNights) {
+      return res.status(400).json({ error: `Sejour minimum pour cette periode: ${effectiveRequiredMinNights} nuit(s)` });
     }
     const startWeekday = getWeekdayFrFromSqlDate(start_date);
     const endWeekday = getWeekdayFrFromSqlDate(end_date);
@@ -21366,10 +21402,10 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     const departurePeriod = findReservationPeriodForDate(normalizedPeriodRules, addSqlDays(end_date, -1), normalizedPricingAmicaleId);
     const checkinDay = String(arrivalPeriod?.checkin_jour || '').trim().toLowerCase();
     const checkoutDay = String(departurePeriod?.checkout_jour || '').trim().toLowerCase();
-    if (requestType === 'reservation' && checkinDay && startWeekday && checkinDay !== startWeekday) {
+    if (requestType === 'reservation' && !shouldRelaxGapStayRules && checkinDay && startWeekday && checkinDay !== startWeekday) {
       return res.status(400).json({ error: `Check-in autorise uniquement le ${checkinDay} pour cette periode` });
     }
-    if (requestType === 'reservation' && checkoutDay && endWeekday && checkoutDay !== endWeekday) {
+    if (requestType === 'reservation' && !shouldRelaxGapStayRules && checkoutDay && endWeekday && checkoutDay !== endWeekday) {
       return res.status(400).json({ error: `Check-out autorise uniquement le ${checkoutDay} pour cette periode` });
     }
 

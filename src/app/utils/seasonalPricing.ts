@@ -13,6 +13,12 @@ export type SeasonalPricingPeriod = {
   amicale_id?: string | null;
 };
 
+export type AvailabilityRuleDateRange = {
+  start?: string | null;
+  end?: string | null;
+  status?: string | null;
+};
+
 type PricingContext = {
   key: string;
   nightlyPrice: number;
@@ -199,6 +205,34 @@ function normalizeMinNights(value: number | null | undefined): number | null {
   return Math.max(1, Math.floor(numeric));
 }
 
+function normalizeAvailabilityStatus(value: string | null | undefined): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeAvailabilityBoundaryDate(value: string | null | undefined): string | null {
+  const normalized = String(value || '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
+}
+
+function getUnavailableIntervals(unavailableDates: AvailabilityRuleDateRange[]): Array<{ start: string; end: string }> {
+  return (Array.isArray(unavailableDates) ? unavailableDates : [])
+    .filter((row) => {
+      const status = normalizeAvailabilityStatus(row?.status);
+      return status === 'blocked' || status === 'booked' || status === 'pending';
+    })
+    .map((row) => {
+      const start = normalizeAvailabilityBoundaryDate(row?.start);
+      const end = normalizeAvailabilityBoundaryDate(row?.end);
+      return start && end && start < end ? { start, end } : null;
+    })
+    .filter((row): row is { start: string; end: string } => Boolean(row))
+    .sort((a, b) => {
+      const startDiff = a.start.localeCompare(b.start);
+      if (startDiff !== 0) return startDiff;
+      return a.end.localeCompare(b.end);
+    });
+}
+
 const WEEKDAY_VALUES = new Set(['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']);
 
 export function normalizeWeekday(value: string | null | undefined): string | null {
@@ -258,6 +292,56 @@ export function getReservationMinStayRequirement(params: {
   if (requiredFromPeriods === null) return fallback;
   if (hasUncoveredNight) return Math.max(fallback, requiredFromPeriods);
   return requiredFromPeriods;
+}
+
+export function findBoundedAvailabilityGap(params: {
+  startDate: Date | string;
+  endDate: Date | string;
+  unavailableDates?: AvailabilityRuleDateRange[];
+}): { start: string; end: string; nights: number } | null {
+  const start = toDateAtMidnight(params.startDate);
+  const end = toDateAtMidnight(params.endDate);
+  if (!start || !end) return null;
+  const rangeStart = start <= end ? start : end;
+  const rangeEnd = start <= end ? end : start;
+  const startKey = toDateKey(rangeStart);
+  const endKey = toDateKey(rangeEnd);
+  if (startKey >= endKey) return null;
+
+  const intervals = getUnavailableIntervals(Array.isArray(params.unavailableDates) ? params.unavailableDates : []);
+  const previous = intervals
+    .filter((row) => row.end <= startKey)
+    .sort((a, b) => b.end.localeCompare(a.end))[0] || null;
+  const next = intervals
+    .filter((row) => row.start >= endKey)
+    .sort((a, b) => a.start.localeCompare(b.start))[0] || null;
+
+  if (!previous || !next) return null;
+  if (startKey < previous.end || endKey > next.start) return null;
+
+  const gapStart = toDateAtMidnight(previous.end);
+  const gapEnd = toDateAtMidnight(next.start);
+  if (!gapStart || !gapEnd || gapEnd <= gapStart) return null;
+
+  return {
+    start: previous.end,
+    end: next.start,
+    nights: Math.max(0, differenceInDays(gapEnd, gapStart)),
+  };
+}
+
+export function shouldRelaxStayRulesForGap(params: {
+  startDate: Date | string;
+  endDate: Date | string;
+  unavailableDates?: AvailabilityRuleDateRange[];
+  requiredMinStay: number;
+}): { active: boolean; gap: { start: string; end: string; nights: number } | null } {
+  const gap = findBoundedAvailabilityGap(params);
+  const requiredMinStay = Math.max(1, Math.floor(Number(params.requiredMinStay || 1)));
+  return {
+    active: Boolean(gap && gap.nights > 0 && gap.nights < requiredMinStay),
+    gap,
+  };
 }
 
 export function getReservationWeekdayRule(params: {
