@@ -2296,10 +2296,10 @@ export default function PropertiesPage() {
     setSearchParams,
   ]);
 
-  const handleShareSearch = async () => {
+  const handleShareSearch = async (shareFlashOnly = false) => {
     const params = buildManagedSearchParams();
     const queryString = params.toString();
-    const hasFlashResultsToShare = flashDisplayResults.length > 0;
+    const hasFlashResultsToShare = shareFlashOnly && flashDisplayResults.length > 0;
     const sharePath = hasFlashResultsToShare ? "/ventes_flash" : window.location.pathname;
     const relativeUrl = `${sharePath}${queryString ? `?${queryString}` : ""}`;
     let shareUrl = `${window.location.origin}${relativeUrl}`;
@@ -4328,16 +4328,29 @@ export default function PropertiesPage() {
                   </>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={handleShareSearch}
-                disabled={isLoadingInitialResults}
-                className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Share2 size={16} />
-                <span>{flashDisplayResults.length > 0 ? "Partager vente flash" : "Partager la recherche"}</span>
-              </button>
-            </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleShareSearch(false)}
+                    disabled={isLoadingInitialResults}
+                    className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Share2 size={16} />
+                    <span>Partager la recherche</span>
+                  </button>
+                  {flashDisplayResults.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => void handleShareSearch(true)}
+                      disabled={isLoadingInitialResults}
+                      className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 transition-colors hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Share2 size={16} />
+                      <span>Partager vente flash</span>
+                    </button>
+                  )}
+                </div>
+              </div>
 
             {isLoadingInitialResults ? (
               <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
