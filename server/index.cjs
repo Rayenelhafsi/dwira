@@ -29930,6 +29930,26 @@ app.put('/api/subadmin/contracts/:id/status', requireAdminSession, async (req, r
   }
 });
 
+app.delete('/api/subadmin/contracts/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    if (isSubadminAccount(req.authUser || null)) {
+      return res.status(403).json({ error: 'Suppression reservee a l administration principale' });
+    }
+    const assignmentId = String(req.params?.id || '').trim();
+    if (!assignmentId) return res.status(400).json({ error: 'id affectation requis' });
+    const [rows] = await pool.query('SELECT id FROM subadmin_contract_assignments WHERE id = ? LIMIT 1', [assignmentId]);
+    if (!rows?.[0]) {
+      return res.status(404).json({ error: 'Affectation introuvable' });
+    }
+    await pool.query('DELETE FROM subadmin_contract_assignments WHERE id = ?', [assignmentId]);
+    res.json({ ok: true, id: assignmentId });
+  } catch (error) {
+    console.error('Error deleting subadmin assignment:', error);
+    res.status(500).json({ error: 'Suppression affectation impossible' });
+  }
+});
+
 app.get('/api/subadmin/tasks', requireAdminSession, async (req, res) => {
   try {
     await ensureSubadminOperationsSchema();
@@ -30164,6 +30184,26 @@ app.post('/api/subadmin/tasks/:id/complete', requireAdminSession, async (req, re
   }
 });
 
+app.delete('/api/subadmin/tasks/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    if (isSubadminAccount(req.authUser || null)) {
+      return res.status(403).json({ error: 'Suppression reservee a l administration principale' });
+    }
+    const taskId = String(req.params?.id || '').trim();
+    if (!taskId) return res.status(400).json({ error: 'id tache requis' });
+    const [rows] = await pool.query('SELECT id FROM subadmin_tasks WHERE id = ? LIMIT 1', [taskId]);
+    if (!rows?.[0]) {
+      return res.status(404).json({ error: 'Tache introuvable' });
+    }
+    await pool.query('DELETE FROM subadmin_tasks WHERE id = ?', [taskId]);
+    res.json({ ok: true, id: taskId });
+  } catch (error) {
+    console.error('Error deleting subadmin task:', error);
+    res.status(500).json({ error: 'Suppression tache impossible' });
+  }
+});
+
 app.get('/api/subadmin/charges', requireAdminSession, async (req, res) => {
   try {
     await ensureSubadminOperationsSchema();
@@ -30238,6 +30278,38 @@ app.post('/api/subadmin/charges', requireAdminSession, (req, res, next) => {
   } catch (error) {
     console.error('Error creating subadmin charge:', error);
     res.status(500).json({ error: 'Creation de la charge impossible' });
+  }
+});
+
+app.delete('/api/subadmin/charges/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    if (isSubadminAccount(req.authUser || null)) {
+      return res.status(403).json({ error: 'Suppression reservee a l administration principale' });
+    }
+    const chargeId = String(req.params?.id || '').trim();
+    if (!chargeId) return res.status(400).json({ error: 'id charge requis' });
+    const [rows] = await pool.query(
+      'SELECT id, image_url FROM subadmin_charges WHERE id = ? LIMIT 1',
+      [chargeId]
+    );
+    const current = rows?.[0] || null;
+    if (!current) {
+      return res.status(404).json({ error: 'Charge introuvable' });
+    }
+    await pool.query('DELETE FROM subadmin_charges WHERE id = ?', [chargeId]);
+    const relativeImageUrl = String(current.image_url || '').trim();
+    if (relativeImageUrl.startsWith('/uploads/')) {
+      const relativePath = relativeImageUrl.replace(/^\/+/, '').split('/').join(path.sep);
+      const absolutePath = path.join(__dirname, relativePath);
+      if (absolutePath.startsWith(path.join(__dirname, 'uploads'))) {
+        await fs.promises.unlink(absolutePath).catch(() => {});
+      }
+    }
+    res.json({ ok: true, id: chargeId });
+  } catch (error) {
+    console.error('Error deleting subadmin charge:', error);
+    res.status(500).json({ error: 'Suppression charge impossible' });
   }
 });
 

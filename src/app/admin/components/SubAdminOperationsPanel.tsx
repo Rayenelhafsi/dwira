@@ -4,15 +4,22 @@ import {
   Check,
   CheckCircle2,
   ChevronsUpDown,
+  Construction,
+  Droplets,
   ExternalLink,
   FileText,
+  Hammer,
   MapPinned,
+  Paintbrush,
   Phone,
   Receipt,
   RefreshCw,
   Search,
+  Sparkles,
+  Trash2,
   Wrench,
   X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { buildApiUrl } from "../../utils/api";
@@ -157,6 +164,26 @@ type PickerOption = {
   badge?: string;
 };
 
+type DeleteTarget =
+  | {
+      kind: "assignment" | "task" | "charge" | "technician";
+      id: string;
+      title: string;
+      description: string;
+      path: string;
+      successMessage: string;
+      fallbackError: string;
+    }
+  | null;
+
+type TechnicianPreset = {
+  value: string;
+  label: string;
+  hint: string;
+  icon: typeof Wrench;
+  tone: string;
+};
+
 const initialAssignmentDraft = {
   subadminId: "",
   contractId: "",
@@ -183,6 +210,30 @@ const initialTechnicianDraft = {
   phone: "",
   notes: "",
 };
+
+const technicianPresets: TechnicianPreset[] = [
+  {
+    value: "electricien",
+    label: "Electricien",
+    hint: "Pannes, prises, luminaires",
+    icon: Zap,
+    tone: "border-amber-200 bg-amber-50 text-amber-800",
+  },
+  {
+    value: "plombier",
+    label: "Plombier",
+    hint: "Fuites, robinets, chauffe-eau",
+    icon: Droplets,
+    tone: "border-sky-200 bg-sky-50 text-sky-800",
+  },
+  {
+    value: "femme de menage",
+    label: "Femme de menage",
+    hint: "Nettoyage, linge, remise en etat",
+    icon: Sparkles,
+    tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  },
+];
 
 async function getApiErrorMessage(response: Response, fallback: string) {
   try {
@@ -263,6 +314,26 @@ function buildBienLabel(bien: BienOption) {
   const title = String(bien.titre || "").trim();
   if (reference && title) return `${reference} - ${title}`;
   return reference || title || bien.id;
+}
+
+function getTechnicianSpecialtyMeta(specialty?: string | null) {
+  const normalized = String(specialty || "").trim().toLowerCase();
+  if (normalized.includes("elect")) {
+    return { icon: Zap, tone: "border-amber-200 bg-amber-50 text-amber-800" };
+  }
+  if (normalized.includes("plomb") || normalized.includes("robinet") || normalized.includes("eau")) {
+    return { icon: Droplets, tone: "border-sky-200 bg-sky-50 text-sky-800" };
+  }
+  if (normalized.includes("menage") || normalized.includes("femme") || normalized.includes("clean") || normalized.includes("netto")) {
+    return { icon: Sparkles, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" };
+  }
+  if (normalized.includes("peint")) {
+    return { icon: Paintbrush, tone: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800" };
+  }
+  if (normalized.includes("bricol") || normalized.includes("maint") || normalized.includes("travaux")) {
+    return { icon: Hammer, tone: "border-slate-200 bg-slate-100 text-slate-800" };
+  }
+  return { icon: Construction, tone: "border-slate-200 bg-slate-50 text-slate-700" };
 }
 
 function SelectionButton({
@@ -552,6 +623,7 @@ export default function SubAdminOperationsPanel({
   const [assignmentContractLoading, setAssignmentContractLoading] = useState(false);
   const [assignmentVariablesOpen, setAssignmentVariablesOpen] = useState(false);
   const [assignmentTransferTargets, setAssignmentTransferTargets] = useState<Record<string, string>>({});
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const suffix = useMemo(
     () => (selectedSubadminId ? `?subadmin_id=${encodeURIComponent(selectedSubadminId)}` : ""),
     [selectedSubadminId]
@@ -969,17 +1041,31 @@ export default function SubAdminOperationsPanel({
   };
 
   const deleteTechnician = async (technician: TechnicianRow) => {
+    setDeleteTarget({
+      kind: "technician",
+      id: technician.id,
+      title: `Supprimer ${technician.first_name} ${technician.last_name}`,
+      description: "Ce technicien sera retire du site web admin et de l'application mobile.",
+      path: `/subadmin/technicians/${encodeURIComponent(technician.id)}`,
+      successMessage: "Technicien supprime.",
+      fallbackError: "Suppression technicien impossible",
+    });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     setSaving(true);
     try {
-      const response = await fetch(buildApiUrl(`/subadmin/technicians/${encodeURIComponent(technician.id)}`), {
+      const response = await fetch(buildApiUrl(deleteTarget.path), {
         method: "DELETE",
         credentials: "include",
       });
-      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Suppression technicien impossible"));
-      toast.success("Technicien supprime.");
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, deleteTarget.fallbackError));
+      toast.success(deleteTarget.successMessage);
+      setDeleteTarget(null);
       await loadData();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Suppression technicien impossible");
+      toast.error(error instanceof Error ? error.message : deleteTarget.fallbackError);
     } finally {
       setSaving(false);
     }
@@ -1392,13 +1478,31 @@ export default function SubAdminOperationsPanel({
                             Mettre en cours
                           </button>
                         ) : null}
+                          <button
+                            type="button"
+                            onClick={() => void updateAssignmentStatus(assignment, "done")}
+                            className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800"
+                          >
+                            <CheckCircle2 size={15} />
+                            Terminer
+                          </button>
                         <button
                           type="button"
-                          onClick={() => void updateAssignmentStatus(assignment, "done")}
-                          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800"
+                          onClick={() =>
+                            setDeleteTarget({
+                              kind: "assignment",
+                              id: assignment.id,
+                              title: "Supprimer cette affectation",
+                              description: "Cette affectation sera retiree du dashboard admin et de l'application mobile.",
+                              path: `/subadmin/contracts/${encodeURIComponent(assignment.id)}`,
+                              successMessage: "Affectation supprimee.",
+                              fallbackError: "Suppression affectation impossible",
+                            })
+                          }
+                          className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
                         >
-                          <CheckCircle2 size={15} />
-                          Terminer
+                          <Trash2 size={15} />
+                          Supprimer
                         </button>
                       </div>
                       <div className="mt-4 flex flex-col gap-2 rounded-[22px] border border-slate-200 bg-slate-50/80 p-3 sm:flex-row sm:items-center">
@@ -1450,6 +1554,26 @@ export default function SubAdminOperationsPanel({
                             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
                               Terminee le {formatDateTime(assignment.completed_at)}
                             </span>
+                          </div>
+                          <div className="mt-3">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeleteTarget({
+                                  kind: "assignment",
+                                  id: assignment.id,
+                                  title: "Supprimer cette affectation historisee",
+                                  description: "Cette affectation sera retiree definitivement de l'historique admin.",
+                                  path: `/subadmin/contracts/${encodeURIComponent(assignment.id)}`,
+                                  successMessage: "Affectation supprimee.",
+                                  fallbackError: "Suppression affectation impossible",
+                                })
+                              }
+                              className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
+                            >
+                              <Trash2 size={15} />
+                              Supprimer
+                            </button>
                           </div>
                         </article>
                       ))}
@@ -1628,6 +1752,23 @@ export default function SubAdminOperationsPanel({
                             <CheckCircle2 size={15} />
                             Terminer
                           </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeleteTarget({
+                                kind: "task",
+                                id: task.id,
+                                title: "Supprimer cette tache",
+                                description: "Cette tache sera retiree du site web admin et de l'application mobile.",
+                                path: `/subadmin/tasks/${encodeURIComponent(task.id)}`,
+                                successMessage: "Tache supprimee.",
+                                fallbackError: "Suppression tache impossible",
+                              })
+                            }
+                            className="w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 sm:w-auto"
+                          >
+                            Supprimer
+                          </button>
                         </div>
                       </div>
                     </article>
@@ -1648,6 +1789,26 @@ export default function SubAdminOperationsPanel({
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">
                           Terminee le {formatDateTime(task.completed_at)}
                         </span>
+                      </div>
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeleteTarget({
+                              kind: "task",
+                              id: task.id,
+                              title: "Supprimer cette tache historisee",
+                              description: "Cette tache sera retiree definitivement de l'historique admin et mobile.",
+                              path: `/subadmin/tasks/${encodeURIComponent(task.id)}`,
+                              successMessage: "Tache supprimee.",
+                              fallbackError: "Suppression tache impossible",
+                            })
+                          }
+                          className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
+                        >
+                          <Trash2 size={15} />
+                          Supprimer
+                        </button>
                       </div>
                     </article>
                   ))}
@@ -1680,12 +1841,43 @@ export default function SubAdminOperationsPanel({
                     ))}
                   </select>
                 </div>
-                <input
-                  value={technicianDraft.specialty}
-                  onChange={(event) => setTechnicianDraft((prev) => ({ ...prev, specialty: event.target.value }))}
-                  className="h-12 w-full rounded-2xl border border-sky-200 bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100/70"
-                  placeholder="Specialite: plombier, electricien..."
-                />
+                <div className="space-y-2.5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">Specialite</p>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {technicianPresets.map((preset) => {
+                      const Icon = preset.icon;
+                      const isActive = technicianDraft.specialty.trim().toLowerCase() === preset.value;
+                      return (
+                        <button
+                          key={preset.value}
+                          type="button"
+                          onClick={() => setTechnicianDraft((prev) => ({ ...prev, specialty: preset.value }))}
+                          className={`rounded-[22px] border px-4 py-3 text-left transition ${
+                            isActive
+                              ? `${preset.tone} shadow-[0_14px_24px_rgba(14,165,233,0.14)]`
+                              : "border-slate-200 bg-white text-slate-700 hover:border-sky-200 hover:bg-sky-50/50"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex h-9 w-9 items-center justify-center rounded-2xl ${isActive ? "bg-white/80" : "bg-slate-100"}`}>
+                              <Icon size={16} />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold">{preset.label}</span>
+                              <span className="block text-xs text-slate-500">{preset.hint}</span>
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input
+                    value={technicianDraft.specialty}
+                    onChange={(event) => setTechnicianDraft((prev) => ({ ...prev, specialty: event.target.value }))}
+                    className="h-12 w-full rounded-2xl border border-sky-200 bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100/70"
+                    placeholder="Ou saisir une autre specialite"
+                  />
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <input
                     value={technicianDraft.firstName}
@@ -1743,12 +1935,26 @@ export default function SubAdminOperationsPanel({
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
+                          {(() => {
+                            const specialtyMeta = getTechnicianSpecialtyMeta(technician.specialty);
+                            const SpecialtyIcon = specialtyMeta.icon;
+                            return (
+                              <span className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border ${specialtyMeta.tone}`}>
+                                <SpecialtyIcon size={17} />
+                              </span>
+                            );
+                          })()}
                           <h4 className="font-bold text-slate-950">
                             {technician.first_name} {technician.last_name}
                           </h4>
-                          <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">
-                            {technician.specialty}
-                          </span>
+                          {(() => {
+                            const specialtyMeta = getTechnicianSpecialtyMeta(technician.specialty);
+                            return (
+                              <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${specialtyMeta.tone}`}>
+                                {technician.specialty}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <p className="mt-1 text-sm text-slate-600">{technician.phone}</p>
                         <p className="text-sm text-slate-500">
@@ -1779,6 +1985,7 @@ export default function SubAdminOperationsPanel({
                           onClick={() => void deleteTechnician(technician)}
                           className="w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 sm:w-auto"
                         >
+                          <Trash2 size={15} className="inline-block" />
                           Supprimer
                         </button>
                       </div>
@@ -1819,6 +2026,26 @@ export default function SubAdminOperationsPanel({
                           Voir l image
                         </a>
                       ) : null}
+                    </div>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDeleteTarget({
+                            kind: "charge",
+                            id: charge.id,
+                            title: "Supprimer cette charge",
+                            description: "La charge et son justificatif image seront retires du site web admin et de l'application mobile.",
+                            path: `/subadmin/charges/${encodeURIComponent(charge.id)}`,
+                            successMessage: "Charge supprimee.",
+                            fallbackError: "Suppression charge impossible",
+                          })
+                        }
+                        className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
+                      >
+                        <Trash2 size={15} />
+                        Supprimer
+                      </button>
                     </div>
                   </article>
                 ))}
@@ -1867,6 +2094,44 @@ export default function SubAdminOperationsPanel({
         }}
         emptyLabel="Aucun bien correspondant."
       />
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => (!open ? setDeleteTarget(null) : null)}>
+        <DialogContent className="max-w-lg rounded-[24px] border border-rose-100 bg-white p-0 shadow-[0_30px_80px_rgba(15,23,42,0.18)] sm:rounded-[30px]">
+          <div className="overflow-hidden rounded-[24px] sm:rounded-[30px]">
+            <div className="border-b border-rose-100 bg-[radial-gradient(circle_at_top_left,rgba(244,63,94,0.12),transparent_48%),linear-gradient(135deg,#fffafb_0%,#ffffff_55%,#fff1f2_100%)] px-5 py-5">
+              <DialogHeader className="text-left">
+                <DialogTitle className="text-xl font-bold text-slate-950">{deleteTarget?.title || "Confirmer la suppression"}</DialogTitle>
+                <DialogDescription className="text-sm leading-6 text-slate-600">
+                  {deleteTarget?.description || "Cette action est definitive."}
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+            <div className="px-5 py-5">
+              <p className="text-sm text-slate-600">
+                Seul l'admin sur le site web peut faire ce nettoyage. Cette action est irreversible.
+              </p>
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(null)}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmDelete()}
+                  disabled={saving}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  <Trash2 size={15} />
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
