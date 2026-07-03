@@ -15621,6 +15621,7 @@ async function initializeDatabaseSchema() {
       ['ensureContractsSchema', ensureContractsSchema],
       ['ensureZonesSchema', ensureZonesSchema],
       ['ensureProprietairesSchema', ensureProprietairesSchema],
+      ['ensureSubadminOperationsSchema', ensureSubadminOperationsSchema],
       ['ensureMessengerSchema', ensureMessengerSchema],
       ['ensureBiensWorkflowSchema', ensureBiensWorkflowSchema],
       ['ensurePaidServicesSchema', ensurePaidServicesSchema],
