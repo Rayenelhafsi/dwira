@@ -25484,10 +25484,12 @@ async function ensureReservationDemandSchema() {
       client_user_id VARCHAR(100) NULL,
       client_email VARCHAR(255) NULL,
       client_name VARCHAR(255) NULL,
+      client_phone VARCHAR(40) NULL,
       proprietaire_id VARCHAR(100) NULL,
       owner_user_id VARCHAR(100) NULL,
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
+      arrival_time VARCHAR(20) NULL,
       guests INT NOT NULL DEFAULT 1,
       adult_guests INT NOT NULL DEFAULT 1,
       child_guests INT NOT NULL DEFAULT 0,
@@ -25613,8 +25615,11 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'client_name'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_name VARCHAR(255) NULL AFTER client_email');
   }
+  if (!(await columnExists('reservation_demands', 'client_phone'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_phone VARCHAR(40) NULL AFTER client_name');
+  }
   if (!(await columnExists('reservation_demands', 'proprietaire_id'))) {
-    await pool.query('ALTER TABLE reservation_demands ADD COLUMN proprietaire_id VARCHAR(100) NULL AFTER client_name');
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN proprietaire_id VARCHAR(100) NULL AFTER client_phone');
   }
   if (!(await columnExists('reservation_demands', 'owner_user_id'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN owner_user_id VARCHAR(100) NULL AFTER proprietaire_id');
@@ -25654,6 +25659,9 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'child_guests'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN child_guests INT NOT NULL DEFAULT 0 AFTER adult_guests');
+  }
+  if (!(await columnExists('reservation_demands', 'arrival_time'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN arrival_time VARCHAR(20) NULL AFTER end_date');
   }
   if (!(await columnExists('reservation_demands', 'partner_agency_validation_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN partner_agency_validation_at DATETIME NULL AFTER status');
