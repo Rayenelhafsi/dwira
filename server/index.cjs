@@ -24322,6 +24322,44 @@ async function ensureAdminPushTokensSchema() {
       KEY idx_admin_push_tokens_admin_active (admin_id, active, updated_at)
     )
   `);
+  const columnExistsLocal = async (columnName) => {
+    const [rows] = await pool.query(
+      `
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'admin_push_tokens'
+        AND COLUMN_NAME = ?
+      LIMIT 1
+      `,
+      [columnName]
+    );
+    return rows.length > 0;
+  };
+  if (!(await columnExistsLocal('platform'))) {
+    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN platform VARCHAR(30) NULL AFTER token");
+  }
+  if (!(await columnExistsLocal('app_version'))) {
+    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN app_version VARCHAR(40) NULL AFTER platform");
+  }
+  if (!(await columnExistsLocal('active'))) {
+    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1 AFTER app_version");
+  }
+  if (!(await columnExistsLocal('created_at'))) {
+    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN created_at DATETIME NULL AFTER active");
+    await pool.query("UPDATE admin_push_tokens SET created_at = COALESCE(created_at, NOW())");
+    await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN created_at DATETIME NOT NULL");
+  }
+  if (!(await columnExistsLocal('updated_at'))) {
+    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN updated_at DATETIME NULL AFTER created_at");
+    await pool.query("UPDATE admin_push_tokens SET updated_at = COALESCE(updated_at, created_at, NOW())");
+    await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN updated_at DATETIME NOT NULL");
+  }
+  if (!(await columnExistsLocal('last_seen_at'))) {
+    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN last_seen_at DATETIME NULL AFTER updated_at");
+    await pool.query("UPDATE admin_push_tokens SET last_seen_at = COALESCE(last_seen_at, updated_at, created_at, NOW())");
+    await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN last_seen_at DATETIME NOT NULL");
+  }
 }
 
 async function ensureSubadminOperationsSchema() {
@@ -29520,6 +29558,8 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
   try {
     await ensureContractsSchema();
     await ensureReservationDemandSchema();
+    await ensureZonesSchema();
+    await ensureProprietairesSchema();
     await ensureSubadminOperationsSchema();
     const scopedSubadminId = resolveSubadminScopeId(req, req.query?.subadmin_id);
     if (scopedSubadminId && !ensureSubadminAccess(req, res, scopedSubadminId)) return;
@@ -29593,7 +29633,7 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
           bien_id: row.bien_id || null,
           bien_reference: row.bien_reference || null,
           bien_titre: row.bien_titre || null,
-          google_maps_url: row.google_maps_url || null,
+          google_maps_url: normalizeMapsOpenUrl(row.google_maps_url) || null,
           property_url: buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
           client_name: row.client_name || null,
           client_phone: row.client_phone || row.locataire_telephone || null,
@@ -30883,10 +30923,20 @@ function parseMapsLatLng(rawValue) {
   return null;
 }
 
+function normalizeMapsOpenUrl(rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) return '';
+  const coords = parseMapsLatLng(value);
+  if (coords) {
+    return `https://www.google.com/maps?q=${coords.lat},${coords.lng}`;
+  }
+  return value.replace(/\/maps\/embed(?=[/?#]|$)/i, '/maps');
+}
+
 function extractPropertyMapsUrl(rawConfig) {
   const config = safeParseJson(rawConfig, {});
   if (!config || typeof config !== 'object') return '';
-  return String(config.google_maps_embed_url || config.google_maps_url || config.maps_url || '').trim();
+  return normalizeMapsOpenUrl(config.google_maps_embed_url || config.google_maps_url || config.maps_url || '');
 }
 
 function listRangeDates(dateFrom, dateTo) {
