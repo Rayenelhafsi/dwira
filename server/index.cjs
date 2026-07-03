@@ -24369,12 +24369,16 @@ async function ensureSubadminOperationsSchema() {
       contract_id VARCHAR(100) NOT NULL,
       subadmin_admin_id VARCHAR(100) NOT NULL,
       urgent TINYINT(1) NOT NULL DEFAULT 0,
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
       note TEXT NULL,
       assigned_by_admin_id VARCHAR(100) NULL,
+      started_at DATETIME NULL,
+      completed_at DATETIME NULL,
+      completed_by_admin_id VARCHAR(100) NULL,
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL,
       UNIQUE KEY uniq_subadmin_contract_assignment (contract_id),
-      KEY idx_subadmin_contract_assignments_subadmin (subadmin_admin_id, updated_at)
+      KEY idx_subadmin_contract_assignments_subadmin (subadmin_admin_id, status, updated_at)
     )
   `);
   await pool.query(`
@@ -24427,14 +24431,26 @@ async function ensureSubadminOperationsSchema() {
   if (!(await columnExists('subadmin_contract_assignments', 'urgent'))) {
     await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN urgent TINYINT(1) NOT NULL DEFAULT 0 AFTER subadmin_admin_id");
   }
+  if (!(await columnExists('subadmin_contract_assignments', 'status'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active' AFTER urgent");
+  }
   if (!(await columnExists('subadmin_contract_assignments', 'note'))) {
-    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN note TEXT NULL AFTER urgent");
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN note TEXT NULL AFTER status");
   }
   if (!(await columnExists('subadmin_contract_assignments', 'assigned_by_admin_id'))) {
     await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN assigned_by_admin_id VARCHAR(100) NULL AFTER note");
   }
+  if (!(await columnExists('subadmin_contract_assignments', 'started_at'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN started_at DATETIME NULL AFTER assigned_by_admin_id");
+  }
+  if (!(await columnExists('subadmin_contract_assignments', 'completed_at'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN completed_at DATETIME NULL AFTER started_at");
+  }
+  if (!(await columnExists('subadmin_contract_assignments', 'completed_by_admin_id'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN completed_by_admin_id VARCHAR(100) NULL AFTER completed_at");
+  }
   if (!(await columnExists('subadmin_contract_assignments', 'created_at'))) {
-    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN created_at DATETIME NULL AFTER assigned_by_admin_id");
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN created_at DATETIME NULL AFTER completed_by_admin_id");
     await pool.query("UPDATE subadmin_contract_assignments SET created_at = COALESCE(created_at, NOW())");
     await pool.query("ALTER TABLE subadmin_contract_assignments MODIFY COLUMN created_at DATETIME NOT NULL");
   }
@@ -25128,6 +25144,15 @@ function buildSubadminPropertyUrl(req, bienId, bienReference) {
   return `${getPublicFrontendBaseUrl(req)}/properties/${encodeURIComponent(token)}`;
 }
 
+function normalizeSubadminAssignmentStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'done' || normalized === 'termine' || normalized === 'completed') return 'done';
+  if (normalized === 'in_progress' || normalized === 'encours' || normalized === 'en_cours' || normalized === 'started') {
+    return 'in_progress';
+  }
+  return 'active';
+}
+
 function buildContractAssignmentAutofill(req, templateContext) {
   const contract = templateContext?.contract || null;
   if (!contract) return null;
@@ -25149,13 +25174,15 @@ function buildContractAssignmentAutofill(req, templateContext) {
     bien_reference: contract.bien_reference || null,
     bien_titre: contract.bien_titre || null,
     property_url: buildSubadminPropertyUrl(req, contract.bien_id, contract.bien_reference),
-    google_maps_url: propertyMapsUrl || contract.google_maps_url || null,
+    google_maps_url: normalizeMapsOpenUrl(propertyMapsUrl || contract.google_maps_url || '') || null,
     client_name:
       String(demand.client_name || '').trim()
+      || String(resolvedTemplateVars?.fullName || '').trim()
       || String(contract.locataire_nom || '').trim()
       || null,
     client_phone:
       String(demand.client_phone || '').trim()
+      || String(resolvedTemplateVars?.userPhone || '').trim()
       || String(contract.locataire_telephone || '').trim()
       || null,
     proprietaire_nom: contract.proprietaire_nom || null,
@@ -25171,7 +25198,7 @@ function buildContractAssignmentAutofill(req, templateContext) {
       String(demand.payment_id || '').trim()
       || String(resolvedTemplateVars?.idPaiement || '').trim()
       || null,
-    url_pdf: contract.url_pdf || null,
+    url_pdf: resolvePublicAssetUrl(contract.url_pdf || '') || null,
     owner_url_pdf: contract.owner_url_pdf || null,
     montant_total_contrat: totalAmount,
     montant_avance: amountDueNow,
@@ -29571,12 +29598,18 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     await ensureSubadminOperationsSchema();
     const scopedSubadminId = resolveSubadminScopeId(req, req.query?.subadmin_id);
     if (scopedSubadminId && !ensureSubadminAccess(req, res, scopedSubadminId)) return;
+    const requestedStatus = normalizeSubadminAssignmentStatus(req.query?.status);
     const params = [];
-    let whereSql = '';
+    const whereParts = [];
     if (scopedSubadminId) {
-      whereSql = 'WHERE a.subadmin_admin_id = ?';
+      whereParts.push('a.subadmin_admin_id = ?');
       params.push(scopedSubadminId);
     }
+    if (String(req.query?.status || '').trim()) {
+      whereParts.push('a.status = ?');
+      params.push(requestedStatus);
+    }
+    const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
     const [rows] = await pool.query(
       `
       SELECT a.*,
@@ -29620,8 +29653,10 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       `,
       params
     );
-    res.json(
-      (rows || []).map((row) => {
+    const payload = await Promise.all(
+      (rows || []).map(async (row) => {
+        const templateContext = await buildResolvedContractTemplateVars(String(row.contract_id || '').trim()).catch(() => null);
+        const assignmentAutofill = templateContext ? buildContractAssignmentAutofill(req, templateContext) : null;
         const totalAmount = Number.isFinite(Number(row.total_amount)) ? Number(row.total_amount) : null;
         const amountDueNow = Number.isFinite(Number(row.amount_due_now)) ? Number(row.amount_due_now) : null;
         const ownerTotal = Number.isFinite(Number(row.montant_total_proprietaire))
@@ -29637,32 +29672,38 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
           subadmin_name: row.subadmin_name || null,
           subadmin_email: row.subadmin_email || null,
           urgent: Number(row.urgent || 0) === 1,
+          status: normalizeSubadminAssignmentStatus(row.status),
           note: row.note || null,
           bien_id: row.bien_id || null,
-          bien_reference: row.bien_reference || null,
-          bien_titre: row.bien_titre || null,
-          google_maps_url: normalizeMapsOpenUrl(row.google_maps_url) || null,
-          property_url: buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
-          client_name: row.client_name || null,
-          client_phone: row.client_phone || row.locataire_telephone || null,
-          arrival_time: row.arrival_time || null,
-          url_pdf: row.url_pdf || null,
-          proprietaire_nom: row.proprietaire_nom || null,
-          proprietaire_telephone: row.proprietaire_telephone || null,
+          bien_reference: assignmentAutofill?.bien_reference || row.bien_reference || null,
+          bien_titre: assignmentAutofill?.bien_titre || row.bien_titre || null,
+          google_maps_url: assignmentAutofill?.google_maps_url || normalizeMapsOpenUrl(row.google_maps_url) || null,
+          property_url: assignmentAutofill?.property_url || buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
+          client_name: assignmentAutofill?.client_name || row.client_name || null,
+          client_phone: assignmentAutofill?.client_phone || row.client_phone || row.locataire_telephone || null,
+          arrival_time: assignmentAutofill?.arrival_time || row.arrival_time || null,
+          departure_time: assignmentAutofill?.departure_time || null,
+          url_pdf: assignmentAutofill?.url_pdf || resolvePublicAssetUrl(row.url_pdf || '') || null,
+          proprietaire_nom: assignmentAutofill?.proprietaire_nom || row.proprietaire_nom || null,
+          proprietaire_telephone: assignmentAutofill?.proprietaire_telephone || row.proprietaire_telephone || null,
           montant_total_contrat: totalAmount,
           montant_avance: amountDueNow,
           montant_a_encaisser: totalAmount === null ? null : Math.max(0, totalAmount - Number(amountDueNow || 0)),
           montant_donne_proprietaire: ownerPaid,
           montant_total_proprietaire: ownerTotal,
           reste_a_donner_proprietaire: ownerTotal === null ? null : Math.max(0, ownerTotal - Number(ownerPaid || 0)),
-          contract_start_date: row.contract_start_date || null,
-          contract_end_date: row.contract_end_date || null,
+          contract_start_date: assignmentAutofill?.contract_start_date || row.contract_start_date || null,
+          contract_end_date: assignmentAutofill?.contract_end_date || row.contract_end_date || null,
           reservation_demand_id: row.reservation_demand_id || null,
+          resolved_template_vars: assignmentAutofill?.resolved_template_vars || templateContext?.resolvedTemplateVars || null,
+          started_at: row.started_at || null,
+          completed_at: row.completed_at || null,
           created_at: row.created_at,
           updated_at: row.updated_at,
         };
       })
     );
+    res.json(payload);
   } catch (error) {
     console.error('Error fetching subadmin contract assignments:', error);
     res.status(500).json({ error: 'Impossible de charger les affectations sous-admin' });
@@ -29697,15 +29738,15 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     if (existingId) {
       await pool.query(
         `UPDATE subadmin_contract_assignments
-         SET subadmin_admin_id = ?, urgent = ?, note = ?, assigned_by_admin_id = ?, updated_at = ?
+         SET subadmin_admin_id = ?, urgent = ?, status = 'active', note = ?, assigned_by_admin_id = ?, started_at = NULL, completed_at = NULL, completed_by_admin_id = NULL, updated_at = ?
          WHERE id = ?`,
         [requestedSubadminId, urgent ? 1 : 0, note, String(req.authUser?.id || '').trim() || null, now, assignmentId]
       );
     } else {
       await pool.query(
         `INSERT INTO subadmin_contract_assignments
-         (id, contract_id, subadmin_admin_id, urgent, note, assigned_by_admin_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, contract_id, subadmin_admin_id, urgent, status, note, assigned_by_admin_id, started_at, completed_at, completed_by_admin_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'active', ?, ?, NULL, NULL, NULL, ?, ?)`,
         [assignmentId, contractId, requestedSubadminId, urgent ? 1 : 0, note, String(req.authUser?.id || '').trim() || null, now, now]
       );
     }
@@ -29726,6 +29767,108 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
   } catch (error) {
     console.error('Error assigning contract to subadmin:', error);
     res.status(500).json({ error: 'Affectation du contrat impossible' });
+  }
+});
+
+app.put('/api/subadmin/contracts/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const assignmentId = String(req.params?.id || '').trim();
+    if (!assignmentId) return res.status(400).json({ error: 'id affectation requis' });
+    if (isSubadminAccount(req.authUser || null)) {
+      return res.status(403).json({ error: 'Seul un admin principal peut deplacer une affectation' });
+    }
+    const [rows] = await pool.query('SELECT * FROM subadmin_contract_assignments WHERE id = ? LIMIT 1', [assignmentId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Affectation introuvable' });
+
+    const nextSubadminId = String(req.body?.subadmin_id || '').trim() || String(current.subadmin_admin_id || '').trim();
+    const nextUrgent = req.body?.urgent !== undefined
+      ? (req.body.urgent === true || req.body.urgent === 1 || String(req.body?.urgent || '').trim() === 'true')
+      : Number(current.urgent || 0) === 1;
+    const nextNote = req.body?.note !== undefined ? (String(req.body.note || '').trim() || null) : (current.note || null);
+    const targetSubadmin = await fetchSubadminAccountById(nextSubadminId);
+    if (!targetSubadmin) {
+      return res.status(404).json({ error: 'Sous-admin cible introuvable ou inactif' });
+    }
+
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE subadmin_contract_assignments
+       SET subadmin_admin_id = ?,
+           urgent = ?,
+           status = 'active',
+           note = ?,
+           assigned_by_admin_id = ?,
+           started_at = NULL,
+           completed_at = NULL,
+           completed_by_admin_id = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+      [nextSubadminId, nextUrgent ? 1 : 0, nextNote, String(req.authUser?.id || '').trim() || null, now, assignmentId]
+    );
+
+    await pushToAdminDevices(nextSubadminId, {
+      title: nextUrgent ? 'Affectation deplacee urgente' : 'Affectation deplacee',
+      body: `Un contrat vous a ete transfere.`,
+      data: {
+        kind: 'subadmin_contract_assignment',
+        assignmentId,
+        contractId: String(current.contract_id || '').trim(),
+        urgent: nextUrgent ? '1' : '0',
+      },
+    });
+
+    res.json({ ok: true, id: assignmentId, subadmin_admin_id: nextSubadminId, status: 'active' });
+  } catch (error) {
+    console.error('Error moving subadmin assignment:', error);
+    res.status(500).json({ error: 'Deplacement affectation impossible' });
+  }
+});
+
+app.put('/api/subadmin/contracts/:id/status', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const assignmentId = String(req.params?.id || '').trim();
+    if (!assignmentId) return res.status(400).json({ error: 'id affectation requis' });
+    const [rows] = await pool.query('SELECT * FROM subadmin_contract_assignments WHERE id = ? LIMIT 1', [assignmentId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Affectation introuvable' });
+    if (!ensureSubadminAccess(req, res, current.subadmin_admin_id)) return;
+    const nextStatus = normalizeSubadminAssignmentStatus(req.body?.status);
+    const now = getAgencySqlDateTime();
+    let startedAt = current.started_at || null;
+    let completedAt = current.completed_at || null;
+    let completedByAdminId = current.completed_by_admin_id || null;
+    if (nextStatus === 'active') {
+      startedAt = null;
+      completedAt = null;
+      completedByAdminId = null;
+    } else if (nextStatus === 'in_progress') {
+      startedAt = startedAt || now;
+      completedAt = null;
+      completedByAdminId = null;
+    } else if (nextStatus === 'done') {
+      startedAt = startedAt || now;
+      completedAt = now;
+      completedByAdminId = String(req.authUser?.id || '').trim() || null;
+    }
+    await pool.query(
+      `UPDATE subadmin_contract_assignments
+       SET status = ?, started_at = ?, completed_at = ?, completed_by_admin_id = ?, updated_at = ?
+       WHERE id = ?`,
+      [nextStatus, startedAt, completedAt, completedByAdminId, now, assignmentId]
+    );
+    res.json({
+      ok: true,
+      id: assignmentId,
+      status: nextStatus,
+      started_at: startedAt,
+      completed_at: completedAt,
+    });
+  } catch (error) {
+    console.error('Error updating subadmin assignment status:', error);
+    res.status(500).json({ error: 'Mise a jour affectation impossible' });
   }
 });
 

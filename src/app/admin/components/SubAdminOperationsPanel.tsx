@@ -38,6 +38,7 @@ type AssignmentRow = {
   subadmin_admin_id: string;
   subadmin_name?: string | null;
   urgent: boolean;
+  status?: "active" | "in_progress" | "done";
   note?: string | null;
   bien_reference?: string | null;
   bien_titre?: string | null;
@@ -46,6 +47,7 @@ type AssignmentRow = {
   client_name?: string | null;
   client_phone?: string | null;
   arrival_time?: string | null;
+  departure_time?: string | null;
   url_pdf?: string | null;
   proprietaire_nom?: string | null;
   proprietaire_telephone?: string | null;
@@ -55,6 +57,11 @@ type AssignmentRow = {
   montant_donne_proprietaire?: number | null;
   montant_total_proprietaire?: number | null;
   reste_a_donner_proprietaire?: number | null;
+  resolved_template_vars?: Record<string, string> | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type TaskRow = {
@@ -197,6 +204,33 @@ function formatDateOnly(value?: string | null) {
   const parsed = new Date(String(value).replace(" ", "T"));
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString("fr-FR", { timeZone: "Africa/Tunis" });
+}
+
+function normalizeAssignmentStatus(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "done") return "done" as const;
+  if (normalized === "in_progress") return "in_progress" as const;
+  return "active" as const;
+}
+
+function getAssignmentStatusMeta(status?: string | null) {
+  const normalized = normalizeAssignmentStatus(status);
+  if (normalized === "done") {
+    return {
+      label: "Terminee",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    };
+  }
+  if (normalized === "in_progress") {
+    return {
+      label: "En cours",
+      className: "border-sky-200 bg-sky-50 text-sky-700",
+    };
+  }
+  return {
+    label: "Active",
+    className: "border-slate-200 bg-slate-50 text-slate-600",
+  };
 }
 
 function buildContractLabel(contract: ContractOption) {
@@ -501,6 +535,7 @@ export default function SubAdminOperationsPanel({
   const [assignmentContractDetails, setAssignmentContractDetails] = useState<ContractAutofill | null>(null);
   const [assignmentContractLoading, setAssignmentContractLoading] = useState(false);
   const [assignmentVariablesOpen, setAssignmentVariablesOpen] = useState(false);
+  const [assignmentTransferTargets, setAssignmentTransferTargets] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!selectedSubadminId && subadmins.length > 0) {
@@ -615,6 +650,18 @@ export default function SubAdminOperationsPanel({
 
   const openTasks = useMemo(() => tasks.filter((task) => task.status === "open"), [tasks]);
   const historyTasks = useMemo(() => tasks.filter((task) => task.status === "done"), [tasks]);
+  const activeAssignments = useMemo(
+    () => assignments.filter((assignment) => normalizeAssignmentStatus(assignment.status) !== "done"),
+    [assignments]
+  );
+  const assignmentHistory = useMemo(
+    () => assignments.filter((assignment) => normalizeAssignmentStatus(assignment.status) === "done"),
+    [assignments]
+  );
+  const inProgressAssignments = useMemo(
+    () => assignments.filter((assignment) => normalizeAssignmentStatus(assignment.status) === "in_progress"),
+    [assignments]
+  );
 
   const selectedAssignmentContract = useMemo(
     () => contracts.find((entry) => entry.id === assignmentDraft.contractId) || null,
@@ -778,6 +825,58 @@ export default function SubAdminOperationsPanel({
     }
   };
 
+  const updateAssignmentStatus = async (assignment: AssignmentRow, status: "active" | "in_progress" | "done") => {
+    setSaving(true);
+    try {
+      const response = await fetch(buildApiUrl(`/subadmin/contracts/${encodeURIComponent(assignment.id)}/status`), {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Mise a jour affectation impossible"));
+      toast.success(status === "done" ? "Affectation deplacee dans l'historique." : status === "in_progress" ? "Affectation marquee en cours." : "Affectation reactivee.");
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Mise a jour affectation impossible");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const moveAssignment = async (assignment: AssignmentRow) => {
+    const targetSubadminId = String(assignmentTransferTargets[assignment.id] || assignment.subadmin_admin_id || "").trim();
+    if (!targetSubadminId || targetSubadminId === String(assignment.subadmin_admin_id || "").trim()) {
+      toast.error("Choisissez un autre sous-admin pour deplacer l'affectation");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(buildApiUrl(`/subadmin/contracts/${encodeURIComponent(assignment.id)}`), {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subadmin_id: targetSubadminId,
+          urgent: assignment.urgent,
+          note: assignment.note || "",
+        }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Deplacement affectation impossible"));
+      toast.success("Affectation deplacee vers le nouveau sous-admin.");
+      setAssignmentTransferTargets((prev) => {
+        const next = { ...prev };
+        delete next[assignment.id];
+        return next;
+      });
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Deplacement affectation impossible");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveTechnician = async () => {
     if (!technicianDraft.specialty || !technicianDraft.firstName || !technicianDraft.lastName || !technicianDraft.phone) {
       toast.error("Specialite, nom, prenom et telephone obligatoires");
@@ -889,7 +988,8 @@ export default function SubAdminOperationsPanel({
 
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <MetricCard label="Sous-admin" value={selectedSubadmin?.nom || "-"} tone="emerald" />
-          <MetricCard label="Affectations" value={String(assignments.length)} tone="default" />
+          <MetricCard label="Affectations actives" value={String(activeAssignments.length)} tone="default" />
+          <MetricCard label="Affectations en cours" value={String(inProgressAssignments.length)} tone="sky" />
           <MetricCard label="Taches ouvertes" value={String(openTasks.length)} tone="amber" />
           <MetricCard label="Charges" value={String(charges.length)} tone="sky" />
         </div>
@@ -1123,7 +1223,9 @@ export default function SubAdminOperationsPanel({
               accent="slate"
             >
               <div className="grid gap-3">
-                <MetricCard label="Affectations actives" value={String(assignments.length)} tone="emerald" />
+                <MetricCard label="Affectations actives" value={String(activeAssignments.length)} tone="emerald" />
+                <MetricCard label="Affectations en cours" value={String(inProgressAssignments.length)} tone="sky" />
+                <MetricCard label="Affectations terminees" value={String(assignmentHistory.length)} tone="default" />
                 <MetricCard label="Taches ouvertes" value={String(openTasks.length)} tone="amber" />
                 <MetricCard label="Charges remontees" value={String(charges.length)} tone="sky" />
               </div>
@@ -1131,10 +1233,13 @@ export default function SubAdminOperationsPanel({
 
             <div className="xl:col-span-2">
               {loading ? <EmptyState label="Chargement..." /> : null}
-              {!loading && assignments.length === 0 ? <EmptyState label="Aucune affectation pour le moment." /> : null}
-              {!loading && assignments.length > 0 ? (
+              {!loading && activeAssignments.length === 0 ? <EmptyState label="Aucune affectation active pour le moment." /> : null}
+              {!loading && activeAssignments.length > 0 ? (
                 <div className="space-y-4">
-                  {assignments.map((assignment) => (
+                  {activeAssignments.map((assignment) => {
+                    const statusMeta = getAssignmentStatusMeta(assignment.status);
+                    const normalizedStatus = normalizeAssignmentStatus(assignment.status);
+                    return (
                     <article
                       key={assignment.id}
                       className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_16px_42px_rgba(15,23,42,0.07)] sm:rounded-[30px] sm:p-5"
@@ -1145,6 +1250,9 @@ export default function SubAdminOperationsPanel({
                             <h4 className="text-lg font-bold text-slate-950">
                               {assignment.bien_reference || assignment.contract_id} - {assignment.bien_titre || "Bien"}
                             </h4>
+                            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${statusMeta.className}`}>
+                              {statusMeta.label}
+                            </span>
                             {assignment.urgent ? (
                               <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-700">
                                 Urgent
@@ -1157,6 +1265,8 @@ export default function SubAdminOperationsPanel({
                             <p>Client: {assignment.client_name || "-"} - {assignment.client_phone || "-"}</p>
                             <p>Check-in: {assignment.arrival_time || "-"}</p>
                             <p>Proprietaire: {assignment.proprietaire_nom || "-"} - {assignment.proprietaire_telephone || "-"}</p>
+                            <p>Debut: {formatDateTime(assignment.started_at)}</p>
+                            <p>MAJ: {formatDateTime(assignment.updated_at)}</p>
                           </div>
 
                           {assignment.note ? (
@@ -1219,9 +1329,79 @@ export default function SubAdminOperationsPanel({
                             Appeler client
                           </a>
                         ) : null}
+                        {normalizedStatus !== "in_progress" ? (
+                          <button
+                            type="button"
+                            onClick={() => void updateAssignmentStatus(assignment, "in_progress")}
+                            className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800"
+                          >
+                            <RefreshCw size={15} />
+                            Mettre en cours
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => void updateAssignmentStatus(assignment, "done")}
+                          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800"
+                        >
+                          <CheckCircle2 size={15} />
+                          Terminer
+                        </button>
+                      </div>
+                      <div className="mt-4 flex flex-col gap-2 rounded-[22px] border border-slate-200 bg-slate-50/80 p-3 sm:flex-row sm:items-center">
+                        <p className="text-sm font-semibold text-slate-700 sm:min-w-[110px]">Deplacer vers</p>
+                        <select
+                          value={assignmentTransferTargets[assignment.id] ?? assignment.subadmin_admin_id}
+                          onChange={(event) =>
+                            setAssignmentTransferTargets((prev) => ({
+                              ...prev,
+                              [assignment.id]: event.target.value,
+                            }))
+                          }
+                          className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100/70"
+                        >
+                          {subadmins.map((subadmin) => (
+                            <option key={subadmin.id} value={subadmin.id}>
+                              {subadmin.nom}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => void moveAssignment(assignment)}
+                          className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                        >
+                          Deplacer
+                        </button>
                       </div>
                     </article>
-                  ))}
+                    );
+                  })}
+                </div>
+              ) : null}
+              {!loading && assignmentHistory.length > 0 ? (
+                <div className="mt-5 space-y-4">
+                  <PanelSurface title="Historique affectations" description="Affectations terminees par le sous-admin ou par admin." accent="slate">
+                    <div className="space-y-3">
+                      {assignmentHistory.map((assignment) => (
+                        <article key={assignment.id} className="rounded-[24px] border border-slate-200 bg-white p-4 sm:rounded-[28px]">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <h4 className="font-bold text-slate-950">
+                                {assignment.bien_reference || assignment.contract_id} - {assignment.bien_titre || "Bien"}
+                              </h4>
+                              <p className="text-sm text-slate-600">
+                                {assignment.subadmin_name || assignment.subadmin_admin_id} • {assignment.client_name || "-"}
+                              </p>
+                            </div>
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                              Terminee le {formatDateTime(assignment.completed_at)}
+                            </span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </PanelSurface>
                 </div>
               ) : null}
             </div>
@@ -1371,6 +1551,7 @@ export default function SubAdminOperationsPanel({
                           <select
                             value={task.subadmin_admin_id}
                             onChange={(event) => void updateTask(task, { subadmin_id: event.target.value })}
+                            aria-label="Deplacer la tache vers un autre sous-admin"
                             className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100/70"
                           >
                             {subadmins.map((subadmin) => (
