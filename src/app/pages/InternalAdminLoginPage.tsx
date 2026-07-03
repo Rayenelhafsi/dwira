@@ -56,7 +56,7 @@ export default function InternalAdminLoginPage() {
         </Link>
         <h1 className="text-center text-3xl font-extrabold text-gray-900">Acces administrateur</h1>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Page interne reservee a l'administration.
+          Page interne reservee a l'administration web. Les sous-admins utilisent uniquement l'application mobile.
         </p>
       </div>
 

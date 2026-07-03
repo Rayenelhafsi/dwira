@@ -4491,6 +4491,22 @@ function getSessionUserFromRequest(req) {
   return buildAuthUser(payload);
 }
 
+function isWebAdminLoginRequest(req) {
+  const explicitClient = String(req.headers?.['x-dwira-client'] || req.body?.client || '').trim().toLowerCase();
+  if (explicitClient === 'mobile-app' || explicitClient === 'mobile') {
+    return false;
+  }
+  const origin = String(req.headers?.origin || '').trim().toLowerCase();
+  const referer = String(req.headers?.referer || '').trim().toLowerCase();
+  const secFetchMode = String(req.headers?.['sec-fetch-mode'] || '').trim().toLowerCase();
+  const secFetchDest = String(req.headers?.['sec-fetch-dest'] || '').trim().toLowerCase();
+  const userAgent = String(req.headers?.['user-agent'] || '').trim().toLowerCase();
+  if (origin || referer || secFetchMode || secFetchDest) {
+    return true;
+  }
+  return userAgent.includes('mozilla/');
+}
+
 function isSecureRequest(req) {
   if (req.secure) return true;
   const forwardedProto = String(req.headers?.['x-forwarded-proto'] || '').toLowerCase();
@@ -14572,6 +14588,24 @@ async function loadContractTemplateContext(contractId) {
     [contractId]
   );
   const demand = demandRows[0] || {};
+  if ((!String(contract.proprietaire_nom || '').trim() || !String(contract.proprietaire_telephone || '').trim()) && String(demand.proprietaire_id || '').trim()) {
+    const [ownerRows] = await pool.query(
+      `SELECT nom, telephone
+       FROM proprietaires
+       WHERE id = ?
+       LIMIT 1`,
+      [String(demand.proprietaire_id || '').trim()]
+    );
+    const owner = ownerRows?.[0] || null;
+    if (owner) {
+      if (!String(contract.proprietaire_nom || '').trim()) {
+        contract.proprietaire_nom = String(owner.nom || '').trim() || null;
+      }
+      if (!String(contract.proprietaire_telephone || '').trim()) {
+        contract.proprietaire_telephone = String(owner.telephone || '').trim() || null;
+      }
+    }
+  }
 
   const locataireName = splitFullName(contract.locataire_nom || '');
   const identityFirstName = String(demand.identity_first_name || locataireName.firstName || '').trim();
@@ -26422,6 +26456,20 @@ app.post('/api/auth/admin/login', authLoginRateLimit, async (req, res) => {
         message: 'Admin login failed: invalid credentials',
       });
       return res.status(401).json({ error: 'Identifiants administrateur invalides' });
+    }
+
+    if (String(admin.admin_type || '').trim() === 'subadmin' && isWebAdminLoginRequest(req)) {
+      void logSecurityEvent({
+        req,
+        eventType: 'admin_login_failed',
+        severity: 'warning',
+        success: false,
+        statusCode: 403,
+        userId: admin.id || null,
+        userEmail: admin.email || email,
+        message: 'Subadmin web login denied',
+      });
+      return res.status(403).json({ error: 'Les sous-admins ne peuvent pas se connecter a l admin du site web. Utilisez uniquement l application mobile.' });
     }
 
     await pool.query('UPDATE administrateurs SET last_login_at = ?, updated_at = ? WHERE id = ?', [getAgencySqlDateTime(), getAgencySqlDateTime(), admin.id]);
