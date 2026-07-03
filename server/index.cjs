@@ -25154,6 +25154,23 @@ function normalizeSubadminAssignmentStatus(value) {
   return 'active';
 }
 
+function normalizeSubadminTaskStatus(value, completedAt = null) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (
+    normalized === 'done'
+    || normalized === 'completed'
+    || normalized === 'complete'
+    || normalized === 'closed'
+    || normalized === 'finished'
+    || normalized === 'termine'
+    || normalized === 'terminee'
+  ) {
+    return 'done';
+  }
+  if (completedAt) return 'done';
+  return 'open';
+}
+
 function buildContractAssignmentAutofill(req, templateContext) {
   const contract = templateContext?.contract || null;
   if (!contract) return null;
@@ -29878,16 +29895,25 @@ app.get('/api/subadmin/tasks', requireAdminSession, async (req, res) => {
     await ensureSubadminOperationsSchema();
     const scopedSubadminId = resolveSubadminScopeId(req, req.query?.subadmin_id);
     if (scopedSubadminId && !ensureSubadminAccess(req, res, scopedSubadminId)) return;
-    const requestedStatus = String(req.query?.status || '').trim().toLowerCase();
+    const requestedStatus = normalizeSubadminTaskStatus(req.query?.status);
     const params = [];
     const whereParts = [];
     if (scopedSubadminId) {
       whereParts.push('t.subadmin_admin_id = ?');
       params.push(scopedSubadminId);
     }
-    if (requestedStatus === 'open' || requestedStatus === 'done') {
-      whereParts.push('t.status = ?');
-      params.push(requestedStatus);
+    if (String(req.query?.status || '').trim()) {
+      if (requestedStatus === 'done') {
+        whereParts.push(`(
+          t.completed_at IS NOT NULL
+          OR LOWER(TRIM(COALESCE(t.status, ''))) IN ('done', 'completed', 'complete', 'closed', 'finished', 'termine', 'terminee')
+        )`);
+      } else {
+        whereParts.push(`(
+          t.completed_at IS NULL
+          AND LOWER(TRIM(COALESCE(t.status, 'open'))) NOT IN ('done', 'completed', 'complete', 'closed', 'finished', 'termine', 'terminee')
+        )`);
+      }
     }
     const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
     const [rows] = await pool.query(
@@ -29902,7 +29928,13 @@ app.get('/api/subadmin/tasks', requireAdminSession, async (req, res) => {
       LEFT JOIN biens b ON b.id = t.bien_id
       LEFT JOIN contrats c ON c.id = t.contract_id
       ${whereSql}
-      ORDER BY CASE WHEN t.status = 'open' THEN 0 ELSE 1 END,
+      ORDER BY CASE
+                 WHEN (
+                   t.completed_at IS NULL
+                   AND LOWER(TRIM(COALESCE(t.status, 'open'))) NOT IN ('done', 'completed', 'complete', 'closed', 'finished', 'termine', 'terminee')
+                 ) THEN 0
+                 ELSE 1
+               END,
                t.urgent DESC,
                COALESCE(t.completed_at, t.updated_at) DESC
       `,
@@ -29922,7 +29954,7 @@ app.get('/api/subadmin/tasks', requireAdminSession, async (req, res) => {
         title: row.title,
         note: row.note || null,
         urgent: Number(row.urgent || 0) === 1,
-        status: String(row.status || 'open').trim() === 'done' ? 'done' : 'open',
+        status: normalizeSubadminTaskStatus(row.status, row.completed_at),
         completed_at: row.completed_at || null,
         created_at: row.created_at,
         updated_at: row.updated_at,
