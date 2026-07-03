@@ -15608,6 +15608,7 @@ async function initializeDatabaseSchema() {
       ['ensureAuthSchema', ensureAuthSchema],
       ['ensurePasskeySchema', ensurePasskeySchema],
       ['ensureSecurityAuditSchema', ensureSecurityAuditSchema],
+      ['ensureAdminPushTokensSchema', ensureAdminPushTokensSchema],
       ['ensureAdminNotificationsSchema', ensureAdminNotificationsSchema],
       ['ensureOwnerMobileNotificationsSchema', ensureOwnerMobileNotificationsSchema],
       ['ensureOwnerPushTokensSchema', ensureOwnerPushTokensSchema],
@@ -25269,7 +25270,14 @@ function ensureSubadminAccess(req, res, targetSubadminId) {
 }
 
 async function pushToAdminDevices(adminId, payload) {
-  if (!firebaseMessaging || !adminId) return { sent: 0, disabled: true };
+  if (!firebaseMessaging || !adminId) {
+    console.warn('[FCM][admin] skipped: disabled or missing adminId', {
+      adminId: String(adminId || '').trim() || null,
+      firebaseEnabled: !!firebaseMessaging,
+      kind: String(payload?.data?.kind || '').trim() || null,
+    });
+    return { sent: 0, disabled: true };
+  }
   await ensureAdminPushTokensSchema();
   const normalizedAdminId = String(adminId || '').trim();
   const [rows] = await pool.query(
@@ -25281,7 +25289,13 @@ async function pushToAdminDevices(adminId, payload) {
     [normalizedAdminId]
   );
   const tokens = (rows || []).map((row) => String(row.token || '').trim()).filter(Boolean);
-  if (tokens.length === 0) return { sent: 0, noTokens: true };
+  if (tokens.length === 0) {
+    console.warn('[FCM][admin] skipped: no active tokens', {
+      adminId: normalizedAdminId,
+      kind: String(payload?.data?.kind || '').trim() || null,
+    });
+    return { sent: 0, noTokens: true };
+  }
 
   const dataPayload = Object.fromEntries(
     Object.entries(payload?.data || {}).map(([key, value]) => [key, String(value == null ? '' : value)])
@@ -25331,6 +25345,12 @@ async function pushToAdminDevices(adminId, payload) {
       console.warn('[FCM][admin] send failed:', code || error?.message || error);
     }
   }
+  console.log('[FCM][admin] send result:', {
+    adminId: normalizedAdminId,
+    kind: String(payload?.data?.kind || '').trim() || null,
+    tokens: tokens.length,
+    sent,
+  });
   return { sent };
 }
 
@@ -30154,7 +30174,7 @@ app.get('/api/subadmin/charges', requireAdminSession, async (req, res) => {
         subadmin_admin_id: row.subadmin_admin_id,
         subadmin_name: row.subadmin_name || null,
         note: row.note,
-        image_url: row.image_url || null,
+        image_url: resolvePublicAssetUrl(row.image_url || '') || null,
         created_by_name: row.created_by_name || null,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -30166,7 +30186,13 @@ app.get('/api/subadmin/charges', requireAdminSession, async (req, res) => {
   }
 });
 
-app.post('/api/subadmin/charges', requireAdminSession, (req, res, next) => subadminChargeUpload.single('image')(req, res, next), async (req, res) => {
+app.post('/api/subadmin/charges', requireAdminSession, (req, res, next) => {
+  subadminChargeUpload.single('image')(req, res, (error) => {
+    if (!error) return next();
+    const message = String(error?.message || 'Upload charge invalide').trim() || 'Upload charge invalide';
+    return res.status(400).json({ error: message });
+  });
+}, async (req, res) => {
   try {
     await ensureSubadminOperationsSchema();
     const targetSubadminId = resolveSubadminScopeId(req, req.body?.subadmin_id);
@@ -30184,7 +30210,11 @@ app.post('/api/subadmin/charges', requireAdminSession, (req, res, next) => subad
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [chargeId, targetSubadminId, note, imageUrl, String(req.authUser?.id || '').trim() || null, now, now]
     );
-    res.status(201).json({ id: chargeId, image_url: imageUrl, created_at: now });
+    res.status(201).json({
+      id: chargeId,
+      image_url: resolvePublicAssetUrl(imageUrl || '') || null,
+      created_at: now,
+    });
   } catch (error) {
     console.error('Error creating subadmin charge:', error);
     res.status(500).json({ error: 'Creation de la charge impossible' });
