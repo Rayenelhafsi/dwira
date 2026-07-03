@@ -8,6 +8,7 @@ export interface AuthUser {
   lastName?: string | null;
   avatar?: string | null;
   role: 'admin' | 'user';
+  adminType?: 'superadmin' | 'subadmin' | null;
   clientType?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | 'agence_partenaire' | null;
   telephone?: string | null;
   address?: string | null;

@@ -186,6 +186,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     { name: 'Statistiques', path: '/admin/statistiques', icon: BarChart },
     { name: 'Marketing', path: '/admin/marketing', icon: Megaphone },
     { name: 'Utilisateurs', path: '/admin/utilisateurs', icon: UserCheck },
+    ...(user?.adminType === 'superadmin' ? [{ name: 'Sous-admins', path: '/admin/sous-admins', icon: ShieldCheck }] : []),
     { name: 'Audit securite', path: '/admin/audit-securite', icon: ShieldCheck },
     { name: 'Parametres', path: '/admin/parametres', icon: Settings },
   ];
@@ -252,7 +253,9 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
           />
           <div className="overflow-hidden">
             <p className="truncate text-sm font-medium">{user?.name}</p>
-            <p className="truncate text-xs capitalize text-emerald-400">{user?.role || 'Admin'}</p>
+            <p className="truncate text-xs capitalize text-emerald-400">
+              {user?.role === 'admin' ? (user?.adminType === 'superadmin' ? 'Superadmin' : 'Sous-admin') : (user?.role || 'Admin')}
+            </p>
           </div>
         </div>
         <button

@@ -11,6 +11,7 @@ interface User {
   lastName?: string | null;
   avatar?: string;
   role: 'admin' | 'user';
+  adminType?: 'superadmin' | 'subadmin' | null;
   clientType?: 'proprietaire' | 'locataire' | 'acheteur' | 'agent_amicale' | 'agence_partenaire' | null;
   telephone?: string | null;
   address?: string | null;
@@ -61,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           firstName: serverUser.firstName || undefined,
           lastName: serverUser.lastName || undefined,
           role: serverUser.role,
+          adminType: serverUser.adminType || undefined,
           avatar: serverUser.avatar || undefined,
           clientType: serverUser.clientType || undefined,
           telephone: serverUser.telephone || undefined,

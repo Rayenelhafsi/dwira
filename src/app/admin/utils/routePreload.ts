@@ -16,6 +16,7 @@ const adminRoutePreloaders: Record<string, () => Promise<unknown>> = {
   "/admin/statistiques": () => import("../pages/StatistiquesPage"),
   "/admin/marketing": () => import("../pages/MarketingPage"),
   "/admin/utilisateurs": () => import("../pages/UtilisateursPage"),
+  "/admin/sous-admins": () => import("../pages/SubAdminsPage"),
   "/admin/audit-securite": () => import("../pages/SecurityAuditPage"),
   "/admin/parametres": () => import("../pages/ParametresPage"),
 };

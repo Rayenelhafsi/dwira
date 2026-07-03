@@ -429,6 +429,20 @@ const getPropertyRegionZone = (property: any): { region: string; zone: string } 
   const zone = normalizeFeatureName(h?.quartier || h?.zone || property?.filterProfile?.locationLabel || property?.location || "");
   return { region, zone };
 };
+const groupRowsBySuccessiveZone = <T extends { property: any }>(rows: T[]): T[] => {
+  const groups = new Map<string, T[]>();
+  const orderedKeys: string[] = [];
+  rows.forEach((row) => {
+    const { region, zone } = getPropertyRegionZone(row.property);
+    const groupKey = zone || region || `unknown-${orderedKeys.length}`;
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, []);
+      orderedKeys.push(groupKey);
+    }
+    groups.get(groupKey)?.push(row);
+  });
+  return orderedKeys.flatMap((key) => groups.get(key) || []);
+};
 const getPropertyGovernorate = (property: any): string => {
   const h = property?.filterProfile?.locationHierarchy || {};
   return normalizeFeatureName(h?.gouvernerat || "");
@@ -3375,15 +3389,17 @@ export default function PropertiesPage() {
   const sortedScoredResults = useMemo(() => {
     const list = [...scoringBuckets.primary];
     if (sortMode === "price") {
-      return list.sort((a, b) => Number(a.property.pricePerNight || 0) - Number(b.property.pricePerNight || 0));
+      return groupRowsBySuccessiveZone(
+        list.sort((a, b) => Number(a.property.pricePerNight || 0) - Number(b.property.pricePerNight || 0))
+      );
     }
     if (sortMode === "featured") {
-      return list.sort((a, b) => {
+      return groupRowsBySuccessiveZone(list.sort((a, b) => {
         if (a.property.isFeatured !== b.property.isFeatured) return a.property.isFeatured ? -1 : 1;
         return b.score - a.score;
-      });
+      }));
     }
-    return list.sort((a, b) => b.score - a.score);
+    return groupRowsBySuccessiveZone(list.sort((a, b) => b.score - a.score));
   }, [scoringBuckets.primary, sortMode]);
   const alternativeScoredResults = useMemo(() => {
     const list = [...scoringBuckets.alternatives];

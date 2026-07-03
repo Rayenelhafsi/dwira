@@ -35,6 +35,7 @@ export default function InternalAdminLoginPage() {
         avatar: adminUser.avatar || undefined,
         profileCompleted: true,
         role: 'admin',
+        adminType: adminUser.adminType || 'subadmin',
       });
       toast.success('Connexion administrateur reussie');
       navigate('/admin', { replace: true });

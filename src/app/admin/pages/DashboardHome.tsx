@@ -8,19 +8,30 @@ import {
   Activity
 } from 'lucide-react';
 import { mockBiens, mockLocataires, mockContrats, mockPaiements, mockProprietaires } from '../data/mockData';
+import { useAuth } from '../../context/AuthContext';
 
 export default function DashboardHome() {
+  const { user } = useAuth();
   const activeContracts = mockContrats.filter(c => c.statut === 'actif').length;
   const totalRevenue = mockPaiements.reduce((acc, p) => acc + p.montant, 0);
   const occupiedProperties = mockBiens.filter(b => b.statut === 'loue').length;
   const occupancyRate = Math.round((occupiedProperties / mockBiens.length) * 100);
+  const isSubadmin = user?.role === 'admin' && user?.adminType === 'subadmin';
 
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Tableau de bord</h1>
-        <p className="text-xs sm:text-sm text-gray-500">Bienvenue sur votre espace d'administration</p>
+        <p className="text-xs sm:text-sm text-gray-500">
+          {isSubadmin ? 'Dashboard sous-admin pour l application mobile et les operations courantes' : "Bienvenue sur votre espace d'administration"}
+        </p>
       </div>
+
+      {isSubadmin && (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-sky-900">
+          Votre session est reconnue comme <strong>sous-admin</strong>. Vous pouvez vous connecter par la meme zone admin, et l application mobile peut distinguer ce profil via la session admin.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard 

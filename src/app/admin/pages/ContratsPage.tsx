@@ -46,6 +46,7 @@ type ContratApi = {
   payment_receipt_uploaded_at?: string | null;
   payment_receipt_note?: string | null;
   montant_donne_proprietaire?: number | null;
+  montant_total_proprietaire?: number | null;
   profit_net?: number | null;
   reservation_demand_status?: string | null;
 };
@@ -488,7 +489,7 @@ export default function ContratsPage() {
   const [sendingContratId, setSendingContratId] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<ContractCategoryFilter>('all');
-  const [financialDrafts, setFinancialDrafts] = useState<Record<string, { ownerAmount: string; netProfit: string }>>({});
+  const [financialDrafts, setFinancialDrafts] = useState<Record<string, { ownerAmount: string; ownerTotal: string; netProfit: string }>>({});
   const [expandedFinancials, setExpandedFinancials] = useState<Record<string, boolean>>({});
   const [savingFinancialContratId, setSavingFinancialContratId] = useState<string | null>(null);
   const [reopeningContratId, setReopeningContratId] = useState<string | null>(null);
@@ -1168,13 +1169,16 @@ export default function ContratsPage() {
     const ownerAmountValue = contrat.montant_donne_proprietaire ?? null;
     return {
       ownerAmount: ownerAmountValue === null || ownerAmountValue === undefined ? '' : String(ownerAmountValue),
+      ownerTotal: contrat.montant_total_proprietaire === null || contrat.montant_total_proprietaire === undefined
+        ? ''
+        : String(Math.round(Number(contrat.montant_total_proprietaire) * 100) / 100),
       netProfit: contrat.profit_net === null || contrat.profit_net === undefined
         ? ''
         : String(Math.round(Number(contrat.profit_net) * 100) / 100),
     };
   };
 
-  const handleFinancialDraftChange = (contrat: ContratApi, patch: Partial<{ ownerAmount: string; netProfit: string }>) => {
+  const handleFinancialDraftChange = (contrat: ContratApi, patch: Partial<{ ownerAmount: string; ownerTotal: string; netProfit: string }>) => {
     const current = getFinancialDraft(contrat);
     const next = { ...current, ...patch };
     if (patch.ownerAmount !== undefined && patch.netProfit === undefined) {
@@ -1189,8 +1193,9 @@ export default function ContratsPage() {
   const handleSaveFinancials = async (contrat: ContratApi) => {
     const draft = getFinancialDraft(contrat);
     const ownerAmount = draft.ownerAmount === '' ? null : Number(String(draft.ownerAmount).replace(',', '.'));
+    const ownerTotal = draft.ownerTotal === '' ? null : Number(String(draft.ownerTotal).replace(',', '.'));
     const netProfit = draft.netProfit === '' ? null : Number(String(draft.netProfit).replace(',', '.'));
-    if ((ownerAmount !== null && !Number.isFinite(ownerAmount)) || (netProfit !== null && !Number.isFinite(netProfit))) {
+    if ((ownerAmount !== null && !Number.isFinite(ownerAmount)) || (ownerTotal !== null && !Number.isFinite(ownerTotal)) || (netProfit !== null && !Number.isFinite(netProfit))) {
       toast.error('Montants invalides');
       return;
     }
@@ -1202,6 +1207,7 @@ export default function ContratsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           montant_donne_proprietaire: ownerAmount,
+          montant_total_proprietaire: ownerTotal,
           profit_net: netProfit,
         }),
       });
@@ -2322,7 +2328,7 @@ export default function ContratsPage() {
                 </button>
                 {expandedFinancials[contrat.id] ? (
                   <div className="mt-3 grid grid-cols-1 gap-3">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <label className="block">
                         <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">Montant donne au proprietaire</span>
                         <input
@@ -2331,6 +2337,17 @@ export default function ContratsPage() {
                           step="0.01"
                           value={financialDraft.ownerAmount}
                           onChange={(event) => handleFinancialDraftChange(contrat, { ownerAmount: event.target.value })}
+                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">Montant total proprietaire</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={financialDraft.ownerTotal}
+                          onChange={(event) => handleFinancialDraftChange(contrat, { ownerTotal: event.target.value })}
                           className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
                         />
                       </label>

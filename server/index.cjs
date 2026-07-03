@@ -117,6 +117,9 @@ const DEVICE_COOKIE_NAME = 'dwira_device';
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 const DEVICE_COOKIE_DURATION_MS = 180 * 24 * 60 * 60 * 1000;
 const SESSION_SECRET = String(process.env.SESSION_SECRET || '').trim() || crypto.randomBytes(32).toString('hex');
+const DEFAULT_SUPERADMIN_EMAIL = 'admin@dwiraimmobilier.com';
+const DEFAULT_SUPERADMIN_PASSWORD = 'Admin12345';
+const DEFAULT_SUPERADMIN_NAME = 'Super Administrateur';
 const WEBAUTHN_RP_NAME = String(process.env.WEBAUTHN_RP_NAME || 'Dwira Immobilier').trim() || 'Dwira Immobilier';
 const WEBAUTHN_RP_ID = String(process.env.WEBAUTHN_RP_ID || '').trim().toLowerCase();
 const TURNSTILE_SECRET_KEY = String(process.env.TURNSTILE_SECRET_KEY || '').trim();
@@ -4456,13 +4459,16 @@ function buildAuthUser(user) {
   const nameParts = fullName ? fullName.split(' ') : [];
   const derivedFirstName = explicitFirstName || (nameParts[0] || '');
   const derivedLastName = explicitLastName || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
+  const normalizedRole = String(user?.role || '') === 'admin' ? 'admin' : 'user';
+  const adminTypeRaw = String(user?.adminType || user?.admin_type || '').trim().toLowerCase();
   return {
     id: String(user?.id || ''),
     email: String(user?.email || '').toLowerCase(),
     name: fullName,
     firstName: derivedFirstName || null,
     lastName: derivedLastName || null,
-    role: String(user?.role || '') === 'admin' ? 'admin' : 'user',
+    role: normalizedRole,
+    adminType: normalizedRole === 'admin' ? (adminTypeRaw === 'superadmin' ? 'superadmin' : 'subadmin') : null,
     avatar: user?.avatar || null,
     clientType: user?.clientType || null,
     telephone: user?.telephone || null,
@@ -4696,7 +4702,7 @@ async function authenticateAdminFromHeaders(req) {
   if (!email || !password) return null;
 
   const [rows] = await pool.query(
-    'SELECT id, nom, email, mot_de_passe_hash, actif FROM administrateurs WHERE email = ? LIMIT 1',
+    'SELECT id, nom, email, mot_de_passe_hash, actif, admin_type FROM administrateurs WHERE email = ? LIMIT 1',
     [email]
   );
   const admin = rows[0];
@@ -4710,6 +4716,7 @@ async function authenticateAdminFromHeaders(req) {
     email: admin.email,
     name: admin.nom,
     role: 'admin',
+    adminType: admin.admin_type,
     profileCompleted: true,
   });
 }
@@ -4743,7 +4750,8 @@ async function requireAuthenticatedSession(req, res, next) {
 }
 
 async function requireAdminSession(req, res, next) {
-  const user = getSessionUserFromRequest(req);
+  const sessionUser = getSessionUserFromRequest(req);
+  const user = sessionUser ? await hydrateAdminSessionUser(req, res, sessionUser, { persistSession: true }) : null;
   if (user && user.role === 'admin') {
     req.authUser = user;
     return next();
@@ -4787,8 +4795,67 @@ async function requireAdminSession(req, res, next) {
   return next();
 }
 
+async function requireSuperAdminSession(req, res, next) {
+  const sessionUser = getSessionUserFromRequest(req);
+  const user = sessionUser ? await hydrateAdminSessionUser(req, res, sessionUser, { persistSession: true }) : null;
+  if (user && user.role === 'admin' && user.adminType === 'superadmin') {
+    req.authUser = user;
+    return next();
+  }
+
+  try {
+    const headerAdmin = await authenticateAdminFromHeaders(req);
+    if (headerAdmin && headerAdmin.role === 'admin' && headerAdmin.adminType === 'superadmin') {
+      req.authUser = headerAdmin;
+      return next();
+    }
+  } catch (error) {
+    console.warn('superadmin_header_auth_failed:', error?.message || error);
+  }
+
+  if (!user) {
+    return res.status(401).json({ error: 'Authentification requise' });
+  }
+  return res.status(403).json({ error: 'Acces reserve au superadmin' });
+}
+
 function normalizeEmailForCompare(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+async function hydrateAdminSessionUser(req, res, user, { persistSession = false } = {}) {
+  if (!user || user.role !== 'admin') return user;
+  const adminId = String(user.id || '').trim();
+  const adminEmail = normalizeEmailForCompare(user.email);
+  if (!adminId && !adminEmail) return user;
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, nom, email, admin_type, actif
+       FROM administrateurs
+       WHERE id = ? OR email = ?
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [adminId, adminEmail]
+    );
+    const admin = rows?.[0];
+    if (!admin || !admin.actif) return user;
+    const hydratedUser = buildAuthUser({
+      ...user,
+      id: admin.id || user.id,
+      email: admin.email || user.email,
+      name: admin.nom || user.name,
+      role: 'admin',
+      adminType: admin.admin_type,
+      profileCompleted: true,
+    });
+    if (persistSession && hydratedUser.adminType !== user.adminType) {
+      setAuthSessionCookie(req, res, hydratedUser);
+    }
+    return hydratedUser;
+  } catch (error) {
+    console.warn('hydrate_admin_session_user_failed:', error?.message || error);
+    return user;
+  }
 }
 
 function canAccessReservationDemand(authUser, demand) {
@@ -8625,12 +8692,34 @@ async function ensureAuthSchema() {
       nom VARCHAR(100) NOT NULL,
       email VARCHAR(100) NOT NULL UNIQUE,
       mot_de_passe_hash VARCHAR(255) NOT NULL,
+      admin_type ENUM('superadmin', 'subadmin') NOT NULL DEFAULT 'subadmin',
       actif BOOLEAN NOT NULL DEFAULT TRUE,
+      created_by_admin_id VARCHAR(50) NULL,
+      last_login_at DATETIME NULL,
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL,
       INDEX idx_admin_email (email)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  if (!(await columnExists('administrateurs', 'admin_type'))) {
+    await pool.query(
+      "ALTER TABLE administrateurs ADD COLUMN admin_type ENUM('superadmin', 'subadmin') NOT NULL DEFAULT 'subadmin' AFTER mot_de_passe_hash"
+    );
+  }
+  await pool.query(
+    "ALTER TABLE administrateurs MODIFY COLUMN admin_type ENUM('superadmin', 'subadmin') NOT NULL DEFAULT 'subadmin'"
+  );
+  if (!(await columnExists('administrateurs', 'created_by_admin_id'))) {
+    await pool.query(
+      'ALTER TABLE administrateurs ADD COLUMN created_by_admin_id VARCHAR(50) NULL AFTER actif'
+    );
+  }
+  if (!(await columnExists('administrateurs', 'last_login_at'))) {
+    await pool.query(
+      'ALTER TABLE administrateurs ADD COLUMN last_login_at DATETIME NULL AFTER created_by_admin_id'
+    );
+  }
 
   if (!(await columnExists('utilisateurs', 'auth_provider'))) {
     await pool.query(
@@ -8807,20 +8896,21 @@ async function ensureAuthSchema() {
     )`
   );
 
-  const seedEmail = process.env.ADMIN_SEED_EMAIL;
-  const seedPassword = process.env.ADMIN_SEED_PASSWORD;
+  const seedEmail = normalizeEmailForCompare(DEFAULT_SUPERADMIN_EMAIL);
+  const seedPassword = String(DEFAULT_SUPERADMIN_PASSWORD).trim();
   if (seedEmail && seedPassword) {
     const hashedPassword = await bcrypt.hash(seedPassword, 10);
     const now = getAgencySqlDateTime();
     await pool.query(
-      `INSERT INTO administrateurs (id, nom, email, mot_de_passe_hash, actif, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 1, ?, ?)
+      `INSERT INTO administrateurs (id, nom, email, mot_de_passe_hash, admin_type, actif, created_by_admin_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'superadmin', 1, NULL, ?, ?)
        ON DUPLICATE KEY UPDATE
          nom = VALUES(nom),
          mot_de_passe_hash = VALUES(mot_de_passe_hash),
+         admin_type = 'superadmin',
          actif = 1,
          updated_at = VALUES(updated_at)`,
-      ['admin-seed', process.env.ADMIN_SEED_NAME || 'Administrateur', seedEmail.toLowerCase(), hashedPassword, now, now]
+      ['admin-seed', DEFAULT_SUPERADMIN_NAME, seedEmail, hashedPassword, now, now]
     );
   }
 }
@@ -14452,8 +14542,10 @@ async function loadContractTemplateContext(contractId) {
             z.gouvernerat AS zone_gouvernerat,
             z.region AS zone_region,
             z.pays AS zone_pays,
+            z.google_maps_url,
             p.nom AS proprietaire_nom,
             p.email AS proprietaire_email,
+            p.telephone AS proprietaire_telephone,
             l.nom AS locataire_nom,
             l.email AS locataire_email,
             l.telephone AS locataire_telephone,
@@ -17427,7 +17519,7 @@ app.get('/api/contrats', requireAdminSession, async (req, res) => {
     await ensureContractsSchema();
     await ensureReservationDemandSchema();
     const [rows] = await pool.query(`
-      SELECT c.*, b.titre as bien_titre, l.nom as locataire_nom,
+      SELECT c.*, b.titre as bien_titre, b.reference as bien_reference, l.nom as locataire_nom,
              (
                SELECT d.id
                FROM reservation_demands d
@@ -17512,6 +17604,7 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
         return res.status(403).json({ error: 'Acces refuse a ce contrat' });
       }
     }
+    const assignmentAutofill = buildContractAssignmentAutofill(req, templateContext);
     res.json({
       ...contract,
       resolved_template_vars: templateContext?.resolvedTemplateVars || null,
@@ -17519,6 +17612,24 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
       payment_receipt_image_url: templateContext?.demand?.payment_receipt_image_url || null,
       payment_receipt_uploaded_at: templateContext?.demand?.payment_receipt_uploaded_at || null,
       payment_receipt_note: templateContext?.demand?.payment_receipt_note || null,
+      assignment_autofill: assignmentAutofill,
+      property_url: assignmentAutofill?.property_url || null,
+      google_maps_url: assignmentAutofill?.google_maps_url || null,
+      client_name: assignmentAutofill?.client_name || null,
+      client_phone: assignmentAutofill?.client_phone || null,
+      proprietaire_nom: assignmentAutofill?.proprietaire_nom || null,
+      proprietaire_telephone: assignmentAutofill?.proprietaire_telephone || null,
+      contract_start_date: assignmentAutofill?.contract_start_date || null,
+      contract_end_date: assignmentAutofill?.contract_end_date || null,
+      arrival_time: assignmentAutofill?.arrival_time || null,
+      departure_time: assignmentAutofill?.departure_time || null,
+      payment_reference: assignmentAutofill?.payment_reference || null,
+      montant_total_contrat: assignmentAutofill?.montant_total_contrat ?? null,
+      montant_avance: assignmentAutofill?.montant_avance ?? null,
+      montant_a_encaisser: assignmentAutofill?.montant_a_encaisser ?? null,
+      montant_donne_proprietaire: assignmentAutofill?.montant_donne_proprietaire ?? null,
+      montant_total_proprietaire: assignmentAutofill?.montant_total_proprietaire ?? null,
+      reste_a_donner_proprietaire: assignmentAutofill?.reste_a_donner_proprietaire ?? null,
     });
   } catch (error) {
     console.error('Error fetching contrat by id:', error);
@@ -17731,6 +17842,7 @@ app.post('/api/contrats', requireAdminSession, async (req, res) => {
       date_fin,
       montant_recu,
       montant_donne_proprietaire,
+      montant_total_proprietaire,
       profit_net,
       url_pdf,
       owner_url_pdf,
@@ -17745,8 +17857,8 @@ app.post('/api/contrats', requireAdminSession, async (req, res) => {
     const created_at = getAgencySqlDateTime();
     const contractOrigin = String(origine || 'manuel').trim().toLowerCase() === 'automatique' ? 'automatique' : 'manuel';
     await pool.query(
-      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, montant_donne_proprietaire, profit_net, url_pdf, owner_url_pdf, origine, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, montant_donne_proprietaire ?? null, profit_net ?? null, url_pdf || null, owner_url_pdf || null, contractOrigin, statut || 'actif', created_at]
+      'INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, montant_donne_proprietaire, montant_total_proprietaire, profit_net, url_pdf, owner_url_pdf, origine, statut, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, bien_id, locataire_id, date_debut, date_fin, montant_recu || 0, montant_donne_proprietaire ?? null, montant_total_proprietaire ?? null, profit_net ?? null, url_pdf || null, owner_url_pdf || null, contractOrigin, statut || 'actif', created_at]
     );
     const [matchingDemandRows] = await pool.query(
       `SELECT d.id
@@ -19282,6 +19394,52 @@ app.post('/api/mobile/admin/calendar-prompt-schedule/dispatch-owner/:ownerId', r
   }
 });
 
+app.post('/api/mobile/admin/push-token', requireAdminSession, async (req, res) => {
+  try {
+    const adminId = String(req.authUser?.id || '').trim();
+    const token = String(req.body?.token || '').trim();
+    const platform = String(req.body?.platform || '').trim();
+    const appVersion = String(req.body?.appVersion || '').trim();
+    if (!adminId || !token) {
+      return res.status(400).json({ error: 'adminId et token requis' });
+    }
+    await ensureAdminPushTokensSchema();
+    const now = getAgencySqlDateTime();
+    const [existing] = await pool.query(
+      `SELECT id
+       FROM admin_push_tokens
+       WHERE admin_id = ? AND token = ?
+       LIMIT 1`,
+      [adminId, token]
+    );
+    const existingId = String(existing?.[0]?.id || '').trim();
+    if (existingId) {
+      await pool.query(
+        `UPDATE admin_push_tokens
+         SET active = 1,
+             platform = ?,
+             app_version = ?,
+             updated_at = ?,
+             last_seen_at = ?
+         WHERE id = ?`,
+        [platform || null, appVersion || null, now, now, existingId]
+      );
+      return res.json({ ok: true, id: existingId, updated: true });
+    }
+    const id = `apt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO admin_push_tokens
+       (id, admin_id, token, platform, app_version, active, created_at, updated_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+      [id, adminId, token, platform || null, appVersion || null, now, now, now]
+    );
+    res.status(201).json({ ok: true, id, created: true });
+  } catch (error) {
+    console.error('Error saving admin push token:', error);
+    res.status(500).json({ error: 'Failed to save admin push token' });
+  }
+});
+
 app.post('/api/mobile/admin/owner-app-update-notification', requireAdminSession, async (req, res) => {
   try {
     const defaultMessage = "Nouvelle mise a jour de l'application dans Google Play Store";
@@ -20628,6 +20786,7 @@ app.put('/api/contrats/:id', requireAdminSession, async (req, res) => {
       date_fin,
       montant_recu,
       montant_donne_proprietaire,
+      montant_total_proprietaire,
       profit_net,
       url_pdf,
       owner_url_pdf,
@@ -20659,6 +20818,7 @@ app.put('/api/contrats/:id', requireAdminSession, async (req, res) => {
     if (date_fin !== undefined) { fields.push('date_fin = ?'); values.push(date_fin); }
     if (montant_recu !== undefined) { fields.push('montant_recu = ?'); values.push(montant_recu); }
     if (montant_donne_proprietaire !== undefined) { fields.push('montant_donne_proprietaire = ?'); values.push(montant_donne_proprietaire); }
+    if (montant_total_proprietaire !== undefined) { fields.push('montant_total_proprietaire = ?'); values.push(montant_total_proprietaire); }
     if (profit_net !== undefined) { fields.push('profit_net = ?'); values.push(profit_net); }
     if (url_pdf !== undefined) { fields.push('url_pdf = ?'); values.push(url_pdf); }
     if (owner_url_pdf !== undefined) { fields.push('owner_url_pdf = ?'); values.push(owner_url_pdf); }
@@ -20748,6 +20908,33 @@ const paymentReceiptStorage = multer.diskStorage({
 
 const paymentReceiptUpload = multer({
   storage: paymentReceiptStorage,
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedExt = /\.(jpg|jpeg|png|webp)$/i.test(path.extname(file.originalname || '').toLowerCase());
+    const mime = String(file.mimetype || '').toLowerCase();
+    const allowedMime = mime.startsWith('image/');
+    if (allowedExt && allowedMime) return cb(null, true);
+    cb(new Error('Only image files (jpg, jpeg, png, webp) are allowed'));
+  },
+});
+
+const subadminChargeStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const chargeDir = path.join(__dirname, 'uploads', 'subadmin-charges');
+    if (!fs.existsSync(chargeDir)) {
+      fs.mkdirSync(chargeDir, { recursive: true });
+    }
+    cb(null, chargeDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `subadmin-charge-${uniqueSuffix}${ext}`);
+  },
+});
+
+const subadminChargeUpload = multer({
+  storage: subadminChargeStorage,
   limits: { fileSize: 12 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedExt = /\.(jpg|jpeg|png|webp)$/i.test(path.extname(file.originalname || '').toLowerCase());
@@ -24086,6 +24273,90 @@ async function ensureOwnerCalendarPromptSchema() {
   `);
 }
 
+async function ensureAdminPushTokensSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_push_tokens (
+      id VARCHAR(100) PRIMARY KEY,
+      admin_id VARCHAR(100) NOT NULL,
+      token TEXT NOT NULL,
+      platform VARCHAR(30) NULL,
+      app_version VARCHAR(40) NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      last_seen_at DATETIME NOT NULL,
+      KEY idx_admin_push_tokens_admin_active (admin_id, active, updated_at)
+    )
+  `);
+}
+
+async function ensureSubadminOperationsSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS subadmin_contract_assignments (
+      id VARCHAR(100) PRIMARY KEY,
+      contract_id VARCHAR(100) NOT NULL,
+      subadmin_admin_id VARCHAR(100) NOT NULL,
+      urgent TINYINT(1) NOT NULL DEFAULT 0,
+      note TEXT NULL,
+      assigned_by_admin_id VARCHAR(100) NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      UNIQUE KEY uniq_subadmin_contract_assignment (contract_id),
+      KEY idx_subadmin_contract_assignments_subadmin (subadmin_admin_id, updated_at)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS subadmin_tasks (
+      id VARCHAR(100) PRIMARY KEY,
+      subadmin_admin_id VARCHAR(100) NOT NULL,
+      bien_id VARCHAR(100) NULL,
+      contract_id VARCHAR(100) NULL,
+      title VARCHAR(255) NOT NULL,
+      note TEXT NULL,
+      urgent TINYINT(1) NOT NULL DEFAULT 0,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      assigned_by_admin_id VARCHAR(100) NULL,
+      completed_by_admin_id VARCHAR(100) NULL,
+      completed_at DATETIME NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_subadmin_tasks_subadmin_status (subadmin_admin_id, status, urgent, updated_at),
+      KEY idx_subadmin_tasks_contract (contract_id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS subadmin_charges (
+      id VARCHAR(100) PRIMARY KEY,
+      subadmin_admin_id VARCHAR(100) NOT NULL,
+      note TEXT NOT NULL,
+      image_url VARCHAR(500) NULL,
+      created_by_admin_id VARCHAR(100) NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_subadmin_charges_subadmin_created (subadmin_admin_id, created_at)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS subadmin_technicians (
+      id VARCHAR(100) PRIMARY KEY,
+      subadmin_admin_id VARCHAR(100) NULL,
+      specialty VARCHAR(120) NOT NULL,
+      first_name VARCHAR(120) NOT NULL,
+      last_name VARCHAR(120) NOT NULL,
+      phone VARCHAR(40) NOT NULL,
+      notes TEXT NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by_admin_id VARCHAR(100) NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_subadmin_technicians_scope (subadmin_admin_id, active, updated_at)
+    )
+  `);
+  if (!(await columnExists('contrats', 'montant_total_proprietaire'))) {
+    await pool.query('ALTER TABLE contrats ADD COLUMN montant_total_proprietaire DECIMAL(12,2) NULL AFTER montant_donne_proprietaire');
+  }
+}
+
 async function getOwnerCalendarPromptSchedule() {
   await ensureOwnerCalendarPromptSchema();
   const [rows] = await pool.query(
@@ -24678,6 +24949,182 @@ async function pushToOwnerDevices(ownerId, payload) {
   return { sent };
 }
 
+function normalizeSubadminRouteToken(value) {
+  const normalized = decodeURIComponent(String(value || '').trim()).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!normalized) return '';
+  if (normalized.startsWith('ref')) {
+    const digits = normalized.slice(3).replace(/[^0-9]/g, '');
+    if (digits) return `REF${digits}`;
+  }
+  return String(value || '').trim();
+}
+
+function buildSubadminPropertyUrl(req, bienId, bienReference) {
+  const token = normalizeSubadminRouteToken(bienReference) || String(bienId || '').trim();
+  if (!token) return null;
+  return `${getPublicFrontendBaseUrl(req)}/properties/${encodeURIComponent(token)}`;
+}
+
+function buildContractAssignmentAutofill(req, templateContext) {
+  const contract = templateContext?.contract || null;
+  if (!contract) return null;
+  const demand = templateContext?.contractDemandContext || templateContext?.demand || {};
+  const resolvedTemplateVars = templateContext?.resolvedTemplateVars || null;
+  const totalAmount = Number.isFinite(Number(templateContext?.totalAmount)) ? Number(templateContext.totalAmount) : null;
+  const amountDueNow = Number.isFinite(Number(templateContext?.amountDueNow)) ? Number(templateContext.amountDueNow) : null;
+  const ownerTotal = Number.isFinite(Number(contract.montant_total_proprietaire))
+    ? Number(contract.montant_total_proprietaire)
+    : null;
+  const ownerPaid = Number.isFinite(Number(contract.montant_donne_proprietaire))
+    ? Number(contract.montant_donne_proprietaire)
+    : null;
+
+  return {
+    contract_id: contract.id,
+    bien_id: contract.bien_id || null,
+    bien_reference: contract.bien_reference || null,
+    bien_titre: contract.bien_titre || null,
+    property_url: buildSubadminPropertyUrl(req, contract.bien_id, contract.bien_reference),
+    google_maps_url: contract.google_maps_url || null,
+    client_name:
+      String(demand.client_name || '').trim()
+      || String(contract.locataire_nom || '').trim()
+      || null,
+    client_phone:
+      String(demand.client_phone || '').trim()
+      || String(contract.locataire_telephone || '').trim()
+      || null,
+    proprietaire_nom: contract.proprietaire_nom || null,
+    proprietaire_telephone: contract.proprietaire_telephone || null,
+    contract_start_date: demand.start_date || contract.date_debut || null,
+    contract_end_date: demand.end_date || contract.date_fin || null,
+    arrival_time:
+      String(demand.arrival_time || '').trim()
+      || String(resolvedTemplateVars?.heureArrivee || '').trim()
+      || null,
+    departure_time: String(resolvedTemplateVars?.heureDepart || '').trim() || null,
+    payment_reference:
+      String(demand.payment_id || '').trim()
+      || String(resolvedTemplateVars?.idPaiement || '').trim()
+      || null,
+    url_pdf: contract.url_pdf || null,
+    owner_url_pdf: contract.owner_url_pdf || null,
+    montant_total_contrat: totalAmount,
+    montant_avance: amountDueNow,
+    montant_a_encaisser: totalAmount === null ? null : Math.max(0, totalAmount - Number(amountDueNow || 0)),
+    montant_donne_proprietaire: ownerPaid,
+    montant_total_proprietaire: ownerTotal,
+    reste_a_donner_proprietaire: ownerTotal === null ? null : Math.max(0, ownerTotal - Number(ownerPaid || 0)),
+    resolved_template_vars: resolvedTemplateVars,
+  };
+}
+
+function isSubadminAccount(user) {
+  return user?.role === 'admin' && String(user?.adminType || '').trim() === 'subadmin';
+}
+
+async function fetchSubadminAccountById(adminId) {
+  const normalizedAdminId = String(adminId || '').trim();
+  if (!normalizedAdminId) return null;
+  const [rows] = await pool.query(
+    `SELECT id, nom, email, admin_type, actif
+     FROM administrateurs
+     WHERE id = ? AND admin_type = 'subadmin'
+     LIMIT 1`,
+    [normalizedAdminId]
+  );
+  const row = rows?.[0] || null;
+  if (!row || !Number(row.actif || 0)) return null;
+  return row;
+}
+
+function resolveSubadminScopeId(req, explicitSubadminId = null) {
+  const authUser = req.authUser || null;
+  if (isSubadminAccount(authUser)) {
+    return String(authUser.id || '').trim();
+  }
+  const requested = String(explicitSubadminId || '').trim();
+  return requested || null;
+}
+
+function ensureSubadminAccess(req, res, targetSubadminId) {
+  const authUser = req.authUser || null;
+  if (!isSubadminAccount(authUser)) return true;
+  const authId = String(authUser.id || '').trim();
+  const targetId = String(targetSubadminId || '').trim();
+  if (!authId || !targetId || authId !== targetId) {
+    res.status(403).json({ error: 'Acces limite a votre profil sous-admin' });
+    return false;
+  }
+  return true;
+}
+
+async function pushToAdminDevices(adminId, payload) {
+  if (!firebaseMessaging || !adminId) return { sent: 0, disabled: true };
+  await ensureAdminPushTokensSchema();
+  const normalizedAdminId = String(adminId || '').trim();
+  const [rows] = await pool.query(
+    `SELECT id, token
+     FROM admin_push_tokens
+     WHERE admin_id = ? AND active = 1
+     ORDER BY updated_at DESC
+     LIMIT 20`,
+    [normalizedAdminId]
+  );
+  const tokens = (rows || []).map((row) => String(row.token || '').trim()).filter(Boolean);
+  if (tokens.length === 0) return { sent: 0, noTokens: true };
+
+  const dataPayload = Object.fromEntries(
+    Object.entries(payload?.data || {}).map(([key, value]) => [key, String(value == null ? '' : value)])
+  );
+  const title = String(payload?.title || 'Dwira');
+  const body = String(payload?.body || '');
+  let sent = 0;
+  for (const token of tokens) {
+    try {
+      await firebaseMessaging.send({
+        token,
+        data: dataPayload,
+        notification: { title, body },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'admin_alerts_v2',
+            sound: 'default',
+            priority: 'high',
+            defaultSound: true,
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
+          },
+          payload: {
+            aps: {
+              alert: { title, body },
+              sound: 'default',
+              badge: 1,
+              'content-available': 1,
+            },
+          },
+        },
+      });
+      sent += 1;
+    } catch (error) {
+      const code = String(error?.code || '');
+      if (code.includes('registration-token-not-registered') || code.includes('invalid-registration-token')) {
+        await pool.query(
+          'UPDATE admin_push_tokens SET active = 0, updated_at = ?, last_seen_at = ? WHERE admin_id = ? AND token = ?',
+          [getAgencySqlDateTime(), getAgencySqlDateTime(), normalizedAdminId, token]
+        ).catch(() => {});
+      }
+      console.warn('[FCM][admin] send failed:', code || error?.message || error);
+    }
+  }
+  return { sent };
+}
+
 async function ensureSecurityAuditSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS security_audit_logs (
@@ -25240,6 +25687,9 @@ async function ensureContractsSchema() {
   }
   if (!(await columnExists('contrats', 'montant_donne_proprietaire'))) {
     await pool.query('ALTER TABLE contrats ADD COLUMN montant_donne_proprietaire DECIMAL(12,2) NULL AFTER montant_recu');
+  }
+  if (!(await columnExists('contrats', 'montant_total_proprietaire'))) {
+    await pool.query('ALTER TABLE contrats ADD COLUMN montant_total_proprietaire DECIMAL(12,2) NULL AFTER montant_donne_proprietaire');
   }
   if (!(await columnExists('contrats', 'profit_net'))) {
     await pool.query('ALTER TABLE contrats ADD COLUMN profit_net DECIMAL(12,2) NULL AFTER montant_donne_proprietaire');
@@ -25943,7 +26393,7 @@ app.post('/api/auth/admin/login', authLoginRateLimit, async (req, res) => {
     }
 
     const [rows] = await pool.query(
-      'SELECT id, nom, email, mot_de_passe_hash, actif FROM administrateurs WHERE email = ? LIMIT 1',
+      'SELECT id, nom, email, mot_de_passe_hash, actif, admin_type FROM administrateurs WHERE email = ? LIMIT 1',
       [String(email).toLowerCase()]
     );
     const admin = rows[0];
@@ -25974,11 +26424,13 @@ app.post('/api/auth/admin/login', authLoginRateLimit, async (req, res) => {
       return res.status(401).json({ error: 'Identifiants administrateur invalides' });
     }
 
+    await pool.query('UPDATE administrateurs SET last_login_at = ?, updated_at = ? WHERE id = ?', [getAgencySqlDateTime(), getAgencySqlDateTime(), admin.id]);
     const authUser = buildAuthUser({
       id: admin.id,
       email: admin.email,
       name: admin.nom,
       role: 'admin',
+      adminType: admin.admin_type,
       profileCompleted: true,
     });
     setAuthSessionCookie(req, res, authUser);
@@ -26781,6 +27233,9 @@ app.get('/api/auth/session', async (req, res) => {
   const cookies = parseCookies(req.headers?.cookie);
   const hasSessionCookie = Boolean(String(cookies?.[SESSION_COOKIE_NAME] || '').trim());
   let user = getSessionUserFromRequest(req);
+  if (user?.role === 'admin') {
+    user = await hydrateAdminSessionUser(req, res, user, { persistSession: true });
+  }
   if (user && (!String(user.authProvider || '').trim() || !String(user.providerUserId || '').trim()) && (user.email || user.id)) {
     try {
       const [rows] = await pool.query(
@@ -28796,6 +29251,710 @@ app.post('/api/agents-amicale', requireAdminSession, async (req, res) => {
   } catch (error) {
     console.error('Error saving agent amicale profile:', error);
     res.status(500).json({ error: 'Failed to save agent amicale profile' });
+  }
+});
+
+app.get('/api/admin/accounts', requireSuperAdminSession, async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, nom, email, admin_type, actif, created_by_admin_id, last_login_at, created_at, updated_at
+       FROM administrateurs
+       ORDER BY CASE WHEN admin_type = 'superadmin' THEN 0 ELSE 1 END, created_at DESC`
+    );
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (error) {
+    console.error('Error fetching admin accounts:', error);
+    res.status(500).json({ error: 'Impossible de charger les comptes administrateurs' });
+  }
+});
+
+app.post('/api/admin/accounts', requireSuperAdminSession, async (req, res) => {
+  try {
+    const nom = String(req.body?.nom || '').trim();
+    const email = normalizeEmailForCompare(req.body?.email);
+    const password = String(req.body?.password || '').trim();
+    const actif = req.body?.actif !== false;
+    if (!nom || !email || !password) {
+      return res.status(400).json({ error: 'nom, email et mot de passe sont obligatoires' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caracteres' });
+    }
+    const [existingRows] = await pool.query('SELECT id FROM administrateurs WHERE email = ? LIMIT 1', [email]);
+    if (existingRows?.[0]) {
+      return res.status(409).json({ error: 'Un compte administrateur existe deja avec cet email' });
+    }
+    const id = `admin_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    const now = getAgencySqlDateTime();
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await pool.query(
+      `INSERT INTO administrateurs (id, nom, email, mot_de_passe_hash, admin_type, actif, created_by_admin_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'subadmin', ?, ?, ?, ?)`,
+      [id, nom, email, hashedPassword, actif ? 1 : 0, String(req.authUser?.id || '').trim() || null, now, now]
+    );
+    const [rows] = await pool.query(
+      `SELECT id, nom, email, admin_type, actif, created_by_admin_id, last_login_at, created_at, updated_at
+       FROM administrateurs WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    res.status(201).json(rows?.[0] || null);
+  } catch (error) {
+    console.error('Error creating subadmin account:', error);
+    res.status(500).json({ error: 'Creation du sous-admin impossible' });
+  }
+});
+
+app.put('/api/admin/accounts/:id', requireSuperAdminSession, async (req, res) => {
+  try {
+    const accountId = String(req.params?.id || '').trim();
+    const [rows] = await pool.query('SELECT id, admin_type FROM administrateurs WHERE id = ? LIMIT 1', [accountId]);
+    const target = rows?.[0];
+    if (!target) {
+      return res.status(404).json({ error: 'Compte administrateur introuvable' });
+    }
+    if (String(target.admin_type || '') !== 'subadmin') {
+      return res.status(403).json({ error: 'Seuls les sous-admins sont modifiables depuis cet espace' });
+    }
+    const nom = String(req.body?.nom || '').trim();
+    const email = normalizeEmailForCompare(req.body?.email);
+    const password = String(req.body?.password || '').trim();
+    const actif = req.body?.actif !== false;
+    if (!nom || !email) {
+      return res.status(400).json({ error: 'nom et email sont obligatoires' });
+    }
+    const [duplicateRows] = await pool.query('SELECT id FROM administrateurs WHERE email = ? AND id <> ? LIMIT 1', [email, accountId]);
+    if (duplicateRows?.[0]) {
+      return res.status(409).json({ error: 'Un autre compte administrateur utilise deja cet email' });
+    }
+    if (password) {
+      if (password.length < 8) {
+        return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caracteres' });
+      }
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await pool.query(
+        `UPDATE administrateurs
+         SET nom = ?, email = ?, mot_de_passe_hash = ?, actif = ?, updated_at = ?
+         WHERE id = ?`,
+        [nom, email, hashedPassword, actif ? 1 : 0, getAgencySqlDateTime(), accountId]
+      );
+    } else {
+      await pool.query(
+        `UPDATE administrateurs
+         SET nom = ?, email = ?, actif = ?, updated_at = ?
+         WHERE id = ?`,
+        [nom, email, actif ? 1 : 0, getAgencySqlDateTime(), accountId]
+      );
+    }
+    const [updatedRows] = await pool.query(
+      `SELECT id, nom, email, admin_type, actif, created_by_admin_id, last_login_at, created_at, updated_at
+       FROM administrateurs WHERE id = ? LIMIT 1`,
+      [accountId]
+    );
+    res.json(updatedRows?.[0] || null);
+  } catch (error) {
+    console.error('Error updating subadmin account:', error);
+    res.status(500).json({ error: 'Mise a jour du sous-admin impossible' });
+  }
+});
+
+app.delete('/api/admin/accounts/:id', requireSuperAdminSession, async (req, res) => {
+  try {
+    const accountId = String(req.params?.id || '').trim();
+    const [rows] = await pool.query('SELECT id, admin_type FROM administrateurs WHERE id = ? LIMIT 1', [accountId]);
+    const target = rows?.[0];
+    if (!target) {
+      return res.status(404).json({ error: 'Compte administrateur introuvable' });
+    }
+    if (String(target.admin_type || '') !== 'subadmin') {
+      return res.status(403).json({ error: 'Le superadmin principal ne peut pas etre supprime ici' });
+    }
+    await pool.query('DELETE FROM administrateurs WHERE id = ?', [accountId]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting subadmin account:', error);
+    res.status(500).json({ error: 'Suppression du sous-admin impossible' });
+  }
+});
+
+app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
+  try {
+    await ensureContractsSchema();
+    await ensureReservationDemandSchema();
+    await ensureSubadminOperationsSchema();
+    const scopedSubadminId = resolveSubadminScopeId(req, req.query?.subadmin_id);
+    if (scopedSubadminId && !ensureSubadminAccess(req, res, scopedSubadminId)) return;
+    const params = [];
+    let whereSql = '';
+    if (scopedSubadminId) {
+      whereSql = 'WHERE a.subadmin_admin_id = ?';
+      params.push(scopedSubadminId);
+    }
+    const [rows] = await pool.query(
+      `
+      SELECT a.*,
+             sa.nom AS subadmin_name,
+             sa.email AS subadmin_email,
+             c.bien_id,
+             c.url_pdf,
+             c.owner_url_pdf,
+             c.montant_recu,
+             c.montant_donne_proprietaire,
+             c.montant_total_proprietaire,
+             DATE_FORMAT(c.date_debut, '%Y-%m-%d') AS contract_start_date,
+             DATE_FORMAT(c.date_fin, '%Y-%m-%d') AS contract_end_date,
+             b.reference AS bien_reference,
+             b.titre AS bien_titre,
+             z.google_maps_url,
+             p.nom AS proprietaire_nom,
+             p.telephone AS proprietaire_telephone,
+             l.telephone AS locataire_telephone,
+             d.id AS reservation_demand_id,
+             d.client_name,
+             d.client_phone,
+             d.arrival_time,
+             d.total_amount,
+             d.amount_due_now
+      FROM subadmin_contract_assignments a
+      INNER JOIN administrateurs sa ON sa.id = a.subadmin_admin_id
+      INNER JOIN contrats c ON c.id = a.contract_id
+      LEFT JOIN biens b ON b.id = c.bien_id
+      LEFT JOIN zones z ON z.id = b.zone_id
+      LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+      LEFT JOIN locataires l ON l.id = c.locataire_id
+      LEFT JOIN reservation_demands d ON d.id = (
+        SELECT rd.id
+        FROM reservation_demands rd
+        WHERE rd.contract_id = c.id
+        ORDER BY rd.updated_at DESC
+        LIMIT 1
+      )
+      ${whereSql}
+      ORDER BY a.urgent DESC, a.updated_at DESC
+      `,
+      params
+    );
+    res.json(
+      (rows || []).map((row) => {
+        const totalAmount = Number.isFinite(Number(row.total_amount)) ? Number(row.total_amount) : null;
+        const amountDueNow = Number.isFinite(Number(row.amount_due_now)) ? Number(row.amount_due_now) : null;
+        const ownerTotal = Number.isFinite(Number(row.montant_total_proprietaire))
+          ? Number(row.montant_total_proprietaire)
+          : null;
+        const ownerPaid = Number.isFinite(Number(row.montant_donne_proprietaire))
+          ? Number(row.montant_donne_proprietaire)
+          : null;
+        return {
+          id: row.id,
+          contract_id: row.contract_id,
+          subadmin_admin_id: row.subadmin_admin_id,
+          subadmin_name: row.subadmin_name || null,
+          subadmin_email: row.subadmin_email || null,
+          urgent: Number(row.urgent || 0) === 1,
+          note: row.note || null,
+          bien_id: row.bien_id || null,
+          bien_reference: row.bien_reference || null,
+          bien_titre: row.bien_titre || null,
+          google_maps_url: row.google_maps_url || null,
+          property_url: buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
+          client_name: row.client_name || null,
+          client_phone: row.client_phone || row.locataire_telephone || null,
+          arrival_time: row.arrival_time || null,
+          url_pdf: row.url_pdf || null,
+          owner_url_pdf: row.owner_url_pdf || null,
+          proprietaire_nom: row.proprietaire_nom || null,
+          proprietaire_telephone: row.proprietaire_telephone || null,
+          montant_total_contrat: totalAmount,
+          montant_avance: amountDueNow,
+          montant_a_encaisser: totalAmount === null ? null : Math.max(0, totalAmount - Number(amountDueNow || 0)),
+          montant_donne_proprietaire: ownerPaid,
+          montant_total_proprietaire: ownerTotal,
+          reste_a_donner_proprietaire: ownerTotal === null ? null : Math.max(0, ownerTotal - Number(ownerPaid || 0)),
+          contract_start_date: row.contract_start_date || null,
+          contract_end_date: row.contract_end_date || null,
+          reservation_demand_id: row.reservation_demand_id || null,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        };
+      })
+    );
+  } catch (error) {
+    console.error('Error fetching subadmin contract assignments:', error);
+    res.status(500).json({ error: 'Impossible de charger les affectations sous-admin' });
+  }
+});
+
+app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const contractId = String(req.body?.contract_id || '').trim();
+    const requestedSubadminId = resolveSubadminScopeId(req, req.body?.subadmin_id);
+    const urgent = req.body?.urgent === true || req.body?.urgent === 1 || String(req.body?.urgent || '').trim() === 'true';
+    const note = String(req.body?.note || '').trim() || null;
+    if (!contractId || !requestedSubadminId) {
+      return res.status(400).json({ error: 'contract_id et subadmin_id requis' });
+    }
+    if (!ensureSubadminAccess(req, res, requestedSubadminId)) return;
+    const subadmin = await fetchSubadminAccountById(requestedSubadminId);
+    if (!subadmin) {
+      return res.status(404).json({ error: 'Sous-admin introuvable ou inactif' });
+    }
+    const [contractRows] = await pool.query('SELECT id, bien_id FROM contrats WHERE id = ? LIMIT 1', [contractId]);
+    if (!contractRows?.[0]) {
+      return res.status(404).json({ error: 'Contrat introuvable' });
+    }
+    const now = getAgencySqlDateTime();
+    const existingId = String((await pool.query(
+      'SELECT id FROM subadmin_contract_assignments WHERE contract_id = ? LIMIT 1',
+      [contractId]
+    ))?.[0]?.[0]?.id || '').trim();
+    const assignmentId = existingId || `sca_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    if (existingId) {
+      await pool.query(
+        `UPDATE subadmin_contract_assignments
+         SET subadmin_admin_id = ?, urgent = ?, note = ?, assigned_by_admin_id = ?, updated_at = ?
+         WHERE id = ?`,
+        [requestedSubadminId, urgent ? 1 : 0, note, String(req.authUser?.id || '').trim() || null, now, assignmentId]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO subadmin_contract_assignments
+         (id, contract_id, subadmin_admin_id, urgent, note, assigned_by_admin_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [assignmentId, contractId, requestedSubadminId, urgent ? 1 : 0, note, String(req.authUser?.id || '').trim() || null, now, now]
+      );
+    }
+    await pushToAdminDevices(requestedSubadminId, {
+      title: urgent ? 'Affectation urgente' : 'Nouvelle affectation',
+      body: urgent
+        ? `Un contrat urgent vous a ete affecte.`
+        : `Un nouveau contrat vous a ete affecte.`,
+      data: {
+        kind: 'subadmin_contract_assignment',
+        assignmentId,
+        contractId,
+        urgent: urgent ? '1' : '0',
+      },
+    });
+    const [rows] = await pool.query('SELECT id FROM subadmin_contract_assignments WHERE id = ? LIMIT 1', [assignmentId]);
+    res.status(existingId ? 200 : 201).json(rows?.[0] || { id: assignmentId });
+  } catch (error) {
+    console.error('Error assigning contract to subadmin:', error);
+    res.status(500).json({ error: 'Affectation du contrat impossible' });
+  }
+});
+
+app.get('/api/subadmin/tasks', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const scopedSubadminId = resolveSubadminScopeId(req, req.query?.subadmin_id);
+    if (scopedSubadminId && !ensureSubadminAccess(req, res, scopedSubadminId)) return;
+    const requestedStatus = String(req.query?.status || '').trim().toLowerCase();
+    const params = [];
+    const whereParts = [];
+    if (scopedSubadminId) {
+      whereParts.push('t.subadmin_admin_id = ?');
+      params.push(scopedSubadminId);
+    }
+    if (requestedStatus === 'open' || requestedStatus === 'done') {
+      whereParts.push('t.status = ?');
+      params.push(requestedStatus);
+    }
+    const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+    const [rows] = await pool.query(
+      `
+      SELECT t.*,
+             sa.nom AS subadmin_name,
+             b.reference AS bien_reference,
+             b.titre AS bien_titre,
+             c.url_pdf AS contract_url_pdf
+      FROM subadmin_tasks t
+      INNER JOIN administrateurs sa ON sa.id = t.subadmin_admin_id
+      LEFT JOIN biens b ON b.id = t.bien_id
+      LEFT JOIN contrats c ON c.id = t.contract_id
+      ${whereSql}
+      ORDER BY CASE WHEN t.status = 'open' THEN 0 ELSE 1 END,
+               t.urgent DESC,
+               COALESCE(t.completed_at, t.updated_at) DESC
+      `,
+      params
+    );
+    res.json(
+      (rows || []).map((row) => ({
+        id: row.id,
+        subadmin_admin_id: row.subadmin_admin_id,
+        subadmin_name: row.subadmin_name || null,
+        bien_id: row.bien_id || null,
+        bien_reference: row.bien_reference || null,
+        bien_titre: row.bien_titre || null,
+        property_url: buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
+        contract_id: row.contract_id || null,
+        contract_url_pdf: row.contract_url_pdf || null,
+        title: row.title,
+        note: row.note || null,
+        urgent: Number(row.urgent || 0) === 1,
+        status: String(row.status || 'open').trim() === 'done' ? 'done' : 'open',
+        completed_at: row.completed_at || null,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      }))
+    );
+  } catch (error) {
+    console.error('Error fetching subadmin tasks:', error);
+    res.status(500).json({ error: 'Impossible de charger les taches sous-admin' });
+  }
+});
+
+app.post('/api/subadmin/tasks', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const title = String(req.body?.title || '').trim();
+    const note = String(req.body?.note || '').trim() || null;
+    const urgent = req.body?.urgent === true || req.body?.urgent === 1 || String(req.body?.urgent || '').trim() === 'true';
+    const assignToAll = req.body?.assign_to_all === true || req.body?.assign_to_all === 1 || String(req.body?.assign_to_all || '').trim() === 'true';
+    const bienId = String(req.body?.bien_id || '').trim() || null;
+    const contractId = String(req.body?.contract_id || '').trim() || null;
+    if (!title) {
+      return res.status(400).json({ error: 'title requis' });
+    }
+    const now = getAgencySqlDateTime();
+    const assignedByAdminId = String(req.authUser?.id || '').trim() || null;
+
+    if (assignToAll) {
+      if (!urgent) {
+        return res.status(400).json({ error: 'Affectation globale reservee aux taches urgentes' });
+      }
+      if (isSubadminAccount(req.authUser || null)) {
+        return res.status(403).json({ error: 'Seul un admin principal peut envoyer une tache urgente a tous les sous-admins' });
+      }
+      const [subadminRows] = await pool.query(
+        `SELECT id
+         FROM administrateurs
+         WHERE admin_type = 'subadmin' AND actif = 1
+         ORDER BY nom ASC, created_at ASC`
+      );
+      const activeSubadminIds = (subadminRows || [])
+        .map((row) => String(row.id || '').trim())
+        .filter(Boolean);
+      if (!activeSubadminIds.length) {
+        return res.status(404).json({ error: 'Aucun sous-admin actif disponible' });
+      }
+      const createdIds = [];
+      for (const subadminId of activeSubadminIds) {
+        const taskId = `sat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        await pool.query(
+          `INSERT INTO subadmin_tasks
+           (id, subadmin_admin_id, bien_id, contract_id, title, note, urgent, status, assigned_by_admin_id, completed_by_admin_id, completed_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NULL, NULL, ?, ?)`,
+          [taskId, subadminId, bienId, contractId, title, note, 1, assignedByAdminId, now, now]
+        );
+        createdIds.push(taskId);
+        await pushToAdminDevices(subadminId, {
+          title: 'Tache urgente',
+          body: title,
+          data: {
+            kind: 'subadmin_task',
+            taskId,
+            urgent: '1',
+          },
+        });
+      }
+      return res.status(201).json({ ids: createdIds, created_count: createdIds.length, assigned_to_all: true });
+    }
+
+    const targetSubadminId = resolveSubadminScopeId(req, req.body?.subadmin_id);
+    if (!targetSubadminId || !ensureSubadminAccess(req, res, targetSubadminId)) return;
+    const subadmin = await fetchSubadminAccountById(targetSubadminId);
+    if (!subadmin) {
+      return res.status(404).json({ error: 'Sous-admin introuvable ou inactif' });
+    }
+    const taskId = `sat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO subadmin_tasks
+       (id, subadmin_admin_id, bien_id, contract_id, title, note, urgent, status, assigned_by_admin_id, completed_by_admin_id, completed_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NULL, NULL, ?, ?)`,
+      [taskId, targetSubadminId, bienId, contractId, title, note, urgent ? 1 : 0, assignedByAdminId, now, now]
+    );
+    await pushToAdminDevices(targetSubadminId, {
+      title: urgent ? 'Tache urgente' : 'Nouvelle tache',
+      body: title,
+      data: {
+        kind: 'subadmin_task',
+        taskId,
+        urgent: urgent ? '1' : '0',
+      },
+    });
+    res.status(201).json({ id: taskId, created_count: 1, assigned_to_all: false });
+  } catch (error) {
+    console.error('Error creating subadmin task:', error);
+    res.status(500).json({ error: 'Creation de la tache impossible' });
+  }
+});
+
+app.put('/api/subadmin/tasks/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const taskId = String(req.params?.id || '').trim();
+    if (!taskId) return res.status(400).json({ error: 'id tache requis' });
+    const [rows] = await pool.query('SELECT * FROM subadmin_tasks WHERE id = ? LIMIT 1', [taskId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Tache introuvable' });
+    if (!ensureSubadminAccess(req, res, current.subadmin_admin_id)) return;
+    const nextSubadminId = resolveSubadminScopeId(req, req.body?.subadmin_id || current.subadmin_admin_id) || current.subadmin_admin_id;
+    if (!ensureSubadminAccess(req, res, nextSubadminId)) return;
+    const nextTitle = req.body?.title !== undefined ? String(req.body.title || '').trim() : String(current.title || '').trim();
+    const nextNote = req.body?.note !== undefined ? (String(req.body.note || '').trim() || null) : current.note;
+    const nextUrgent = req.body?.urgent !== undefined
+      ? (req.body.urgent === true || req.body.urgent === 1 || String(req.body.urgent || '').trim() === 'true')
+      : Number(current.urgent || 0) === 1;
+    const nextBienId = req.body?.bien_id !== undefined ? (String(req.body.bien_id || '').trim() || null) : current.bien_id;
+    const nextContractId = req.body?.contract_id !== undefined ? (String(req.body.contract_id || '').trim() || null) : current.contract_id;
+    if (!nextTitle) return res.status(400).json({ error: 'title requis' });
+    const nextSubadmin = await fetchSubadminAccountById(nextSubadminId);
+    if (!nextSubadmin) {
+      return res.status(404).json({ error: 'Sous-admin cible introuvable ou inactif' });
+    }
+    await pool.query(
+      `UPDATE subadmin_tasks
+       SET subadmin_admin_id = ?, bien_id = ?, contract_id = ?, title = ?, note = ?, urgent = ?, updated_at = ?
+       WHERE id = ?`,
+      [nextSubadminId, nextBienId, nextContractId, nextTitle, nextNote, nextUrgent ? 1 : 0, getAgencySqlDateTime(), taskId]
+    );
+    if (String(nextSubadminId || '').trim() !== String(current.subadmin_admin_id || '').trim() || nextUrgent) {
+      await pushToAdminDevices(nextSubadminId, {
+        title: nextUrgent ? 'Tache urgente mise a jour' : 'Tache reaffectee',
+        body: nextTitle,
+        data: {
+          kind: 'subadmin_task',
+          taskId,
+          urgent: nextUrgent ? '1' : '0',
+        },
+      });
+    }
+    res.json({ ok: true, id: taskId });
+  } catch (error) {
+    console.error('Error updating subadmin task:', error);
+    res.status(500).json({ error: 'Mise a jour de la tache impossible' });
+  }
+});
+
+app.post('/api/subadmin/tasks/:id/complete', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const taskId = String(req.params?.id || '').trim();
+    const [rows] = await pool.query('SELECT * FROM subadmin_tasks WHERE id = ? LIMIT 1', [taskId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Tache introuvable' });
+    if (!ensureSubadminAccess(req, res, current.subadmin_admin_id)) return;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE subadmin_tasks
+       SET status = 'done',
+           completed_by_admin_id = ?,
+           completed_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [String(req.authUser?.id || '').trim() || null, now, now, taskId]
+    );
+    res.json({ ok: true, id: taskId, completed_at: now });
+  } catch (error) {
+    console.error('Error completing subadmin task:', error);
+    res.status(500).json({ error: 'Cloture de la tache impossible' });
+  }
+});
+
+app.get('/api/subadmin/charges', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const scopedSubadminId = resolveSubadminScopeId(req, req.query?.subadmin_id);
+    if (scopedSubadminId && !ensureSubadminAccess(req, res, scopedSubadminId)) return;
+    const params = [];
+    let whereSql = '';
+    if (scopedSubadminId) {
+      whereSql = 'WHERE c.subadmin_admin_id = ?';
+      params.push(scopedSubadminId);
+    }
+    const [rows] = await pool.query(
+      `
+      SELECT c.*,
+             sa.nom AS subadmin_name,
+             creator.nom AS created_by_name
+      FROM subadmin_charges c
+      INNER JOIN administrateurs sa ON sa.id = c.subadmin_admin_id
+      LEFT JOIN administrateurs creator ON creator.id = c.created_by_admin_id
+      ${whereSql}
+      ORDER BY c.created_at DESC
+      `,
+      params
+    );
+    res.json(
+      (rows || []).map((row) => ({
+        id: row.id,
+        subadmin_admin_id: row.subadmin_admin_id,
+        subadmin_name: row.subadmin_name || null,
+        note: row.note,
+        image_url: row.image_url || null,
+        created_by_name: row.created_by_name || null,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      }))
+    );
+  } catch (error) {
+    console.error('Error fetching subadmin charges:', error);
+    res.status(500).json({ error: 'Impossible de charger les charges sous-admin' });
+  }
+});
+
+app.post('/api/subadmin/charges', requireAdminSession, (req, res, next) => subadminChargeUpload.single('image')(req, res, next), async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const targetSubadminId = resolveSubadminScopeId(req, req.body?.subadmin_id);
+    if (!targetSubadminId || !ensureSubadminAccess(req, res, targetSubadminId)) return;
+    const note = String(req.body?.note || '').trim();
+    if (!note) {
+      return res.status(400).json({ error: 'note requise' });
+    }
+    const now = getAgencySqlDateTime();
+    const chargeId = `sch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const imageUrl = req.file ? `/uploads/subadmin-charges/${req.file.filename}` : null;
+    await pool.query(
+      `INSERT INTO subadmin_charges
+       (id, subadmin_admin_id, note, image_url, created_by_admin_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [chargeId, targetSubadminId, note, imageUrl, String(req.authUser?.id || '').trim() || null, now, now]
+    );
+    res.status(201).json({ id: chargeId, image_url: imageUrl, created_at: now });
+  } catch (error) {
+    console.error('Error creating subadmin charge:', error);
+    res.status(500).json({ error: 'Creation de la charge impossible' });
+  }
+});
+
+app.get('/api/subadmin/technicians', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const scopedSubadminId = resolveSubadminScopeId(req, req.query?.subadmin_id);
+    if (scopedSubadminId && !ensureSubadminAccess(req, res, scopedSubadminId)) return;
+    const params = [];
+    let whereSql = 'WHERE t.active = 1';
+    if (scopedSubadminId) {
+      whereSql += ' AND (t.subadmin_admin_id IS NULL OR t.subadmin_admin_id = ?)';
+      params.push(scopedSubadminId);
+    }
+    const [rows] = await pool.query(
+      `
+      SELECT t.*,
+             sa.nom AS subadmin_name
+      FROM subadmin_technicians t
+      LEFT JOIN administrateurs sa ON sa.id = t.subadmin_admin_id
+      ${whereSql}
+      ORDER BY t.updated_at DESC
+      `,
+      params
+    );
+    res.json(
+      (rows || []).map((row) => ({
+        id: row.id,
+        subadmin_admin_id: row.subadmin_admin_id || null,
+        subadmin_name: row.subadmin_name || null,
+        specialty: row.specialty,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        phone: row.phone,
+        notes: row.notes || null,
+        active: Number(row.active || 0) === 1,
+      }))
+    );
+  } catch (error) {
+    console.error('Error fetching subadmin technicians:', error);
+    res.status(500).json({ error: 'Impossible de charger les techniciens sous-admin' });
+  }
+});
+
+app.post('/api/subadmin/technicians', requireAdminSession, async (req, res) => {
+  try {
+    if (isSubadminAccount(req.authUser)) {
+      return res.status(403).json({ error: 'Creation reservee a l administration principale' });
+    }
+    await ensureSubadminOperationsSchema();
+    const specialty = String(req.body?.specialty || '').trim();
+    const firstName = String(req.body?.first_name || '').trim();
+    const lastName = String(req.body?.last_name || '').trim();
+    const phone = String(req.body?.phone || '').trim();
+    const notes = String(req.body?.notes || '').trim() || null;
+    const subadminId = String(req.body?.subadmin_id || '').trim() || null;
+    if (!specialty || !firstName || !lastName || !phone) {
+      return res.status(400).json({ error: 'specialty, first_name, last_name et phone requis' });
+    }
+    if (subadminId) {
+      const subadmin = await fetchSubadminAccountById(subadminId);
+      if (!subadmin) return res.status(404).json({ error: 'Sous-admin cible introuvable' });
+    }
+    const id = `stc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO subadmin_technicians
+       (id, subadmin_admin_id, specialty, first_name, last_name, phone, notes, active, created_by_admin_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+      [id, subadminId, specialty, firstName, lastName, phone, notes, String(req.authUser?.id || '').trim() || null, now, now]
+    );
+    res.status(201).json({ id });
+  } catch (error) {
+    console.error('Error creating subadmin technician:', error);
+    res.status(500).json({ error: 'Creation du technicien impossible' });
+  }
+});
+
+app.put('/api/subadmin/technicians/:id', requireAdminSession, async (req, res) => {
+  try {
+    if (isSubadminAccount(req.authUser)) {
+      return res.status(403).json({ error: 'Modification reservee a l administration principale' });
+    }
+    await ensureSubadminOperationsSchema();
+    const technicianId = String(req.params?.id || '').trim();
+    const specialty = String(req.body?.specialty || '').trim();
+    const firstName = String(req.body?.first_name || '').trim();
+    const lastName = String(req.body?.last_name || '').trim();
+    const phone = String(req.body?.phone || '').trim();
+    const notes = String(req.body?.notes || '').trim() || null;
+    const subadminId = String(req.body?.subadmin_id || '').trim() || null;
+    const active = req.body?.active !== false;
+    if (!specialty || !firstName || !lastName || !phone) {
+      return res.status(400).json({ error: 'specialty, first_name, last_name et phone requis' });
+    }
+    if (subadminId) {
+      const subadmin = await fetchSubadminAccountById(subadminId);
+      if (!subadmin) return res.status(404).json({ error: 'Sous-admin cible introuvable' });
+    }
+    await pool.query(
+      `UPDATE subadmin_technicians
+       SET subadmin_admin_id = ?, specialty = ?, first_name = ?, last_name = ?, phone = ?, notes = ?, active = ?, updated_at = ?
+       WHERE id = ?`,
+      [subadminId, specialty, firstName, lastName, phone, notes, active ? 1 : 0, getAgencySqlDateTime(), technicianId]
+    );
+    res.json({ ok: true, id: technicianId });
+  } catch (error) {
+    console.error('Error updating subadmin technician:', error);
+    res.status(500).json({ error: 'Mise a jour du technicien impossible' });
+  }
+});
+
+app.delete('/api/subadmin/technicians/:id', requireAdminSession, async (req, res) => {
+  try {
+    if (isSubadminAccount(req.authUser)) {
+      return res.status(403).json({ error: 'Suppression reservee a l administration principale' });
+    }
+    await ensureSubadminOperationsSchema();
+    const technicianId = String(req.params?.id || '').trim();
+    await pool.query(
+      `UPDATE subadmin_technicians
+       SET active = 0, updated_at = ?
+       WHERE id = ?`,
+      [getAgencySqlDateTime(), technicianId]
+    );
+    res.json({ ok: true, id: technicianId });
+  } catch (error) {
+    console.error('Error deleting subadmin technician:', error);
+    res.status(500).json({ error: 'Suppression du technicien impossible' });
   }
 });
 

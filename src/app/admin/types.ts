@@ -565,6 +565,9 @@ export interface Contrat {
   date_debut: string;
   date_fin: string;
   montant_recu: number;
+  montant_donne_proprietaire?: number | null;
+  montant_total_proprietaire?: number | null;
+  profit_net?: number | null;
   url_pdf?: string;
   owner_url_pdf?: string;
   statut: ContratStatut;
