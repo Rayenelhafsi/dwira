@@ -24324,44 +24324,25 @@ async function ensureAdminPushTokensSchema() {
       KEY idx_admin_push_tokens_admin_active (admin_id, active, updated_at)
     )
   `);
-  const columnExistsLocal = async (columnName) => {
-    const [rows] = await pool.query(
-      `
-      SELECT 1
-      FROM information_schema.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = 'admin_push_tokens'
-        AND COLUMN_NAME = ?
-      LIMIT 1
-      `,
-      [columnName]
-    );
-    return rows.length > 0;
-  };
-  if (!(await columnExistsLocal('platform'))) {
-    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN platform VARCHAR(30) NULL AFTER token");
-  }
-  if (!(await columnExistsLocal('app_version'))) {
-    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN app_version VARCHAR(40) NULL AFTER platform");
-  }
-  if (!(await columnExistsLocal('active'))) {
-    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1 AFTER app_version");
-  }
-  if (!(await columnExistsLocal('created_at'))) {
-    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN created_at DATETIME NULL AFTER active");
-    await pool.query("UPDATE admin_push_tokens SET created_at = COALESCE(created_at, NOW())");
-    await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN created_at DATETIME NOT NULL");
-  }
-  if (!(await columnExistsLocal('updated_at'))) {
-    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN updated_at DATETIME NULL AFTER created_at");
-    await pool.query("UPDATE admin_push_tokens SET updated_at = COALESCE(updated_at, created_at, NOW())");
-    await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN updated_at DATETIME NOT NULL");
-  }
-  if (!(await columnExistsLocal('last_seen_at'))) {
-    await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN last_seen_at DATETIME NULL AFTER updated_at");
-    await pool.query("UPDATE admin_push_tokens SET last_seen_at = COALESCE(last_seen_at, updated_at, created_at, NOW())");
-    await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN last_seen_at DATETIME NOT NULL");
-  }
+  await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN platform VARCHAR(30) NULL AFTER token").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN app_version VARCHAR(40) NULL AFTER platform").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1 AFTER app_version").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN created_at DATETIME NULL AFTER active").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN updated_at DATETIME NULL AFTER created_at").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens ADD COLUMN last_seen_at DATETIME NULL AFTER updated_at").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN id VARCHAR(100) NOT NULL").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN admin_id VARCHAR(100) NOT NULL").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN token TEXT NOT NULL").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN platform VARCHAR(30) NULL").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN app_version VARCHAR(40) NULL").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN active TINYINT(1) NOT NULL DEFAULT 1").catch(() => {});
+  await pool.query("UPDATE admin_push_tokens SET created_at = COALESCE(created_at, NOW()) WHERE created_at IS NULL").catch(() => {});
+  await pool.query("UPDATE admin_push_tokens SET updated_at = COALESCE(updated_at, created_at, NOW()) WHERE updated_at IS NULL").catch(() => {});
+  await pool.query("UPDATE admin_push_tokens SET last_seen_at = COALESCE(last_seen_at, updated_at, created_at, NOW()) WHERE last_seen_at IS NULL").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN created_at DATETIME NOT NULL").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN updated_at DATETIME NOT NULL").catch(() => {});
+  await pool.query("ALTER TABLE admin_push_tokens MODIFY COLUMN last_seen_at DATETIME NOT NULL").catch(() => {});
+  await pool.query("CREATE INDEX idx_admin_push_tokens_admin_active ON admin_push_tokens (admin_id, active, updated_at)").catch(() => {});
 }
 
 async function ensureSubadminOperationsSchema() {
