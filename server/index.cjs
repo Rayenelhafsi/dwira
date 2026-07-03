@@ -29637,6 +29637,7 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     const scopedSubadminId = resolveSubadminScopeId(req, req.query?.subadmin_id);
     if (scopedSubadminId && !ensureSubadminAccess(req, res, scopedSubadminId)) return;
     const requestedStatus = normalizeSubadminAssignmentStatus(req.query?.status);
+    const includeTemplateVars = ['1', 'true', 'yes'].includes(String(req.query?.include_template_vars || '').trim().toLowerCase());
     const params = [];
     const whereParts = [];
     if (scopedSubadminId) {
@@ -29648,6 +29649,27 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       params.push(requestedStatus);
     }
     const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+    const [
+      hasContractOwnerPaid,
+      hasContractOwnerTotal,
+      hasZoneMapsUrl,
+      hasOwnerName,
+      hasOwnerPhone,
+      hasLocatairePhone,
+      hasDemandArrivalTime,
+      hasDemandTotalAmount,
+      hasDemandAmountDueNow,
+    ] = await Promise.all([
+      columnExists('contrats', 'montant_donne_proprietaire'),
+      columnExists('contrats', 'montant_total_proprietaire'),
+      columnExists('zones', 'google_maps_url'),
+      columnExists('proprietaires', 'nom'),
+      columnExists('proprietaires', 'telephone'),
+      columnExists('locataires', 'telephone'),
+      columnExists('reservation_demands', 'arrival_time'),
+      columnExists('reservation_demands', 'total_amount'),
+      columnExists('reservation_demands', 'amount_due_now'),
+    ]);
     const [rows] = await pool.query(
       `
       SELECT a.*,
@@ -29656,22 +29678,22 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
              c.bien_id,
              c.url_pdf,
              c.montant_recu,
-             c.montant_donne_proprietaire,
-             c.montant_total_proprietaire,
+             ${hasContractOwnerPaid ? 'c.montant_donne_proprietaire' : 'NULL'} AS montant_donne_proprietaire,
+             ${hasContractOwnerTotal ? 'c.montant_total_proprietaire' : 'NULL'} AS montant_total_proprietaire,
              DATE_FORMAT(c.date_debut, '%Y-%m-%d') AS contract_start_date,
              DATE_FORMAT(c.date_fin, '%Y-%m-%d') AS contract_end_date,
              b.reference AS bien_reference,
              b.titre AS bien_titre,
-             z.google_maps_url,
-             p.nom AS proprietaire_nom,
-             p.telephone AS proprietaire_telephone,
-             l.telephone AS locataire_telephone,
+             ${hasZoneMapsUrl ? 'z.google_maps_url' : 'NULL'} AS google_maps_url,
+             ${hasOwnerName ? 'p.nom' : 'NULL'} AS proprietaire_nom,
+             ${hasOwnerPhone ? 'p.telephone' : 'NULL'} AS proprietaire_telephone,
+             ${hasLocatairePhone ? 'l.telephone' : 'NULL'} AS locataire_telephone,
              d.id AS reservation_demand_id,
              d.client_name,
              d.client_phone,
-             d.arrival_time,
-             d.total_amount,
-             d.amount_due_now
+             ${hasDemandArrivalTime ? 'd.arrival_time' : 'NULL'} AS arrival_time,
+             ${hasDemandTotalAmount ? 'd.total_amount' : 'NULL'} AS total_amount,
+             ${hasDemandAmountDueNow ? 'd.amount_due_now' : 'NULL'} AS amount_due_now
       FROM subadmin_contract_assignments a
       INNER JOIN administrateurs sa ON sa.id = a.subadmin_admin_id
       INNER JOIN contrats c ON c.id = a.contract_id
@@ -29693,8 +29715,20 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     );
     const payload = await Promise.all(
       (rows || []).map(async (row) => {
-        const templateContext = await buildResolvedContractTemplateVars(String(row.contract_id || '').trim()).catch(() => null);
-        const assignmentAutofill = templateContext ? buildContractAssignmentAutofill(req, templateContext) : null;
+        let templateContext = null;
+        let assignmentAutofill = null;
+        if (includeTemplateVars) {
+          try {
+            templateContext = await buildResolvedContractTemplateVars(String(row.contract_id || '').trim());
+            assignmentAutofill = templateContext ? buildContractAssignmentAutofill(req, templateContext) : null;
+          } catch (error) {
+            console.warn('[subadmin/contracts] autofill fallback triggered', {
+              assignmentId: String(row.id || '').trim() || null,
+              contractId: String(row.contract_id || '').trim() || null,
+              message: error?.message || String(error || 'unknown error'),
+            });
+          }
+        }
         const totalAmount = Number.isFinite(Number(row.total_amount)) ? Number(row.total_amount) : null;
         const amountDueNow = Number.isFinite(Number(row.amount_due_now)) ? Number(row.amount_due_now) : null;
         const ownerTotal = Number.isFinite(Number(row.montant_total_proprietaire))
@@ -29733,7 +29767,9 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
           contract_start_date: assignmentAutofill?.contract_start_date || row.contract_start_date || null,
           contract_end_date: assignmentAutofill?.contract_end_date || row.contract_end_date || null,
           reservation_demand_id: row.reservation_demand_id || null,
-          resolved_template_vars: assignmentAutofill?.resolved_template_vars || templateContext?.resolvedTemplateVars || null,
+          resolved_template_vars: includeTemplateVars
+            ? (assignmentAutofill?.resolved_template_vars || templateContext?.resolvedTemplateVars || null)
+            : null,
           started_at: row.started_at || null,
           completed_at: row.completed_at || null,
           created_at: row.created_at,
