@@ -140,6 +140,12 @@ type BienOption = {
   titre?: string;
 };
 
+type PushDispatchResult = {
+  sent?: number;
+  noTokens?: boolean;
+  disabled?: boolean;
+};
+
 type PanelTab = "assignments" | "tasks" | "technicians" | "charges";
 
 type PickerVariant = "contract" | "bien";
@@ -184,6 +190,16 @@ async function getApiErrorMessage(response: Response, fallback: string) {
     return String(data?.error || fallback);
   } catch {
     return fallback;
+  }
+}
+
+function showPushDeliveryWarning(push?: PushDispatchResult | null, label = "Operation") {
+  if (push?.noTokens) {
+    toast.warning(`${label} enregistree, mais aucune notification push n'a pu etre envoyee au sous-admin.`);
+    return;
+  }
+  if (push?.disabled) {
+    toast.warning(`${label} enregistree, mais le service FCM du serveur est inactif.`);
   }
 }
 
@@ -536,6 +552,10 @@ export default function SubAdminOperationsPanel({
   const [assignmentContractLoading, setAssignmentContractLoading] = useState(false);
   const [assignmentVariablesOpen, setAssignmentVariablesOpen] = useState(false);
   const [assignmentTransferTargets, setAssignmentTransferTargets] = useState<Record<string, string>>({});
+  const suffix = useMemo(
+    () => (selectedSubadminId ? `?subadmin_id=${encodeURIComponent(selectedSubadminId)}` : ""),
+    [selectedSubadminId]
+  );
 
   useEffect(() => {
     if (!selectedSubadminId && subadmins.length > 0) {
@@ -567,36 +587,57 @@ export default function SubAdminOperationsPanel({
     }
   }, []);
 
+  const loadAssignments = useCallback(async () => {
+    const response = await fetch(buildApiUrl(`/subadmin/contracts${suffix}`), {
+      credentials: "include",
+    });
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response, "Impossible de charger les affectations"));
+    }
+    const rows = await response.json().catch(() => []);
+    setAssignments(Array.isArray(rows) ? rows : []);
+  }, [suffix]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const suffix = selectedSubadminId ? `?subadmin_id=${encodeURIComponent(selectedSubadminId)}` : "";
-      const [assignmentsResponse, tasksResponse, chargesResponse, techniciansResponse] = await Promise.all([
-        fetch(buildApiUrl(`/subadmin/contracts${suffix}`), { credentials: "include" }),
-        fetch(buildApiUrl(`/subadmin/tasks${suffix}`), { credentials: "include" }),
-        fetch(buildApiUrl(`/subadmin/charges${suffix}`), { credentials: "include" }),
-        fetch(buildApiUrl(`/subadmin/technicians${suffix}`), { credentials: "include" }),
+      const loadCollection = async <T,>(path: string, fallback: string) => {
+        const response = await fetch(buildApiUrl(path), { credentials: "include" });
+        if (!response.ok) {
+          throw new Error(await getApiErrorMessage(response, fallback));
+        }
+        const rows = await response.json().catch(() => []);
+        return Array.isArray(rows) ? (rows as T[]) : [];
+      };
+
+      const [assignmentsResult, tasksResult, chargesResult, techniciansResult] = await Promise.allSettled([
+        loadCollection<AssignmentRow>(`/subadmin/contracts${suffix}`, "Impossible de charger les affectations"),
+        loadCollection<TaskRow>(`/subadmin/tasks${suffix}`, "Impossible de charger les taches"),
+        loadCollection<ChargeRow>(`/subadmin/charges${suffix}`, "Impossible de charger les charges"),
+        loadCollection<TechnicianRow>(`/subadmin/technicians${suffix}`, "Impossible de charger les techniciens"),
       ]);
-      if (!assignmentsResponse.ok) throw new Error(await getApiErrorMessage(assignmentsResponse, "Impossible de charger les affectations"));
-      if (!tasksResponse.ok) throw new Error(await getApiErrorMessage(tasksResponse, "Impossible de charger les taches"));
-      if (!chargesResponse.ok) throw new Error(await getApiErrorMessage(chargesResponse, "Impossible de charger les charges"));
-      if (!techniciansResponse.ok) throw new Error(await getApiErrorMessage(techniciansResponse, "Impossible de charger les techniciens"));
-      const [assignmentsRows, tasksRows, chargesRows, techniciansRows] = await Promise.all([
-        assignmentsResponse.json().catch(() => []),
-        tasksResponse.json().catch(() => []),
-        chargesResponse.json().catch(() => []),
-        techniciansResponse.json().catch(() => []),
-      ]);
-      setAssignments(Array.isArray(assignmentsRows) ? assignmentsRows : []);
-      setTasks(Array.isArray(tasksRows) ? tasksRows : []);
-      setCharges(Array.isArray(chargesRows) ? chargesRows : []);
-      setTechnicians(Array.isArray(techniciansRows) ? techniciansRows : []);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Chargement sous-admin impossible");
+
+      const errors: string[] = [];
+
+      if (assignmentsResult.status === "fulfilled") setAssignments(assignmentsResult.value);
+      else errors.push(assignmentsResult.reason instanceof Error ? assignmentsResult.reason.message : "Impossible de charger les affectations");
+
+      if (tasksResult.status === "fulfilled") setTasks(tasksResult.value);
+      else errors.push(tasksResult.reason instanceof Error ? tasksResult.reason.message : "Impossible de charger les taches");
+
+      if (chargesResult.status === "fulfilled") setCharges(chargesResult.value);
+      else errors.push(chargesResult.reason instanceof Error ? chargesResult.reason.message : "Impossible de charger les charges");
+
+      if (techniciansResult.status === "fulfilled") setTechnicians(techniciansResult.value);
+      else errors.push(techniciansResult.reason instanceof Error ? techniciansResult.reason.message : "Impossible de charger les techniciens");
+
+      if (errors.length > 0) {
+        toast.error(errors[0]);
+      }
     } finally {
       setLoading(false);
     }
-  }, [selectedSubadminId]);
+  }, [suffix]);
 
   useEffect(() => {
     void loadReferenceData();
@@ -735,11 +776,14 @@ export default function SubAdminOperationsPanel({
         }),
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Affectation impossible"));
+      const payload = (await response.json().catch(() => null)) as { push?: PushDispatchResult } | null;
       toast.success("Contrat affecte.");
+      showPushDeliveryWarning(payload?.push, "Affectation");
       setAssignmentDraft((prev) => ({ ...prev, contractId: "", note: "", urgent: false }));
       setAssignmentContractDetails(null);
       setAssignmentVariablesOpen(false);
-      await loadData();
+      await loadAssignments();
+      void loadData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Affectation impossible");
     } finally {
@@ -770,9 +814,14 @@ export default function SubAdminOperationsPanel({
         }),
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Creation tache impossible"));
-      const payload = await response.json().catch(() => null);
+      const payload = (await response.json().catch(() => null)) as
+        | { created_count?: number; push?: PushDispatchResult }
+        | null;
       const createdCount = Number(payload?.created_count || 0);
       toast.success(assignToAll ? `Tache urgente envoyee a ${createdCount || subadmins.length} sous-admins.` : "Tache creee.");
+      if (!assignToAll) {
+        showPushDeliveryWarning(payload?.push, "Tache");
+      }
       setTaskDraft((prev) => ({
         ...prev,
         title: "",
@@ -836,7 +885,8 @@ export default function SubAdminOperationsPanel({
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Mise a jour affectation impossible"));
       toast.success(status === "done" ? "Affectation deplacee dans l'historique." : status === "in_progress" ? "Affectation marquee en cours." : "Affectation reactivee.");
-      await loadData();
+      await loadAssignments();
+      void loadData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Mise a jour affectation impossible");
     } finally {
@@ -863,13 +913,16 @@ export default function SubAdminOperationsPanel({
         }),
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, "Deplacement affectation impossible"));
+      const payload = (await response.json().catch(() => null)) as { push?: PushDispatchResult } | null;
       toast.success("Affectation deplacee vers le nouveau sous-admin.");
+      showPushDeliveryWarning(payload?.push, "Affectation");
       setAssignmentTransferTargets((prev) => {
         const next = { ...prev };
         delete next[assignment.id];
         return next;
       });
-      await loadData();
+      await loadAssignments();
+      void loadData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Deplacement affectation impossible");
     } finally {

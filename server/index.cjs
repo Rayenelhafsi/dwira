@@ -29788,7 +29788,7 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
         [assignmentId, contractId, requestedSubadminId, urgent ? 1 : 0, note, String(req.authUser?.id || '').trim() || null, now, now]
       );
     }
-    await pushToAdminDevices(requestedSubadminId, {
+    const pushResult = await pushToAdminDevices(requestedSubadminId, {
       title: urgent ? 'Affectation urgente' : 'Nouvelle affectation',
       body: urgent
         ? `Un contrat urgent vous a ete affecte.`
@@ -29801,7 +29801,10 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       },
     });
     const [rows] = await pool.query('SELECT id FROM subadmin_contract_assignments WHERE id = ? LIMIT 1', [assignmentId]);
-    res.status(existingId ? 200 : 201).json(rows?.[0] || { id: assignmentId });
+    res.status(existingId ? 200 : 201).json({
+      ...(rows?.[0] || { id: assignmentId }),
+      push: pushResult,
+    });
   } catch (error) {
     console.error('Error assigning contract to subadmin:', error);
     res.status(500).json({ error: 'Affectation du contrat impossible' });
@@ -29846,7 +29849,7 @@ app.put('/api/subadmin/contracts/:id', requireAdminSession, async (req, res) => 
       [nextSubadminId, nextUrgent ? 1 : 0, nextNote, String(req.authUser?.id || '').trim() || null, now, assignmentId]
     );
 
-    await pushToAdminDevices(nextSubadminId, {
+    const pushResult = await pushToAdminDevices(nextSubadminId, {
       title: nextUrgent ? 'Affectation deplacee urgente' : 'Affectation deplacee',
       body: `Un contrat vous a ete transfere.`,
       data: {
@@ -29857,7 +29860,7 @@ app.put('/api/subadmin/contracts/:id', requireAdminSession, async (req, res) => 
       },
     });
 
-    res.json({ ok: true, id: assignmentId, subadmin_admin_id: nextSubadminId, status: 'active' });
+    res.json({ ok: true, id: assignmentId, subadmin_admin_id: nextSubadminId, status: 'active', push: pushResult });
   } catch (error) {
     console.error('Error moving subadmin assignment:', error);
     res.status(500).json({ error: 'Deplacement affectation impossible' });
@@ -30056,7 +30059,7 @@ app.post('/api/subadmin/tasks', requireAdminSession, async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NULL, NULL, ?, ?)`,
       [taskId, targetSubadminId, bienId, contractId, title, note, urgent ? 1 : 0, assignedByAdminId, now, now]
     );
-    await pushToAdminDevices(targetSubadminId, {
+    const pushResult = await pushToAdminDevices(targetSubadminId, {
       title: urgent ? 'Tache urgente' : 'Nouvelle tache',
       body: title,
       data: {
@@ -30065,7 +30068,7 @@ app.post('/api/subadmin/tasks', requireAdminSession, async (req, res) => {
         urgent: urgent ? '1' : '0',
       },
     });
-    res.status(201).json({ id: taskId, created_count: 1, assigned_to_all: false });
+    res.status(201).json({ id: taskId, created_count: 1, assigned_to_all: false, push: pushResult });
   } catch (error) {
     console.error('Error creating subadmin task:', error);
     res.status(500).json({ error: 'Creation de la tache impossible' });
