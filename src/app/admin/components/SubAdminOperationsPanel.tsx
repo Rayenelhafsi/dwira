@@ -997,7 +997,6 @@ export default function SubAdminOperationsPanel({
                                 .join(" - ") || "-"
                             }
                           />
-                          <AutofillField label="Reference paiement" value={assignmentContractDetails.payment_reference} />
                           <AutofillField label="Client" value={assignmentContractDetails.client_name} />
                           <AutofillField label="Telephone client" value={assignmentContractDetails.client_phone} />
                           <AutofillField

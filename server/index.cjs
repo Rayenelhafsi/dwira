@@ -24386,6 +24386,97 @@ async function ensureSubadminOperationsSchema() {
       KEY idx_subadmin_technicians_scope (subadmin_admin_id, active, updated_at)
     )
   `);
+  if (!(await columnExists('subadmin_contract_assignments', 'urgent'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN urgent TINYINT(1) NOT NULL DEFAULT 0 AFTER subadmin_admin_id");
+  }
+  if (!(await columnExists('subadmin_contract_assignments', 'note'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN note TEXT NULL AFTER urgent");
+  }
+  if (!(await columnExists('subadmin_contract_assignments', 'assigned_by_admin_id'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN assigned_by_admin_id VARCHAR(100) NULL AFTER note");
+  }
+  if (!(await columnExists('subadmin_contract_assignments', 'created_at'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN created_at DATETIME NULL AFTER assigned_by_admin_id");
+    await pool.query("UPDATE subadmin_contract_assignments SET created_at = COALESCE(created_at, NOW())");
+    await pool.query("ALTER TABLE subadmin_contract_assignments MODIFY COLUMN created_at DATETIME NOT NULL");
+  }
+  if (!(await columnExists('subadmin_contract_assignments', 'updated_at'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN updated_at DATETIME NULL AFTER created_at");
+    await pool.query("UPDATE subadmin_contract_assignments SET updated_at = COALESCE(updated_at, created_at, NOW())");
+    await pool.query("ALTER TABLE subadmin_contract_assignments MODIFY COLUMN updated_at DATETIME NOT NULL");
+  }
+
+  if (!(await columnExists('subadmin_tasks', 'bien_id'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN bien_id VARCHAR(100) NULL AFTER subadmin_admin_id");
+  }
+  if (!(await columnExists('subadmin_tasks', 'contract_id'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN contract_id VARCHAR(100) NULL AFTER bien_id");
+  }
+  if (!(await columnExists('subadmin_tasks', 'note'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN note TEXT NULL AFTER title");
+  }
+  if (!(await columnExists('subadmin_tasks', 'urgent'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN urgent TINYINT(1) NOT NULL DEFAULT 0 AFTER note");
+  }
+  if (!(await columnExists('subadmin_tasks', 'status'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'open' AFTER urgent");
+  }
+  if (!(await columnExists('subadmin_tasks', 'assigned_by_admin_id'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN assigned_by_admin_id VARCHAR(100) NULL AFTER status");
+  }
+  if (!(await columnExists('subadmin_tasks', 'completed_by_admin_id'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN completed_by_admin_id VARCHAR(100) NULL AFTER assigned_by_admin_id");
+  }
+  if (!(await columnExists('subadmin_tasks', 'completed_at'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN completed_at DATETIME NULL AFTER completed_by_admin_id");
+  }
+  if (!(await columnExists('subadmin_tasks', 'created_at'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN created_at DATETIME NULL AFTER completed_at");
+    await pool.query("UPDATE subadmin_tasks SET created_at = COALESCE(created_at, NOW())");
+    await pool.query("ALTER TABLE subadmin_tasks MODIFY COLUMN created_at DATETIME NOT NULL");
+  }
+  if (!(await columnExists('subadmin_tasks', 'updated_at'))) {
+    await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN updated_at DATETIME NULL AFTER created_at");
+    await pool.query("UPDATE subadmin_tasks SET updated_at = COALESCE(updated_at, created_at, NOW())");
+    await pool.query("ALTER TABLE subadmin_tasks MODIFY COLUMN updated_at DATETIME NOT NULL");
+  }
+
+  if (!(await columnExists('subadmin_charges', 'image_url'))) {
+    await pool.query("ALTER TABLE subadmin_charges ADD COLUMN image_url VARCHAR(500) NULL AFTER note");
+  }
+  if (!(await columnExists('subadmin_charges', 'created_by_admin_id'))) {
+    await pool.query("ALTER TABLE subadmin_charges ADD COLUMN created_by_admin_id VARCHAR(100) NULL AFTER image_url");
+  }
+  if (!(await columnExists('subadmin_charges', 'created_at'))) {
+    await pool.query("ALTER TABLE subadmin_charges ADD COLUMN created_at DATETIME NULL AFTER created_by_admin_id");
+    await pool.query("UPDATE subadmin_charges SET created_at = COALESCE(created_at, NOW())");
+    await pool.query("ALTER TABLE subadmin_charges MODIFY COLUMN created_at DATETIME NOT NULL");
+  }
+  if (!(await columnExists('subadmin_charges', 'updated_at'))) {
+    await pool.query("ALTER TABLE subadmin_charges ADD COLUMN updated_at DATETIME NULL AFTER created_at");
+    await pool.query("UPDATE subadmin_charges SET updated_at = COALESCE(updated_at, created_at, NOW())");
+    await pool.query("ALTER TABLE subadmin_charges MODIFY COLUMN updated_at DATETIME NOT NULL");
+  }
+
+  if (!(await columnExists('subadmin_technicians', 'notes'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN notes TEXT NULL AFTER phone");
+  }
+  if (!(await columnExists('subadmin_technicians', 'active'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1 AFTER notes");
+  }
+  if (!(await columnExists('subadmin_technicians', 'created_by_admin_id'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN created_by_admin_id VARCHAR(100) NULL AFTER active");
+  }
+  if (!(await columnExists('subadmin_technicians', 'created_at'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN created_at DATETIME NULL AFTER created_by_admin_id");
+    await pool.query("UPDATE subadmin_technicians SET created_at = COALESCE(created_at, NOW())");
+    await pool.query("ALTER TABLE subadmin_technicians MODIFY COLUMN created_at DATETIME NOT NULL");
+  }
+  if (!(await columnExists('subadmin_technicians', 'updated_at'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN updated_at DATETIME NULL AFTER created_at");
+    await pool.query("UPDATE subadmin_technicians SET updated_at = COALESCE(updated_at, created_at, NOW())");
+    await pool.query("ALTER TABLE subadmin_technicians MODIFY COLUMN updated_at DATETIME NOT NULL");
+  }
   if (!(await columnExists('contrats', 'montant_total_proprietaire'))) {
     await pool.query('ALTER TABLE contrats ADD COLUMN montant_total_proprietaire DECIMAL(12,2) NULL AFTER montant_donne_proprietaire');
   }
@@ -25012,6 +25103,7 @@ function buildContractAssignmentAutofill(req, templateContext) {
   const ownerPaid = Number.isFinite(Number(contract.montant_donne_proprietaire))
     ? Number(contract.montant_donne_proprietaire)
     : null;
+  const propertyMapsUrl = extractPropertyMapsUrl(contract.bien_location_saisonniere_config_json);
 
   return {
     contract_id: contract.id,
@@ -25019,7 +25111,7 @@ function buildContractAssignmentAutofill(req, templateContext) {
     bien_reference: contract.bien_reference || null,
     bien_titre: contract.bien_titre || null,
     property_url: buildSubadminPropertyUrl(req, contract.bien_id, contract.bien_reference),
-    google_maps_url: contract.google_maps_url || null,
+    google_maps_url: propertyMapsUrl || contract.google_maps_url || null,
     client_name:
       String(demand.client_name || '').trim()
       || String(contract.locataire_nom || '').trim()
@@ -29444,7 +29536,6 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
              sa.email AS subadmin_email,
              c.bien_id,
              c.url_pdf,
-             c.owner_url_pdf,
              c.montant_recu,
              c.montant_donne_proprietaire,
              c.montant_total_proprietaire,
@@ -29508,7 +29599,6 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
           client_phone: row.client_phone || row.locataire_telephone || null,
           arrival_time: row.arrival_time || null,
           url_pdf: row.url_pdf || null,
-          owner_url_pdf: row.owner_url_pdf || null,
           proprietaire_nom: row.proprietaire_nom || null,
           proprietaire_telephone: row.proprietaire_telephone || null,
           montant_total_contrat: totalAmount,
