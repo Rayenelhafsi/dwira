@@ -25578,7 +25578,7 @@ async function fetchTechnicianAssignmentsPayload(req, {
     params.push(String(technicianId || '').trim());
   }
   if (subadminId) {
-    whereParts.push('t.subadmin_admin_id = ?');
+    whereParts.push('(t.subadmin_admin_id IS NULL OR t.subadmin_admin_id = ?)');
     params.push(String(subadminId || '').trim());
   }
   const normalizedStatus = String(status || '').trim().toLowerCase();
