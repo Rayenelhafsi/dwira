@@ -230,6 +230,10 @@ function resolvePublicAssetUrl(rawValue) {
   const raw = String(rawValue || '').trim();
   if (!raw) return '';
   if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
+  if (raw.startsWith('//')) return `https:${raw}`;
+  if (/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(\/.*)?$/i.test(raw)) {
+    return `https://${raw}`;
+  }
   const normalizedPath = raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`;
   const compatPath = normalizedPath.startsWith('/api/uploads/')
     ? normalizedPath.replace(/^\/api\/uploads\//, '/uploads/')
@@ -25532,6 +25536,7 @@ async function fetchTechnicianAssignmentsPayload(req, {
            t.phone,
            b.reference AS bien_reference,
            b.titre AS bien_titre,
+           b.location_saisonniere_config_json,
            ${hasZoneMapsUrl ? 'z.google_maps_url' : 'NULL'} AS google_maps_url
     FROM technician_property_assignments a
     INNER JOIN subadmin_technicians t ON t.id = a.technician_id
@@ -25581,6 +25586,7 @@ async function fetchTechnicianAssignmentsPayload(req, {
       : 'active';
     const technicianName = `${String(row.first_name || '').trim()} ${String(row.last_name || '').trim()}`.trim();
     const gallery = galleryByBienId.get(String(row.bien_id || '').trim()) || [];
+    const propertyMapsUrl = extractPropertyMapsUrl(row.location_saisonniere_config_json);
     return {
       id: row.id,
       technician_id: row.technician_id,
@@ -25592,7 +25598,7 @@ async function fetchTechnicianAssignmentsPayload(req, {
       bien_reference: row.bien_reference || null,
       bien_titre: row.bien_titre || null,
       property_url: buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
-      google_maps_url: normalizeMapsOpenUrl(row.google_maps_url) || null,
+      google_maps_url: propertyMapsUrl || normalizeMapsOpenUrl(row.google_maps_url) || null,
       note: row.note || null,
       status: normalizedAssignmentStatus,
       completed_at: row.completed_at || null,
