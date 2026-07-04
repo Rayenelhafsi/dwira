@@ -4459,7 +4459,8 @@ function buildAuthUser(user) {
   const nameParts = fullName ? fullName.split(' ') : [];
   const derivedFirstName = explicitFirstName || (nameParts[0] || '');
   const derivedLastName = explicitLastName || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
-  const normalizedRole = String(user?.role || '') === 'admin' ? 'admin' : 'user';
+  const rawRole = String(user?.role || '').trim().toLowerCase();
+  const normalizedRole = rawRole === 'admin' ? 'admin' : rawRole === 'technician' ? 'technician' : 'user';
   const adminTypeRaw = String(user?.adminType || user?.admin_type || '').trim().toLowerCase();
   return {
     id: String(user?.id || ''),
@@ -4469,9 +4470,10 @@ function buildAuthUser(user) {
     lastName: derivedLastName || null,
     role: normalizedRole,
     adminType: normalizedRole === 'admin' ? (adminTypeRaw === 'superadmin' ? 'superadmin' : 'subadmin') : null,
+    specialty: user?.specialty || null,
     avatar: user?.avatar || null,
     clientType: user?.clientType || null,
-    telephone: user?.telephone || null,
+    telephone: user?.telephone || user?.phone || null,
     address: user?.address || null,
     cin: user?.cin || null,
     cinImageUrl: user?.cinImageUrl || user?.cinImageRectoUrl || user?.cin_image_url || user?.cin_image_recto_url || null,
@@ -4737,6 +4739,33 @@ async function authenticateAdminFromHeaders(req) {
   });
 }
 
+async function authenticateTechnicianFromHeaders(req) {
+  const phone = String(req.headers?.['x-technician-phone'] || '').trim();
+  const password = String(req.headers?.['x-technician-password'] || '').trim();
+  if (!phone || !password) return null;
+  await ensureSubadminOperationsSchema();
+  const [rows] = await pool.query(
+    `SELECT id, specialty, first_name, last_name, phone, mobile_password_hash, mobile_access_enabled, active
+     FROM subadmin_technicians
+     WHERE phone = ?
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [phone]
+  );
+  const technician = rows?.[0] || null;
+  if (!technician || !Number(technician.active || 0) || !Number(technician.mobile_access_enabled || 0)) return null;
+  const isPasswordValid = await bcrypt.compare(password, String(technician.mobile_password_hash || ''));
+  if (!isPasswordValid) return null;
+  return buildAuthUser({
+    id: technician.id,
+    name: `${String(technician.first_name || '').trim()} ${String(technician.last_name || '').trim()}`.trim(),
+    role: 'technician',
+    phone: technician.phone,
+    specialty: technician.specialty,
+    profileCompleted: true,
+  });
+}
+
 async function requireAuthenticatedSession(req, res, next) {
   const user = getSessionUserFromRequest(req);
   if (user) {
@@ -4747,6 +4776,11 @@ async function requireAuthenticatedSession(req, res, next) {
     const headerAdmin = await authenticateAdminFromHeaders(req);
     if (headerAdmin) {
       req.authUser = headerAdmin;
+      return next();
+    }
+    const headerTechnician = await authenticateTechnicianFromHeaders(req);
+    if (headerTechnician) {
+      req.authUser = headerTechnician;
       return next();
     }
   } catch (error) {
@@ -4763,6 +4797,30 @@ async function requireAuthenticatedSession(req, res, next) {
     });
     return res.status(401).json({ error: 'Authentification requise' });
   }
+}
+
+async function requireTechnicianSession(req, res, next) {
+  const sessionUser = getSessionUserFromRequest(req);
+  const user = sessionUser ? await hydrateTechnicianSessionUser(req, res, sessionUser, { persistSession: true }) : null;
+  if (user && user.role === 'technician') {
+    req.authUser = user;
+    return next();
+  }
+
+  try {
+    const headerTechnician = await authenticateTechnicianFromHeaders(req);
+    if (headerTechnician && headerTechnician.role === 'technician') {
+      req.authUser = headerTechnician;
+      return next();
+    }
+  } catch (error) {
+    console.warn('technician_header_auth_failed:', error?.message || error);
+  }
+
+  if (!user) {
+    return res.status(401).json({ error: 'Authentification technicien requise' });
+  }
+  return res.status(403).json({ error: 'Acces reserve aux techniciens' });
 }
 
 async function requireAdminSession(req, res, next) {
@@ -4870,6 +4928,41 @@ async function hydrateAdminSessionUser(req, res, user, { persistSession = false 
     return hydratedUser;
   } catch (error) {
     console.warn('hydrate_admin_session_user_failed:', error?.message || error);
+    return user;
+  }
+}
+
+async function hydrateTechnicianSessionUser(req, res, user, { persistSession = false } = {}) {
+  if (!user || user.role !== 'technician') return user;
+  const technicianId = String(user.id || '').trim();
+  if (!technicianId) return user;
+  try {
+    await ensureSubadminOperationsSchema();
+    const [rows] = await pool.query(
+      `SELECT id, specialty, first_name, last_name, phone, active, mobile_access_enabled
+       FROM subadmin_technicians
+       WHERE id = ?
+       LIMIT 1`,
+      [technicianId]
+    );
+    const technician = rows?.[0] || null;
+    if (!technician || !Number(technician.active || 0) || !Number(technician.mobile_access_enabled || 0)) {
+      return user;
+    }
+    const hydratedUser = buildAuthUser({
+      id: technician.id,
+      name: `${String(technician.first_name || '').trim()} ${String(technician.last_name || '').trim()}`.trim(),
+      role: 'technician',
+      phone: technician.phone,
+      specialty: technician.specialty,
+      profileCompleted: true,
+    });
+    if (persistSession) {
+      setAuthSessionCookie(req, res, hydratedUser);
+    }
+    return hydratedUser;
+  } catch (error) {
+    console.warn('hydrate_technician_session_user_failed:', error?.message || error);
     return user;
   }
 }
@@ -19476,6 +19569,29 @@ app.post('/api/mobile/admin/push-token', requireAdminSession, async (req, res) =
   }
 });
 
+app.post('/api/mobile/technician/push-token', requireTechnicianSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const technicianId = String(req.authUser?.id || '').trim();
+    const token = String(req.body?.token || '').trim();
+    const platform = String(req.body?.platform || '').trim().toLowerCase() || null;
+    if (!technicianId || !token) {
+      return res.status(400).json({ error: 'technicianId et token requis' });
+    }
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE subadmin_technicians
+       SET push_token = ?, push_platform = ?, push_token_updated_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [token, platform, now, now, technicianId]
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error saving technician push token:', error);
+    res.status(500).json({ error: 'Failed to save technician push token' });
+  }
+});
+
 app.post('/api/mobile/admin/owner-app-update-notification', requireAdminSession, async (req, res) => {
   try {
     const defaultMessage = "Nouvelle mise a jour de l'application dans Google Play Store";
@@ -24403,12 +24519,34 @@ async function ensureSubadminOperationsSchema() {
       first_name VARCHAR(120) NOT NULL,
       last_name VARCHAR(120) NOT NULL,
       phone VARCHAR(40) NOT NULL,
+      mobile_password_hash VARCHAR(255) NULL,
+      mobile_access_enabled TINYINT(1) NOT NULL DEFAULT 0,
+      push_token VARCHAR(512) NULL,
+      push_platform VARCHAR(40) NULL,
+      push_token_updated_at DATETIME NULL,
+      last_login_at DATETIME NULL,
       notes TEXT NULL,
       active TINYINT(1) NOT NULL DEFAULT 1,
       created_by_admin_id VARCHAR(100) NULL,
       created_at DATETIME NOT NULL,
       updated_at DATETIME NOT NULL,
       KEY idx_subadmin_technicians_scope (subadmin_admin_id, active, updated_at)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS technician_property_assignments (
+      id VARCHAR(100) PRIMARY KEY,
+      technician_id VARCHAR(100) NOT NULL,
+      bien_id VARCHAR(100) NOT NULL,
+      note TEXT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      assigned_by_admin_id VARCHAR(100) NULL,
+      completed_at DATETIME NULL,
+      completed_by_user_id VARCHAR(100) NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY idx_technician_property_assignments_technician (technician_id, status, updated_at),
+      KEY idx_technician_property_assignments_bien (bien_id, updated_at)
     )
   `);
   if (!(await columnExists('subadmin_contract_assignments', 'urgent'))) {
@@ -24498,6 +24636,24 @@ async function ensureSubadminOperationsSchema() {
   if (!(await columnExists('subadmin_technicians', 'notes'))) {
     await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN notes TEXT NULL AFTER phone");
   }
+  if (!(await columnExists('subadmin_technicians', 'mobile_password_hash'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN mobile_password_hash VARCHAR(255) NULL AFTER phone");
+  }
+  if (!(await columnExists('subadmin_technicians', 'mobile_access_enabled'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN mobile_access_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER mobile_password_hash");
+  }
+  if (!(await columnExists('subadmin_technicians', 'push_token'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN push_token VARCHAR(512) NULL AFTER mobile_access_enabled");
+  }
+  if (!(await columnExists('subadmin_technicians', 'push_platform'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN push_platform VARCHAR(40) NULL AFTER push_token");
+  }
+  if (!(await columnExists('subadmin_technicians', 'push_token_updated_at'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN push_token_updated_at DATETIME NULL AFTER push_platform");
+  }
+  if (!(await columnExists('subadmin_technicians', 'last_login_at'))) {
+    await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN last_login_at DATETIME NULL AFTER push_token_updated_at");
+  }
   if (!(await columnExists('subadmin_technicians', 'active'))) {
     await pool.query("ALTER TABLE subadmin_technicians ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1 AFTER notes");
   }
@@ -24516,6 +24672,31 @@ async function ensureSubadminOperationsSchema() {
   }
   if (!(await columnExists('contrats', 'montant_total_proprietaire'))) {
     await pool.query('ALTER TABLE contrats ADD COLUMN montant_total_proprietaire DECIMAL(12,2) NULL AFTER montant_donne_proprietaire');
+  }
+  if (!(await columnExists('technician_property_assignments', 'note'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN note TEXT NULL AFTER bien_id");
+  }
+  if (!(await columnExists('technician_property_assignments', 'status'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active' AFTER note");
+  }
+  if (!(await columnExists('technician_property_assignments', 'assigned_by_admin_id'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN assigned_by_admin_id VARCHAR(100) NULL AFTER status");
+  }
+  if (!(await columnExists('technician_property_assignments', 'completed_at'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN completed_at DATETIME NULL AFTER assigned_by_admin_id");
+  }
+  if (!(await columnExists('technician_property_assignments', 'completed_by_user_id'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN completed_by_user_id VARCHAR(100) NULL AFTER completed_at");
+  }
+  if (!(await columnExists('technician_property_assignments', 'created_at'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN created_at DATETIME NULL AFTER completed_by_user_id");
+    await pool.query("UPDATE technician_property_assignments SET created_at = COALESCE(created_at, NOW())");
+    await pool.query("ALTER TABLE technician_property_assignments MODIFY COLUMN created_at DATETIME NOT NULL");
+  }
+  if (!(await columnExists('technician_property_assignments', 'updated_at'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN updated_at DATETIME NULL AFTER created_at");
+    await pool.query("UPDATE technician_property_assignments SET updated_at = COALESCE(updated_at, created_at, NOW())");
+    await pool.query("ALTER TABLE technician_property_assignments MODIFY COLUMN updated_at DATETIME NOT NULL");
   }
 }
 
@@ -25214,6 +25395,10 @@ function isSubadminAccount(user) {
   return user?.role === 'admin' && String(user?.adminType || '').trim() === 'subadmin';
 }
 
+function isTechnicianAccount(user) {
+  return user?.role === 'technician';
+}
+
 async function fetchSubadminAccountById(adminId) {
   const normalizedAdminId = String(adminId || '').trim();
   if (!normalizedAdminId) return null;
@@ -25226,6 +25411,22 @@ async function fetchSubadminAccountById(adminId) {
   );
   const row = rows?.[0] || null;
   if (!row || !Number(row.actif || 0)) return null;
+  return row;
+}
+
+async function fetchTechnicianAccountById(technicianId) {
+  const normalizedTechnicianId = String(technicianId || '').trim();
+  if (!normalizedTechnicianId) return null;
+  await ensureSubadminOperationsSchema();
+  const [rows] = await pool.query(
+    `SELECT id, subadmin_admin_id, specialty, first_name, last_name, phone, notes, active, mobile_access_enabled, last_login_at
+     FROM subadmin_technicians
+     WHERE id = ?
+     LIMIT 1`,
+    [normalizedTechnicianId]
+  );
+  const row = rows?.[0] || null;
+  if (!row || !Number(row.active || 0)) return null;
   return row;
 }
 
@@ -25248,6 +25449,159 @@ function ensureSubadminAccess(req, res, targetSubadminId) {
     return false;
   }
   return true;
+}
+
+async function pushToTechnicianDevice(technicianId, payload) {
+  if (!firebaseMessaging || !technicianId) {
+    return { sent: 0, disabled: true };
+  }
+  await ensureSubadminOperationsSchema();
+  const [rows] = await pool.query(
+    `SELECT id, push_token
+     FROM subadmin_technicians
+     WHERE id = ? AND active = 1 AND mobile_access_enabled = 1
+     LIMIT 1`,
+    [String(technicianId || '').trim()]
+  );
+  const token = String(rows?.[0]?.push_token || '').trim();
+  if (!token) {
+    return { sent: 0, noTokens: true };
+  }
+  try {
+    await firebaseMessaging.send({
+      token,
+      notification: {
+        title: String(payload?.title || 'Dwira').trim() || 'Dwira',
+        body: String(payload?.body || '').trim(),
+      },
+      data: Object.fromEntries(
+        Object.entries(payload?.data || {}).map(([key, value]) => [key, String(value ?? '')])
+      ),
+      android: {
+        priority: 'high',
+      },
+    });
+    return { sent: 1 };
+  } catch (error) {
+    console.warn('[FCM][technician] send failed', {
+      technicianId: String(technicianId || '').trim() || null,
+      message: error?.message || String(error || 'unknown error'),
+    });
+    return { sent: 0, error: error?.message || 'send_failed' };
+  }
+}
+
+async function fetchTechnicianAssignmentsPayload(req, {
+  technicianId = null,
+  subadminId = null,
+  status = null,
+} = {}) {
+  await ensureZonesSchema();
+  await ensureSubadminOperationsSchema();
+  const whereParts = [];
+  const params = [];
+  if (technicianId) {
+    whereParts.push('a.technician_id = ?');
+    params.push(String(technicianId || '').trim());
+  }
+  if (subadminId) {
+    whereParts.push('t.subadmin_admin_id = ?');
+    params.push(String(subadminId || '').trim());
+  }
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+  if (normalizedStatus === 'done') {
+    whereParts.push(`(
+      a.completed_at IS NOT NULL
+      OR LOWER(TRIM(COALESCE(a.status, ''))) IN ('done', 'completed', 'complete', 'closed', 'finished', 'termine', 'terminee')
+    )`);
+  } else if (normalizedStatus === 'active') {
+    whereParts.push(`(
+      a.completed_at IS NULL
+      AND LOWER(TRIM(COALESCE(a.status, 'active'))) NOT IN ('done', 'completed', 'complete', 'closed', 'finished', 'termine', 'terminee')
+    )`);
+  }
+  const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+  const hasZoneMapsUrl = await columnExists('zones', 'google_maps_url');
+  const [rows] = await pool.query(
+    `
+    SELECT a.*,
+           t.subadmin_admin_id,
+           t.specialty,
+           t.first_name,
+           t.last_name,
+           t.phone,
+           b.reference AS bien_reference,
+           b.titre AS bien_titre,
+           ${hasZoneMapsUrl ? 'z.google_maps_url' : 'NULL'} AS google_maps_url
+    FROM technician_property_assignments a
+    INNER JOIN subadmin_technicians t ON t.id = a.technician_id
+    INNER JOIN biens b ON b.id = a.bien_id
+    LEFT JOIN zones z ON z.id = b.zone_id
+    ${whereSql}
+    ORDER BY CASE
+               WHEN (
+                 a.completed_at IS NULL
+                 AND LOWER(TRIM(COALESCE(a.status, 'active'))) NOT IN ('done', 'completed', 'complete', 'closed', 'finished', 'termine', 'terminee')
+               ) THEN 0
+               ELSE 1
+             END,
+             COALESCE(a.completed_at, a.updated_at) DESC
+    `,
+    params
+  );
+  const bienIds = [...new Set((rows || []).map((row) => String(row.bien_id || '').trim()).filter(Boolean))];
+  const galleryByBienId = new Map();
+  if (bienIds.length > 0) {
+    const placeholders = bienIds.map(() => '?').join(', ');
+    const [mediaRows] = await pool.query(
+      `SELECT bien_id, url, type
+       FROM media
+       WHERE bien_id IN (${placeholders})
+       ORDER BY COALESCE(position, 999999) ASC, id ASC`,
+      bienIds
+    );
+    for (const row of mediaRows || []) {
+      const bienId = String(row.bien_id || '').trim();
+      if (!bienId) continue;
+      const current = galleryByBienId.get(bienId) || [];
+      const url = resolvePublicAssetUrl(row.url || '') || null;
+      if (url) {
+        current.push({
+          url,
+          type: String(row.type || 'image').trim().toLowerCase() || 'image',
+        });
+      }
+      galleryByBienId.set(bienId, current);
+    }
+  }
+  return (rows || []).map((row) => {
+    const assignmentStatus = String(row.status || '').trim().toLowerCase();
+    const normalizedAssignmentStatus = row.completed_at || ['done', 'completed', 'complete', 'closed', 'finished', 'termine', 'terminee'].includes(assignmentStatus)
+      ? 'done'
+      : 'active';
+    const technicianName = `${String(row.first_name || '').trim()} ${String(row.last_name || '').trim()}`.trim();
+    const gallery = galleryByBienId.get(String(row.bien_id || '').trim()) || [];
+    return {
+      id: row.id,
+      technician_id: row.technician_id,
+      technician_name: technicianName || null,
+      technician_phone: row.phone || null,
+      specialty: row.specialty || null,
+      subadmin_admin_id: row.subadmin_admin_id || null,
+      bien_id: row.bien_id,
+      bien_reference: row.bien_reference || null,
+      bien_titre: row.bien_titre || null,
+      property_url: buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
+      google_maps_url: normalizeMapsOpenUrl(row.google_maps_url) || null,
+      note: row.note || null,
+      status: normalizedAssignmentStatus,
+      completed_at: row.completed_at || null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      gallery,
+      gallery_urls: gallery.map((item) => item.url).filter(Boolean),
+    };
+  });
 }
 
 async function pushToAdminDevices(adminId, payload) {
@@ -26690,6 +27044,51 @@ app.post('/api/auth/admin/login', authLoginRateLimit, async (req, res) => {
       metadata: { error: String(error?.message || error || '') },
     });
     res.status(500).json({ error: 'Erreur de connexion administrateur' });
+  }
+});
+
+app.post('/api/auth/technician/login', authLoginRateLimit, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const phone = String(req.body?.phone || '').trim();
+    const password = String(req.body?.password || '').trim();
+    if (!phone || !password) {
+      return res.status(400).json({ error: 'Telephone et mot de passe obligatoires' });
+    }
+    const [rows] = await pool.query(
+      `SELECT id, specialty, first_name, last_name, phone, mobile_password_hash, mobile_access_enabled, active
+       FROM subadmin_technicians
+       WHERE phone = ?
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [phone]
+    );
+    const technician = rows?.[0] || null;
+    if (!technician || !Number(technician.active || 0) || !Number(technician.mobile_access_enabled || 0)) {
+      return res.status(401).json({ error: 'Identifiants technicien invalides' });
+    }
+    const isPasswordValid = await bcrypt.compare(password, String(technician.mobile_password_hash || ''));
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Identifiants technicien invalides' });
+    }
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      'UPDATE subadmin_technicians SET last_login_at = ?, updated_at = ? WHERE id = ?',
+      [now, now, technician.id]
+    );
+    const authUser = buildAuthUser({
+      id: technician.id,
+      name: `${String(technician.first_name || '').trim()} ${String(technician.last_name || '').trim()}`.trim(),
+      role: 'technician',
+      phone: technician.phone,
+      specialty: technician.specialty,
+      profileCompleted: true,
+    });
+    setAuthSessionCookie(req, res, authUser);
+    res.json({ user: authUser });
+  } catch (error) {
+    console.error('Error during technician login:', error);
+    res.status(500).json({ error: 'Erreur de connexion technicien' });
   }
 });
 
@@ -30346,6 +30745,8 @@ app.get('/api/subadmin/technicians', requireAdminSession, async (req, res) => {
         phone: row.phone,
         notes: row.notes || null,
         active: Number(row.active || 0) === 1,
+        mobile_access_enabled: Number(row.mobile_access_enabled || 0) === 1,
+        last_login_at: row.last_login_at || null,
       }))
     );
   } catch (error) {
@@ -30364,10 +30765,15 @@ app.post('/api/subadmin/technicians', requireAdminSession, async (req, res) => {
     const firstName = String(req.body?.first_name || '').trim();
     const lastName = String(req.body?.last_name || '').trim();
     const phone = String(req.body?.phone || '').trim();
+    const mobilePassword = String(req.body?.mobile_password || '').trim();
+    const mobileAccessEnabled = req.body?.mobile_access_enabled === true || req.body?.mobile_access_enabled === 1 || String(req.body?.mobile_access_enabled || '').trim() === 'true';
     const notes = String(req.body?.notes || '').trim() || null;
     const subadminId = String(req.body?.subadmin_id || '').trim() || null;
     if (!specialty || !firstName || !lastName || !phone) {
       return res.status(400).json({ error: 'specialty, first_name, last_name et phone requis' });
+    }
+    if (mobileAccessEnabled && !mobilePassword) {
+      return res.status(400).json({ error: 'Mot de passe application requis pour activer le technicien mobile' });
     }
     if (subadminId) {
       const subadmin = await fetchSubadminAccountById(subadminId);
@@ -30375,11 +30781,12 @@ app.post('/api/subadmin/technicians', requireAdminSession, async (req, res) => {
     }
     const id = `stc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const now = getAgencySqlDateTime();
+    const passwordHash = mobilePassword ? await bcrypt.hash(mobilePassword, 10) : null;
     await pool.query(
       `INSERT INTO subadmin_technicians
-       (id, subadmin_admin_id, specialty, first_name, last_name, phone, notes, active, created_by_admin_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-      [id, subadminId, specialty, firstName, lastName, phone, notes, String(req.authUser?.id || '').trim() || null, now, now]
+       (id, subadmin_admin_id, specialty, first_name, last_name, phone, mobile_password_hash, mobile_access_enabled, notes, active, created_by_admin_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+      [id, subadminId, specialty, firstName, lastName, phone, passwordHash, mobileAccessEnabled ? 1 : 0, notes, String(req.authUser?.id || '').trim() || null, now, now]
     );
     res.status(201).json({ id });
   } catch (error) {
@@ -30399,21 +30806,34 @@ app.put('/api/subadmin/technicians/:id', requireAdminSession, async (req, res) =
     const firstName = String(req.body?.first_name || '').trim();
     const lastName = String(req.body?.last_name || '').trim();
     const phone = String(req.body?.phone || '').trim();
+    const mobilePassword = String(req.body?.mobile_password || '').trim();
     const notes = String(req.body?.notes || '').trim() || null;
     const subadminId = String(req.body?.subadmin_id || '').trim() || null;
     const active = req.body?.active !== false;
+    const mobileAccessEnabled = req.body?.mobile_access_enabled === true || req.body?.mobile_access_enabled === 1 || String(req.body?.mobile_access_enabled || '').trim() === 'true';
     if (!specialty || !firstName || !lastName || !phone) {
       return res.status(400).json({ error: 'specialty, first_name, last_name et phone requis' });
+    }
+    if (mobileAccessEnabled && !mobilePassword) {
+      const [currentRows] = await pool.query('SELECT mobile_password_hash FROM subadmin_technicians WHERE id = ? LIMIT 1', [technicianId]);
+      const currentPasswordHash = String(currentRows?.[0]?.mobile_password_hash || '').trim();
+      if (!currentPasswordHash) {
+        return res.status(400).json({ error: 'Mot de passe application requis pour activer le technicien mobile' });
+      }
     }
     if (subadminId) {
       const subadmin = await fetchSubadminAccountById(subadminId);
       if (!subadmin) return res.status(404).json({ error: 'Sous-admin cible introuvable' });
     }
+    const nextPasswordHash = mobilePassword ? await bcrypt.hash(mobilePassword, 10) : null;
     await pool.query(
       `UPDATE subadmin_technicians
-       SET subadmin_admin_id = ?, specialty = ?, first_name = ?, last_name = ?, phone = ?, notes = ?, active = ?, updated_at = ?
+       SET subadmin_admin_id = ?, specialty = ?, first_name = ?, last_name = ?, phone = ?,
+           mobile_password_hash = COALESCE(?, mobile_password_hash),
+           mobile_access_enabled = ?,
+           notes = ?, active = ?, updated_at = ?
        WHERE id = ?`,
-      [subadminId, specialty, firstName, lastName, phone, notes, active ? 1 : 0, getAgencySqlDateTime(), technicianId]
+      [subadminId, specialty, firstName, lastName, phone, nextPasswordHash, mobileAccessEnabled ? 1 : 0, notes, active ? 1 : 0, getAgencySqlDateTime(), technicianId]
     );
     res.json({ ok: true, id: technicianId });
   } catch (error) {
@@ -30439,6 +30859,173 @@ app.delete('/api/subadmin/technicians/:id', requireAdminSession, async (req, res
   } catch (error) {
     console.error('Error deleting subadmin technician:', error);
     res.status(500).json({ error: 'Suppression du technicien impossible' });
+  }
+});
+
+app.get('/api/subadmin/technician-assignments', requireAdminSession, async (req, res) => {
+  try {
+    const scopedSubadminId = resolveSubadminScopeId(req, req.query?.subadmin_id);
+    if (scopedSubadminId && !ensureSubadminAccess(req, res, scopedSubadminId)) return;
+    const technicianId = String(req.query?.technician_id || '').trim() || null;
+    const status = String(req.query?.status || '').trim() || null;
+    const payload = await fetchTechnicianAssignmentsPayload(req, {
+      technicianId,
+      subadminId: scopedSubadminId,
+      status,
+    });
+    res.json(payload);
+  } catch (error) {
+    console.error('Error fetching technician assignments:', error);
+    res.status(500).json({ error: 'Impossible de charger les affectations technicien' });
+  }
+});
+
+app.post('/api/subadmin/technician-assignments', requireAdminSession, async (req, res) => {
+  try {
+    if (isSubadminAccount(req.authUser || null)) {
+      return res.status(403).json({ error: 'Creation reservee a l administration principale' });
+    }
+    await ensureSubadminOperationsSchema();
+    const technicianId = String(req.body?.technician_id || '').trim();
+    const bienId = String(req.body?.bien_id || '').trim();
+    const note = String(req.body?.note || '').trim() || null;
+    if (!technicianId || !bienId) {
+      return res.status(400).json({ error: 'technician_id et bien_id requis' });
+    }
+    const technician = await fetchTechnicianAccountById(technicianId);
+    if (!technician || !Number(technician.mobile_access_enabled || 0)) {
+      return res.status(404).json({ error: 'Technicien introuvable ou sans acces application' });
+    }
+    const [bienRows] = await pool.query('SELECT id FROM biens WHERE id = ? LIMIT 1', [bienId]);
+    if (!bienRows?.[0]) {
+      return res.status(404).json({ error: 'Bien introuvable' });
+    }
+    const assignmentId = `tpa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO technician_property_assignments
+       (id, technician_id, bien_id, note, status, assigned_by_admin_id, completed_at, completed_by_user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)`,
+      [assignmentId, technicianId, bienId, note, String(req.authUser?.id || '').trim() || null, now, now]
+    );
+    const pushResult = await pushToTechnicianDevice(technicianId, {
+      title: 'Nouvelle affectation technicien',
+      body: 'Un bien vous a ete affecte.',
+      data: {
+        kind: 'technician_assignment',
+        assignmentId,
+        bienId,
+      },
+    });
+    const payload = await fetchTechnicianAssignmentsPayload(req, {
+      technicianId,
+      status: null,
+    });
+    const created = payload.find((item) => String(item.id || '').trim() === assignmentId) || { id: assignmentId };
+    res.status(201).json({ ...created, push: pushResult });
+  } catch (error) {
+    console.error('Error creating technician assignment:', error);
+    res.status(500).json({ error: 'Creation affectation technicien impossible' });
+  }
+});
+
+app.put('/api/subadmin/technician-assignments/:id/status', requireAuthenticatedSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const assignmentId = String(req.params?.id || '').trim();
+    if (!assignmentId) return res.status(400).json({ error: 'id affectation requis' });
+    const [rows] = await pool.query('SELECT * FROM technician_property_assignments WHERE id = ? LIMIT 1', [assignmentId]);
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Affectation technicien introuvable' });
+    const technician = await fetchTechnicianAccountById(current.technician_id);
+    if (!technician) return res.status(404).json({ error: 'Technicien introuvable' });
+    const authUser = req.authUser || null;
+    if (isTechnicianAccount(authUser)) {
+      if (String(authUser.id || '').trim() !== String(current.technician_id || '').trim()) {
+        return res.status(403).json({ error: 'Acces limite a vos affectations technicien' });
+      }
+    } else if (isSubadminAccount(authUser)) {
+      const technicianScope = String(technician.subadmin_admin_id || '').trim();
+      if (!ensureSubadminAccess(req, res, technicianScope)) return;
+    } else if (!authUser || authUser.role !== 'admin') {
+      return res.status(403).json({ error: 'Acces refuse' });
+    }
+    const nextStatus = String(req.body?.status || '').trim().toLowerCase() === 'done' ? 'done' : 'active';
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE technician_property_assignments
+       SET status = ?, completed_at = ?, completed_by_user_id = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        nextStatus,
+        nextStatus === 'done' ? now : null,
+        nextStatus === 'done' ? (String(authUser?.id || '').trim() || null) : null,
+        now,
+        assignmentId,
+      ]
+    );
+    res.json({ ok: true, id: assignmentId, status: nextStatus, completed_at: nextStatus === 'done' ? now : null });
+  } catch (error) {
+    console.error('Error updating technician assignment status:', error);
+    res.status(500).json({ error: 'Mise a jour affectation technicien impossible' });
+  }
+});
+
+app.delete('/api/subadmin/technician-assignments/:id', requireAdminSession, async (req, res) => {
+  try {
+    if (isSubadminAccount(req.authUser || null)) {
+      return res.status(403).json({ error: 'Suppression reservee a l administration principale' });
+    }
+    await ensureSubadminOperationsSchema();
+    const assignmentId = String(req.params?.id || '').trim();
+    if (!assignmentId) return res.status(400).json({ error: 'id affectation requis' });
+    await pool.query('DELETE FROM technician_property_assignments WHERE id = ?', [assignmentId]);
+    res.json({ ok: true, id: assignmentId });
+  } catch (error) {
+    console.error('Error deleting technician assignment:', error);
+    res.status(500).json({ error: 'Suppression affectation technicien impossible' });
+  }
+});
+
+app.get('/api/mobile/technician/assignments', requireTechnicianSession, async (req, res) => {
+  try {
+    const status = String(req.query?.status || '').trim() || 'active';
+    const payload = await fetchTechnicianAssignmentsPayload(req, {
+      technicianId: String(req.authUser?.id || '').trim(),
+      status,
+    });
+    res.json(payload);
+  } catch (error) {
+    console.error('Error fetching mobile technician assignments:', error);
+    res.status(500).json({ error: 'Impossible de charger les affectations technicien mobile' });
+  }
+});
+
+app.post('/api/mobile/technician/assignments/:id/complete', requireTechnicianSession, async (req, res) => {
+  try {
+    await ensureSubadminOperationsSchema();
+    const assignmentId = String(req.params?.id || '').trim();
+    const technicianId = String(req.authUser?.id || '').trim();
+    const [rows] = await pool.query(
+      'SELECT id, technician_id FROM technician_property_assignments WHERE id = ? LIMIT 1',
+      [assignmentId]
+    );
+    const current = rows?.[0] || null;
+    if (!current) return res.status(404).json({ error: 'Affectation technicien introuvable' });
+    if (String(current.technician_id || '').trim() !== technicianId) {
+      return res.status(403).json({ error: 'Acces limite a vos affectations technicien' });
+    }
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE technician_property_assignments
+       SET status = 'done', completed_at = ?, completed_by_user_id = ?, updated_at = ?
+       WHERE id = ?`,
+      [now, technicianId, now, assignmentId]
+    );
+    res.json({ ok: true, id: assignmentId, status: 'done', completed_at: now });
+  } catch (error) {
+    console.error('Error completing mobile technician assignment:', error);
+    res.status(500).json({ error: 'Cloture affectation technicien impossible' });
   }
 });
 

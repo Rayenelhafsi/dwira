@@ -104,6 +104,28 @@ type TechnicianRow = {
   last_name: string;
   phone: string;
   notes?: string | null;
+  mobile_access_enabled?: boolean;
+  last_login_at?: string | null;
+};
+
+type TechnicianAssignmentRow = {
+  id: string;
+  technician_id: string;
+  technician_name?: string | null;
+  technician_phone?: string | null;
+  specialty?: string | null;
+  subadmin_admin_id?: string | null;
+  bien_id: string;
+  bien_reference?: string | null;
+  bien_titre?: string | null;
+  property_url?: string | null;
+  google_maps_url?: string | null;
+  note?: string | null;
+  status: "active" | "done";
+  completed_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  gallery_urls?: string[];
 };
 
 type ContractOption = {
@@ -166,7 +188,7 @@ type PickerOption = {
 
 type DeleteTarget =
   | {
-      kind: "assignment" | "task" | "charge" | "technician";
+      kind: "assignment" | "task" | "charge" | "technician" | "technician_assignment";
       id: string;
       title: string;
       description: string;
@@ -208,7 +230,15 @@ const initialTechnicianDraft = {
   firstName: "",
   lastName: "",
   phone: "",
+  mobilePassword: "",
+  mobileAccessEnabled: false,
   notes: "",
+};
+
+const initialTechnicianAssignmentDraft = {
+  technicianId: "",
+  bienId: "",
+  note: "",
 };
 
 const technicianPresets: TechnicianPreset[] = [
@@ -609,11 +639,13 @@ export default function SubAdminOperationsPanel({
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [charges, setCharges] = useState<ChargeRow[]>([]);
   const [technicians, setTechnicians] = useState<TechnicianRow[]>([]);
+  const [technicianAssignments, setTechnicianAssignments] = useState<TechnicianAssignmentRow[]>([]);
   const [contracts, setContracts] = useState<ContractOption[]>([]);
   const [biens, setBiens] = useState<BienOption[]>([]);
   const [assignmentDraft, setAssignmentDraft] = useState(initialAssignmentDraft);
   const [taskDraft, setTaskDraft] = useState(initialTaskDraft);
   const [technicianDraft, setTechnicianDraft] = useState(initialTechnicianDraft);
+  const [technicianAssignmentDraft, setTechnicianAssignmentDraft] = useState(initialTechnicianAssignmentDraft);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pickerOpen, setPickerOpen] = useState<PickerVariant | null>(null);
@@ -682,11 +714,12 @@ export default function SubAdminOperationsPanel({
         return Array.isArray(rows) ? (rows as T[]) : [];
       };
 
-      const [assignmentsResult, tasksResult, chargesResult, techniciansResult] = await Promise.allSettled([
+      const [assignmentsResult, tasksResult, chargesResult, techniciansResult, technicianAssignmentsResult] = await Promise.allSettled([
         loadCollection<AssignmentRow>(`/subadmin/contracts${suffix}`, "Impossible de charger les affectations"),
         loadCollection<TaskRow>(`/subadmin/tasks${suffix}`, "Impossible de charger les taches"),
         loadCollection<ChargeRow>(`/subadmin/charges${suffix}`, "Impossible de charger les charges"),
         loadCollection<TechnicianRow>(`/subadmin/technicians${suffix}`, "Impossible de charger les techniciens"),
+        loadCollection<TechnicianAssignmentRow>(`/subadmin/technician-assignments${suffix}`, "Impossible de charger les affectations technicien"),
       ]);
 
       const errors: string[] = [];
@@ -702,6 +735,9 @@ export default function SubAdminOperationsPanel({
 
       if (techniciansResult.status === "fulfilled") setTechnicians(techniciansResult.value);
       else errors.push(techniciansResult.reason instanceof Error ? techniciansResult.reason.message : "Impossible de charger les techniciens");
+
+      if (technicianAssignmentsResult.status === "fulfilled") setTechnicianAssignments(technicianAssignmentsResult.value);
+      else errors.push(technicianAssignmentsResult.reason instanceof Error ? technicianAssignmentsResult.reason.message : "Impossible de charger les affectations technicien");
 
       if (errors.length > 0) {
         toast.error(errors[0]);
@@ -763,6 +799,14 @@ export default function SubAdminOperationsPanel({
 
   const openTasks = useMemo(() => tasks.filter((task) => task.status === "open"), [tasks]);
   const historyTasks = useMemo(() => tasks.filter((task) => task.status === "done"), [tasks]);
+  const activeTechnicianAssignments = useMemo(
+    () => technicianAssignments.filter((assignment) => assignment.status !== "done"),
+    [technicianAssignments]
+  );
+  const historyTechnicianAssignments = useMemo(
+    () => technicianAssignments.filter((assignment) => assignment.status === "done"),
+    [technicianAssignments]
+  );
   const activeAssignments = useMemo(
     () => assignments.filter((assignment) => normalizeAssignmentStatus(assignment.status) !== "done"),
     [assignments]
@@ -783,6 +827,10 @@ export default function SubAdminOperationsPanel({
   const selectedTaskBien = useMemo(
     () => biens.find((entry) => entry.id === taskDraft.bienId) || null,
     [biens, taskDraft.bienId]
+  );
+  const selectedTechnicianAssignmentBien = useMemo(
+    () => biens.find((entry) => entry.id === technicianAssignmentDraft.bienId) || null,
+    [biens, technicianAssignmentDraft.bienId]
   );
   const selectedTaskContract = useMemo(
     () => contracts.find((entry) => entry.id === taskDraft.contractId) || null,
@@ -1025,6 +1073,8 @@ export default function SubAdminOperationsPanel({
             first_name: technicianDraft.firstName,
             last_name: technicianDraft.lastName,
             phone: technicianDraft.phone,
+            mobile_password: technicianDraft.mobilePassword,
+            mobile_access_enabled: technicianDraft.mobileAccessEnabled,
             notes: technicianDraft.notes,
           }),
         }
@@ -1035,6 +1085,58 @@ export default function SubAdminOperationsPanel({
       await loadData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Enregistrement technicien impossible");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveTechnicianAssignment = async () => {
+    if (!technicianAssignmentDraft.technicianId || !technicianAssignmentDraft.bienId) {
+      toast.error("Technicien et bien obligatoires");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(buildApiUrl("/subadmin/technician-assignments"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          technician_id: technicianAssignmentDraft.technicianId,
+          bien_id: technicianAssignmentDraft.bienId,
+          note: technicianAssignmentDraft.note,
+        }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Creation affectation technicien impossible"));
+      const payload = (await response.json().catch(() => null)) as { push?: PushDispatchResult } | null;
+      toast.success("Bien affecte au technicien.");
+      showPushDeliveryWarning(payload?.push, "Affectation technicien");
+      setTechnicianAssignmentDraft((prev) => ({
+        ...initialTechnicianAssignmentDraft,
+        technicianId: prev.technicianId,
+      }));
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Creation affectation technicien impossible");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateTechnicianAssignmentStatus = async (assignment: TechnicianAssignmentRow, status: "active" | "done") => {
+    setSaving(true);
+    try {
+      const response = await fetch(buildApiUrl(`/subadmin/technician-assignments/${encodeURIComponent(assignment.id)}/status`), {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Mise a jour affectation technicien impossible"));
+      toast.success(status === "done" ? "Affectation technicien terminee." : "Affectation technicien reactivee.");
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Mise a jour affectation technicien impossible");
     } finally {
       setSaving(false);
     }
@@ -1898,6 +2000,21 @@ export default function SubAdminOperationsPanel({
                   className="h-12 w-full rounded-2xl border border-sky-200 bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100/70"
                   placeholder="Telephone"
                 />
+                <input
+                  value={technicianDraft.mobilePassword}
+                  onChange={(event) => setTechnicianDraft((prev) => ({ ...prev, mobilePassword: event.target.value }))}
+                  className="h-12 w-full rounded-2xl border border-sky-200 bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100/70"
+                  placeholder={technicianDraft.id ? "Nouveau mot de passe application (laisser vide pour conserver)" : "Mot de passe application"}
+                />
+                <label className="inline-flex items-center gap-3 rounded-2xl border border-sky-200 bg-white px-4 py-3 text-sm font-medium text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={technicianDraft.mobileAccessEnabled}
+                    onChange={(event) => setTechnicianDraft((prev) => ({ ...prev, mobileAccessEnabled: event.target.checked }))}
+                    className="h-4 w-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500"
+                  />
+                  Activer le dashboard technicien dans l'application mobile
+                </label>
                 <textarea
                   value={technicianDraft.notes}
                   onChange={(event) => setTechnicianDraft((prev) => ({ ...prev, notes: event.target.value }))}
@@ -1927,73 +2044,248 @@ export default function SubAdminOperationsPanel({
               </div>
             </PanelSurface>
 
-            <PanelSurface title="Techniciens enregistres" description="Carnet terrain partage ou assigne." accent="slate">
-              <div className="space-y-3">
-                {technicians.length === 0 ? <EmptyState label="Aucun technicien enregistre." /> : null}
-                {technicians.map((technician) => (
-                  <article key={technician.id} className="rounded-[24px] border border-slate-200 bg-white p-4 sm:rounded-[28px]">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {(() => {
-                            const specialtyMeta = getTechnicianSpecialtyMeta(technician.specialty);
-                            const SpecialtyIcon = specialtyMeta.icon;
-                            return (
-                              <span className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border ${specialtyMeta.tone}`}>
-                                <SpecialtyIcon size={17} />
+            <div className="space-y-5">
+              <PanelSurface title="Affecter un bien au technicien" description="Le technicien recevra la reference, le lien site, Google Maps et la galerie photo dans l'application." accent="emerald">
+                <div className="grid gap-4">
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">Technicien</p>
+                    <select
+                      value={technicianAssignmentDraft.technicianId}
+                      onChange={(event) => setTechnicianAssignmentDraft((prev) => ({ ...prev, technicianId: event.target.value }))}
+                      className="h-12 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100/70"
+                    >
+                      <option value="">Choisir le technicien</option>
+                      {technicians
+                        .filter((entry) => Boolean(entry.mobile_access_enabled))
+                        .map((technician) => (
+                          <option key={technician.id} value={technician.id}>
+                            {technician.first_name} {technician.last_name} - {technician.specialty}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <SelectionButton
+                    label="Bien"
+                    value={selectedTechnicianAssignmentBien ? buildBienLabel(selectedTechnicianAssignmentBien) : ""}
+                    placeholder="Choisir le bien dans un popup"
+                    onOpen={() => setPickerOpen("bien")}
+                    onClear={() => setTechnicianAssignmentDraft((prev) => ({ ...prev, bienId: "" }))}
+                    accent="emerald"
+                  />
+                  <textarea
+                    value={technicianAssignmentDraft.note}
+                    onChange={(event) => setTechnicianAssignmentDraft((prev) => ({ ...prev, note: event.target.value }))}
+                    rows={4}
+                    className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100/70"
+                    placeholder="Note ou consigne pour le technicien"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveTechnicianAssignment()}
+                    disabled={saving}
+                    className="w-full rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-[0_16px_30px_rgba(16,185,129,0.22)] transition hover:bg-emerald-700 disabled:opacity-60 sm:w-auto"
+                  >
+                    Affecter le bien
+                  </button>
+                </div>
+              </PanelSurface>
+
+              <PanelSurface title="Techniciens enregistres" description="Carnet terrain partage ou assigne." accent="slate">
+                <div className="space-y-3">
+                  {technicians.length === 0 ? <EmptyState label="Aucun technicien enregistre." /> : null}
+                  {technicians.map((technician) => (
+                    <article key={technician.id} className="rounded-[24px] border border-slate-200 bg-white p-4 sm:rounded-[28px]">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {(() => {
+                              const specialtyMeta = getTechnicianSpecialtyMeta(technician.specialty);
+                              const SpecialtyIcon = specialtyMeta.icon;
+                              return (
+                                <span className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border ${specialtyMeta.tone}`}>
+                                  <SpecialtyIcon size={17} />
+                                </span>
+                              );
+                            })()}
+                            <h4 className="font-bold text-slate-950">
+                              {technician.first_name} {technician.last_name}
+                            </h4>
+                            {(() => {
+                              const specialtyMeta = getTechnicianSpecialtyMeta(technician.specialty);
+                              return (
+                                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${specialtyMeta.tone}`}>
+                                  {technician.specialty}
+                                </span>
+                              );
+                            })()}
+                            {technician.mobile_access_enabled ? (
+                              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                                App active
                               </span>
-                            );
-                          })()}
-                          <h4 className="font-bold text-slate-950">
-                            {technician.first_name} {technician.last_name}
-                          </h4>
-                          {(() => {
-                            const specialtyMeta = getTechnicianSpecialtyMeta(technician.specialty);
-                            return (
-                              <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${specialtyMeta.tone}`}>
-                                {technician.specialty}
+                            ) : (
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+                                App inactive
                               </span>
-                            );
-                          })()}
+                            )}
+                          </div>
+                          <p className="mt-1 text-sm text-slate-600">{technician.phone}</p>
+                          <p className="text-sm text-slate-500">
+                            {technician.subadmin_name ? `Visible pour ${technician.subadmin_name}` : "Visible pour tous les sous-admins"}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            Derniere connexion: {technician.last_login_at ? formatDateTime(technician.last_login_at) : "-"}
+                          </p>
+                          {technician.notes ? <p className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">{technician.notes}</p> : null}
                         </div>
-                        <p className="mt-1 text-sm text-slate-600">{technician.phone}</p>
-                        <p className="text-sm text-slate-500">
-                          {technician.subadmin_name ? `Visible pour ${technician.subadmin_name}` : "Visible pour tous les sous-admins"}
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTechnicianDraft({
+                                id: technician.id,
+                                subadminId: technician.subadmin_admin_id || "",
+                                specialty: technician.specialty,
+                                firstName: technician.first_name,
+                                lastName: technician.last_name,
+                                phone: technician.phone,
+                                mobilePassword: "",
+                                mobileAccessEnabled: Boolean(technician.mobile_access_enabled),
+                                notes: technician.notes || "",
+                              })
+                            }
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 sm:w-auto"
+                          >
+                            Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteTechnician(technician)}
+                            className="w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 sm:w-auto"
+                          >
+                            <Trash2 size={15} className="inline-block" />
+                            Supprimer
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </PanelSurface>
+
+              <PanelSurface title="Affectations technicien" description="Biens en cours chez les techniciens avec liens directs." accent="slate">
+                <div className="space-y-3">
+                  {activeTechnicianAssignments.length === 0 ? <EmptyState label="Aucune affectation technicien active." /> : null}
+                  {activeTechnicianAssignments.map((assignment) => (
+                    <article key={assignment.id} className="rounded-[24px] border border-slate-200 bg-white p-4 sm:rounded-[28px]">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="font-bold text-slate-950">
+                            {assignment.bien_reference || assignment.bien_id} - {assignment.bien_titre || "Bien"}
+                          </h4>
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">
+                            {assignment.specialty || "Technicien"}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-600">
+                          {assignment.technician_name || assignment.technician_id} - {assignment.technician_phone || "-"}
                         </p>
-                        {technician.notes ? <p className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">{technician.notes}</p> : null}
+                        {assignment.note ? <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">{assignment.note}</p> : null}
+                        {Array.isArray(assignment.gallery_urls) && assignment.gallery_urls.length > 0 ? (
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            {assignment.gallery_urls.slice(0, 6).map((url, index) => (
+                              <a key={`${assignment.id}-gallery-${index}`} href={url} target="_blank" rel="noreferrer" className="block shrink-0">
+                                <img src={url} alt={`gallery-${index}`} className="h-16 w-24 rounded-2xl object-cover" />
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          {assignment.property_url ? (
+                            <a href={assignment.property_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+                              <ExternalLink size={15} />
+                              Ouvrir le bien
+                            </a>
+                          ) : null}
+                          {assignment.google_maps_url ? (
+                            <a href={assignment.google_maps_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800">
+                              <MapPinned size={15} />
+                              Google Maps
+                            </a>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => void updateTechnicianAssignmentStatus(assignment, "done")}
+                            className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800"
+                          >
+                            <CheckCircle2 size={15} />
+                            Terminer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeleteTarget({
+                                kind: "technician_assignment",
+                                id: assignment.id,
+                                title: "Supprimer cette affectation technicien",
+                                description: "Cette affectation sera retiree du dashboard technicien et du site admin.",
+                                path: `/subadmin/technician-assignments/${encodeURIComponent(assignment.id)}`,
+                                successMessage: "Affectation technicien supprimee.",
+                                fallbackError: "Suppression affectation technicien impossible",
+                              })
+                            }
+                            className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
+                          >
+                            <Trash2 size={15} />
+                            Supprimer
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setTechnicianDraft({
-                              id: technician.id,
-                              subadminId: technician.subadmin_admin_id || "",
-                              specialty: technician.specialty,
-                              firstName: technician.first_name,
-                              lastName: technician.last_name,
-                              phone: technician.phone,
-                              notes: technician.notes || "",
-                            })
-                          }
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 sm:w-auto"
-                        >
-                          Modifier
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void deleteTechnician(technician)}
-                          className="w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 sm:w-auto"
-                        >
-                          <Trash2 size={15} className="inline-block" />
-                          Supprimer
-                        </button>
+                    </article>
+                  ))}
+                </div>
+              </PanelSurface>
+
+              <PanelSurface title="Historique technicien" description="Affectations terminees par les techniciens." accent="slate">
+                <div className="space-y-3">
+                  {historyTechnicianAssignments.length === 0 ? <EmptyState label="Aucun historique technicien." /> : null}
+                  {historyTechnicianAssignments.map((assignment) => (
+                    <article key={assignment.id} className="rounded-[24px] border border-slate-200 bg-white p-4 sm:rounded-[28px]">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h4 className="font-bold text-slate-950">
+                            {assignment.bien_reference || assignment.bien_id} - {assignment.bien_titre || "Bien"}
+                          </h4>
+                          <p className="text-sm text-slate-600">{assignment.technician_name || assignment.technician_id}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            Terminee le {formatDateTime(assignment.completed_at)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDeleteTarget({
+                                kind: "technician_assignment",
+                                id: assignment.id,
+                                title: "Supprimer cet historique technicien",
+                                description: "Cette ligne sera retiree definitivement de l'historique technicien.",
+                                path: `/subadmin/technician-assignments/${encodeURIComponent(assignment.id)}`,
+                                successMessage: "Historique technicien supprime.",
+                                fallbackError: "Suppression affectation technicien impossible",
+                              })
+                            }
+                            className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
+                          >
+                            <Trash2 size={15} />
+                            Supprimer
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </PanelSurface>
+                    </article>
+                  ))}
+                </div>
+              </PanelSurface>
+            </div>
           </div>
         ) : null}
 
@@ -2087,9 +2379,13 @@ export default function SubAdminOperationsPanel({
         searchValue={bienSearch}
         onSearchChange={setBienSearch}
         options={bienPickerOptions}
-        selectedId={taskDraft.bienId}
+        selectedId={activeTab === "technicians" ? technicianAssignmentDraft.bienId : taskDraft.bienId}
         onSelect={(id) => {
-          setTaskDraft((prev) => ({ ...prev, bienId: id }));
+          if (activeTab === "technicians") {
+            setTechnicianAssignmentDraft((prev) => ({ ...prev, bienId: id }));
+          } else {
+            setTaskDraft((prev) => ({ ...prev, bienId: id }));
+          }
           setPickerOpen(null);
         }}
         emptyLabel="Aucun bien correspondant."
