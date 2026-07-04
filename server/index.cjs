@@ -222,24 +222,63 @@ function getPublicFrontendBaseUrl(req) {
   }
 
   const configured = String(CANONICAL_FRONTEND_URL || FRONTEND_URL || '').trim().replace(/\/+$/, '');
-  if (configured) return configured;
-  return localCandidates[0] || '';
+  if (configured) {
+    try {
+      const configuredUrl = new URL(configured);
+      if (!isLocalHostname(configuredUrl.hostname)) {
+        return configured;
+      }
+    } catch {
+      // Ignore malformed configured URL and continue to fallback.
+    }
+  }
+  return 'https://www.dwiraimmobilier.com';
+}
+
+function normalizeAbsoluteHttpUrl(rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) return '';
+  if (!/^https?:\/\//i.test(value)) {
+    return value.replace(/\s/g, '%20');
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.toString().replace(/\s/g, '%20');
+  } catch {
+    return value.replace(/\s/g, '%20');
+  }
 }
 
 function resolvePublicAssetUrl(rawValue) {
   const raw = String(rawValue || '').trim();
   if (!raw) return '';
-  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
-  if (raw.startsWith('//')) return `https:${raw}`;
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return normalizeAbsoluteHttpUrl(raw);
+  if (raw.startsWith('//')) return normalizeAbsoluteHttpUrl(`https:${raw}`);
   if (/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(\/.*)?$/i.test(raw)) {
-    return `https://${raw}`;
+    return normalizeAbsoluteHttpUrl(`https://${raw}`);
   }
   const normalizedPath = raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`;
   const compatPath = normalizedPath.startsWith('/api/uploads/')
     ? normalizedPath.replace(/^\/api\/uploads\//, '/uploads/')
     : normalizedPath;
   const frontendBase = String(CANONICAL_FRONTEND_URL || FRONTEND_URL || 'https://www.dwiraimmobilier.com').trim().replace(/\/+$/, '');
-  return `${frontendBase}${compatPath}`;
+  return normalizeAbsoluteHttpUrl(`${frontendBase}${compatPath}`);
+}
+
+function isRenderableMediaImage(mediaRow) {
+  const type = String(mediaRow?.type || '').trim().toLowerCase();
+  const url = String(mediaRow?.url || '').trim().toLowerCase();
+  if (!url) return false;
+  if (type.startsWith('video') || /\.(mp4|mov|avi|mkv|webm)([?#].*)?$/i.test(url)) {
+    return false;
+  }
+  if (!type) {
+    return /\.(jpg|jpeg|png|webp|gif|bmp|avif|svg)([?#].*)?$/i.test(url);
+  }
+  return type.startsWith('image')
+    || type === 'photo'
+    || type === 'cover'
+    || /\.(jpg|jpeg|png|webp|gif|bmp|avif|svg)([?#].*)?$/i.test(url);
 }
 
 function normalizeSearchShareRelativeUrl(rawValue) {
@@ -25309,7 +25348,9 @@ function normalizeSubadminRouteToken(value) {
 function buildSubadminPropertyUrl(req, bienId, bienReference) {
   const token = normalizeSubadminRouteToken(bienReference) || String(bienId || '').trim();
   if (!token) return null;
-  return `${getPublicFrontendBaseUrl(req)}/properties/${encodeURIComponent(token)}`;
+  return normalizeAbsoluteHttpUrl(
+    `${getPublicFrontendBaseUrl(req)}/properties/${encodeURIComponent(token)}`
+  );
 }
 
 function normalizeSubadminAssignmentStatus(value) {
@@ -25471,24 +25512,52 @@ async function pushToTechnicianDevice(technicianId, payload) {
   if (!token) {
     return { sent: 0, noTokens: true };
   }
+  const dataPayload = Object.fromEntries(
+    Object.entries(payload?.data || {}).map(([key, value]) => [key, String(value ?? '')])
+  );
+  const title = String(payload?.title || 'Dwira').trim() || 'Dwira';
+  const body = String(payload?.body || '').trim();
   try {
     await firebaseMessaging.send({
       token,
-      notification: {
-        title: String(payload?.title || 'Dwira').trim() || 'Dwira',
-        body: String(payload?.body || '').trim(),
-      },
-      data: Object.fromEntries(
-        Object.entries(payload?.data || {}).map(([key, value]) => [key, String(value ?? '')])
-      ),
+      notification: { title, body },
+      data: dataPayload,
       android: {
         priority: 'high',
+        notification: {
+          channelId: 'admin_alerts_v2',
+          sound: 'default',
+          priority: 'high',
+          defaultSound: true,
+        },
+      },
+      apns: {
+        headers: {
+          'apns-priority': '10',
+          'apns-push-type': 'alert',
+        },
+        payload: {
+          aps: {
+            alert: { title, body },
+            sound: 'default',
+            badge: 1,
+            'content-available': 1,
+          },
+        },
       },
     });
     return { sent: 1 };
   } catch (error) {
+    const code = String(error?.code || '');
+    if (code.includes('registration-token-not-registered') || code.includes('invalid-registration-token')) {
+      await pool.query(
+        'UPDATE subadmin_technicians SET push_token = NULL, push_platform = NULL, push_token_updated_at = ?, updated_at = ? WHERE id = ?',
+        [getAgencySqlDateTime(), getAgencySqlDateTime(), String(technicianId || '').trim()]
+      ).catch(() => {});
+    }
     console.warn('[FCM][technician] send failed', {
       technicianId: String(technicianId || '').trim() || null,
+      code: code || null,
       message: error?.message || String(error || 'unknown error'),
     });
     return { sent: 0, error: error?.message || 'send_failed' };
@@ -25568,6 +25637,7 @@ async function fetchTechnicianAssignmentsPayload(req, {
     for (const row of mediaRows || []) {
       const bienId = String(row.bien_id || '').trim();
       if (!bienId) continue;
+      if (!isRenderableMediaImage(row)) continue;
       const current = galleryByBienId.get(bienId) || [];
       const url = resolvePublicAssetUrl(row.url || '') || null;
       if (url) {
@@ -31827,9 +31897,9 @@ function normalizeMapsOpenUrl(rawValue) {
   if (!value) return '';
   const coords = parseMapsLatLng(value);
   if (coords) {
-    return `https://www.google.com/maps?q=${coords.lat},${coords.lng}`;
+    return normalizeAbsoluteHttpUrl(`https://www.google.com/maps?q=${coords.lat},${coords.lng}`);
   }
-  return value.replace(/\/maps\/embed(?=[/?#]|$)/i, '/maps');
+  return normalizeAbsoluteHttpUrl(value.replace(/\/maps\/embed(?=[/?#]|$)/i, '/maps'));
 }
 
 function extractPropertyMapsUrl(rawConfig) {
