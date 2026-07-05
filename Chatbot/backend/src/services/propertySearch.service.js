@@ -127,7 +127,7 @@ function matchesSeasideOption(p, option) {
   if (option === "vue_sur_mer") return sc.vue === "mer" || Boolean(sc.vueMer) || hasAny("vue sur mer", "vue mer");
   if (option === "pres_plage") {
     return Boolean(sc.prochePlage) || (hasDistance && distancePlage <= 300)
-      || hasAny("proche plage", "pres de la plage", "a quelques pas de la plage", "plage");
+      || hasAny("proche plage", "pres de la plage", "a quelques pas de la plage");
   }
   return false;
 }
