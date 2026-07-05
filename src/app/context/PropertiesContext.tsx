@@ -77,15 +77,21 @@ function resolveBienDistancePlageM(source: {
   description?: string | null;
   titre?: string | null;
 }): number | null {
+  const toNullableDistance = (value: unknown): number | null => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    const parsed = Number.parseFloat(String(value));
+    return Number.isFinite(parsed) ? parsed : null;
+  };
   const characteristicDistance = extractDistancePlageMetersFromTexts([
     ...(source.caracteristiques || []),
     String(source.description || '').trim(),
     String(source.titre || '').trim(),
   ]);
   if (characteristicDistance !== null) return characteristicDistance;
-  const directDistance = toNullableNumber(source.distance_plage_m);
+  const directDistance = toNullableDistance(source.distance_plage_m);
   if (directDistance !== null) return directDistance;
-  return toNullableNumber((source.location_saisonniere_config as any)?.distance_plage_m);
+  return toNullableDistance((source.location_saisonniere_config as any)?.distance_plage_m);
 }
 
 function buildResidenceTemplateBienFromChild(source?: Partial<Bien> | null, configuration?: string | null): Partial<Bien> {
