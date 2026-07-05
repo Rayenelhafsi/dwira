@@ -272,6 +272,9 @@ export type HotelReservationDemand = {
   voucher_sent_at?: string | null;
   voucher_qr_payload?: string | null;
   voucher_qr_image_url?: string | null;
+  montant_donne_proprietaire?: number | null;
+  montant_total_proprietaire?: number | null;
+  profit_net?: number | null;
   status: HotelReservationDemandStatus;
   client_note?: string | null;
   admin_note?: string | null;
@@ -313,6 +316,7 @@ export type CreateHotelReservationDemandRequest = {
   hotelCityId?: number | string | null;
   hotelCityName?: string | null;
   hotelImageUrl?: string | null;
+  clientName?: string | null;
   checkIn: string;
   checkOut: string;
   adults: number;

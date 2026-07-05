@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, Hotel, LoaderCircle, MessageSquareText, Phone, RefreshCw, Save, Trash2, Upload, User, XCircle } from "lucide-react";
+import { CalendarDays, CheckCircle2, ChevronDown, ChevronUp, Hotel, LoaderCircle, MessageSquareText, Phone, Plus, RefreshCw, Save, Trash2, Upload, User, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { HotelReservationDemand, HotelReservationDemandStatus } from "../types";
 import {
+  createHotelReservationDemand,
   listHotelReservationDemands,
+  listHotelCities,
+  listHotels,
+  searchHotels,
   deleteHotelReservationDemand,
   regenerateHotelVoucher,
   updateHotelReservationDemand,
   uploadHotelVoucherPdf,
   uploadHotelVoucherQr,
+  type HotelCity,
+  type HotelSummary,
 } from "../../services/hotels";
+import { flattenHotelRoomOffers, type HotelFlattenedRoomOffer } from "../../utils/hotelHelpers";
 
 const statusLabels: Record<HotelReservationDemandStatus, string> = {
   attente_validation_amicale: "Attente validation amicale",
@@ -125,8 +132,84 @@ function formatTnd(value?: number | null) {
   return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(num)} TND`;
 }
 
+function toIsoDate(value: Date) {
+  const yyyy = value.getFullYear();
+  const mm = String(value.getMonth() + 1).padStart(2, "0");
+  const dd = String(value.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function resolveHotelImageUrl(hotel?: HotelSummary | null) {
+  return String(hotel?.Image || "").trim() || null;
+}
+
+function resolveHotelSuggestedPrice(hotel?: HotelSummary | null) {
+  const candidates = [
+    hotel?.Price?.PriceWithAffiliateMarkup,
+    hotel?.Price?.Price,
+    hotel?.Price?.BasePrice,
+    hotel?.Price?.MyGoBasePrice,
+  ];
+  for (const candidate of candidates) {
+    const parsed = Number(String(candidate ?? "").replace(",", ".").trim());
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+type ManualHotelReservationDraft = {
+  cityId: string;
+  hotelId: string;
+  clientName: string;
+  clientPhone: string;
+  checkIn: string;
+  checkOut: string;
+  adults: string;
+  children: string;
+  childAges: string[];
+  boardingId: string;
+  roomId: string;
+  totalPrice: string;
+  currency: string;
+  paymentMode: "avance" | "totalite";
+  clientNote: string;
+  adultTravellers: Array<{ firstName: string; lastName: string }>;
+  childTravellers: Array<{ firstName: string; lastName: string }>;
+};
+
 export default function HotelReservationsPage() {
   const [rows, setRows] = useState<HotelReservationDemand[]>([]);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [creatingManual, setCreatingManual] = useState(false);
+  const [cities, setCities] = useState<HotelCity[]>([]);
+  const [manualHotels, setManualHotels] = useState<HotelSummary[]>([]);
+  const [manualHotelQuery, setManualHotelQuery] = useState("");
+  const [manualOfferHotel, setManualOfferHotel] = useState<HotelSummary | null>(null);
+  const [manualOffersLoading, setManualOffersLoading] = useState(false);
+  const [manualDraft, setManualDraft] = useState<ManualHotelReservationDraft>(() => {
+    const now = new Date();
+    const checkout = new Date(now);
+    checkout.setDate(checkout.getDate() + 3);
+    return {
+      cityId: "all",
+      hotelId: "",
+      clientName: "",
+      clientPhone: "",
+      checkIn: toIsoDate(now),
+      checkOut: toIsoDate(checkout),
+      adults: "2",
+      children: "0",
+      childAges: [],
+      boardingId: "",
+      roomId: "",
+      totalPrice: "",
+      currency: "TND",
+      paymentMode: "avance",
+      clientNote: "",
+      adultTravellers: Array.from({ length: 2 }, () => ({ firstName: "", lastName: "" })),
+      childTravellers: [],
+    };
+  });
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [uploadingQrId, setUploadingQrId] = useState<string | null>(null);
@@ -147,6 +230,137 @@ export default function HotelReservationsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  const loadManualCatalog = async (cityId?: string) => {
+    try {
+      const [citiesList, hotelsList] = await Promise.all([
+        listHotelCities(),
+        listHotels(cityId && cityId !== "all" ? Number(cityId) : null),
+      ]);
+      setCities(Array.isArray(citiesList) ? citiesList : []);
+      setManualHotels(Array.isArray(hotelsList) ? hotelsList : []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Impossible de charger le catalogue hotels");
+    }
+  };
+
+  useEffect(() => {
+    if (!manualOpen) return;
+    if (cities.length > 0 || manualHotels.length > 0) return;
+    void loadManualCatalog(manualDraft.cityId);
+  }, [manualOpen, cities.length, manualHotels.length, manualDraft.cityId]);
+
+  const selectedManualHotel = useMemo(
+    () => manualHotels.find((hotel) => String(hotel.Id) === String(manualDraft.hotelId)) || null,
+    [manualHotels, manualDraft.hotelId]
+  );
+
+  const filteredManualHotels = useMemo(() => {
+    const query = String(manualHotelQuery || "").trim().toLowerCase();
+    return manualHotels.filter((hotel) => {
+      if (!query) return true;
+      return String(hotel.Name || "").toLowerCase().includes(query);
+    });
+  }, [manualHotels, manualHotelQuery]);
+
+  const manualChildAges = useMemo(
+    () => manualDraft.childAges.map((age) => Number(age)).filter((age) => Number.isInteger(age) && age >= 0 && age <= 17),
+    [manualDraft.childAges]
+  );
+
+  useEffect(() => {
+    if (!manualOpen || !selectedManualHotel || !manualDraft.checkIn || !manualDraft.checkOut) {
+      setManualOfferHotel(null);
+      return;
+    }
+    const adults = Math.max(1, Number(manualDraft.adults || 1));
+    const children = Math.max(0, Number(manualDraft.children || 0));
+    if (manualChildAges.length !== children) {
+      setManualOfferHotel(null);
+      return;
+    }
+    let cancelled = false;
+    setManualOffersLoading(true);
+    void searchHotels({
+      hotelIds: [Number(selectedManualHotel.Id)],
+      checkIn: manualDraft.checkIn,
+      checkOut: manualDraft.checkOut,
+      adults,
+      childAges: manualChildAges,
+      onlyAvailable: false,
+      currency: manualDraft.currency || "TND",
+    })
+      .then((results) => {
+        if (cancelled) return;
+        const matched = (Array.isArray(results) ? results : []).find((hotel) => String(hotel.Id) === String(selectedManualHotel.Id)) || null;
+        setManualOfferHotel(matched);
+      })
+      .catch(() => {
+        if (!cancelled) setManualOfferHotel(null);
+      })
+      .finally(() => {
+        if (!cancelled) setManualOffersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [manualOpen, selectedManualHotel, manualDraft.checkIn, manualDraft.checkOut, manualDraft.adults, manualDraft.children, manualChildAges, manualDraft.currency]);
+
+  const manualRoomOffers = useMemo<HotelFlattenedRoomOffer[]>(
+    () => flattenHotelRoomOffers(manualOfferHotel),
+    [manualOfferHotel]
+  );
+
+  const availableBoardings = useMemo(() => {
+    const map = new Map<string, { id: string; label: string }>();
+    manualRoomOffers.forEach((offer) => {
+      const id = String(offer.boardingId || "").trim();
+      const label = String(offer.boardingName || offer.boardingCode || "Pension").trim();
+      if (id && label && !map.has(id)) {
+        map.set(id, { id, label });
+      }
+    });
+    return Array.from(map.values());
+  }, [manualRoomOffers]);
+
+  const availableRooms = useMemo(() => {
+    return manualRoomOffers.filter((offer) => {
+      if (!manualDraft.boardingId) return true;
+      return String(offer.boardingId || "") === String(manualDraft.boardingId);
+    });
+  }, [manualRoomOffers, manualDraft.boardingId]);
+
+  useEffect(() => {
+    if (availableBoardings.length === 0) return;
+    if (!availableBoardings.some((boarding) => boarding.id === manualDraft.boardingId)) {
+      setManualDraft((prev) => ({ ...prev, boardingId: availableBoardings[0]?.id || "", roomId: "" }));
+    }
+  }, [availableBoardings, manualDraft.boardingId]);
+
+  useEffect(() => {
+    if (availableRooms.length === 0) return;
+    const currentRoomExists = availableRooms.some((offer) => String(offer.room?.Id || "") === manualDraft.roomId);
+    const nextRoom = currentRoomExists ? availableRooms.find((offer) => String(offer.room?.Id || "") === manualDraft.roomId) || null : availableRooms[0] || null;
+    if (!nextRoom) return;
+    const nextRoomId = String(nextRoom.room?.Id || "").trim();
+    const nextPriceCandidates = [nextRoom.room?.PriceWithAffiliateMarkup, nextRoom.room?.Price, nextRoom.room?.BasePrice, nextRoom.room?.MyGoBasePrice];
+    let nextPrice = "";
+    for (const candidate of nextPriceCandidates) {
+      const parsed = Number(String(candidate ?? "").replace(",", ".").trim());
+      if (Number.isFinite(parsed) && parsed > 0) {
+        nextPrice = String(Math.round(parsed * 100) / 100);
+        break;
+      }
+    }
+    if (!currentRoomExists || manualDraft.roomId !== nextRoomId) {
+      setManualDraft((prev) => ({
+        ...prev,
+        roomId: nextRoomId,
+        totalPrice: nextPrice || prev.totalPrice,
+        currency: String(manualOfferHotel?.Currency || prev.currency || "TND").trim() || "TND",
+      }));
+    }
+  }, [availableRooms, manualDraft.roomId, manualOfferHotel?.Currency]);
 
   const summary = useMemo(() => {
     return rows.reduce<Record<HotelReservationDemandStatus, number>>(
@@ -294,6 +508,173 @@ export default function HotelReservationsPage() {
     }
   };
 
+  const handleManualChildrenChange = (nextValue: string) => {
+    const count = Math.max(0, Number(nextValue || 0));
+    setManualDraft((prev) => ({
+      ...prev,
+      children: String(count),
+      childAges: count <= prev.childAges.length
+        ? prev.childAges.slice(0, count)
+        : [...prev.childAges, ...Array.from({ length: count - prev.childAges.length }, () => "")],
+      childTravellers: count <= prev.childTravellers.length
+        ? prev.childTravellers.slice(0, count)
+        : [...prev.childTravellers, ...Array.from({ length: count - prev.childTravellers.length }, () => ({ firstName: "", lastName: "" }))],
+    }));
+  };
+
+  const handleManualAdultsChange = (nextValue: string) => {
+    const count = Math.max(1, Number(nextValue || 1));
+    setManualDraft((prev) => ({
+      ...prev,
+      adults: String(count),
+      adultTravellers: count <= prev.adultTravellers.length
+        ? prev.adultTravellers.slice(0, count)
+        : [...prev.adultTravellers, ...Array.from({ length: count - prev.adultTravellers.length }, () => ({ firstName: "", lastName: "" }))],
+    }));
+  };
+
+  const handleManualCityChange = async (nextCityId: string) => {
+    setManualDraft((prev) => ({ ...prev, cityId: nextCityId, hotelId: "", boardingId: "", roomId: "", totalPrice: "" }));
+    await loadManualCatalog(nextCityId);
+  };
+
+  const handleManualHotelChange = (hotelId: string) => {
+    const selectedHotel = manualHotels.find((hotel) => String(hotel.Id) === String(hotelId)) || null;
+    const suggestedPrice = resolveHotelSuggestedPrice(selectedHotel);
+    setManualDraft((prev) => ({
+      ...prev,
+      hotelId,
+      boardingId: "",
+      roomId: "",
+      totalPrice: suggestedPrice !== null ? String(Math.round(suggestedPrice * 100) / 100) : prev.totalPrice,
+      currency: String(selectedHotel?.Currency || prev.currency || "TND").trim() || "TND",
+    }));
+  };
+
+  const resetManualDraft = () => {
+    const now = new Date();
+    const checkout = new Date(now);
+    checkout.setDate(checkout.getDate() + 3);
+    setManualDraft({
+      cityId: "all",
+      hotelId: "",
+      clientName: "",
+      clientPhone: "",
+      checkIn: toIsoDate(now),
+      checkOut: toIsoDate(checkout),
+      adults: "2",
+      children: "0",
+      childAges: [],
+      boardingId: "",
+      roomId: "",
+      totalPrice: "",
+      currency: "TND",
+      paymentMode: "avance",
+      clientNote: "",
+      adultTravellers: Array.from({ length: 2 }, () => ({ firstName: "", lastName: "" })),
+      childTravellers: [],
+    });
+    setManualHotelQuery("");
+    setManualOfferHotel(null);
+  };
+
+  const handleCreateManualReservation = async () => {
+    const hotel = selectedManualHotel;
+    const adults = Math.max(1, Number(manualDraft.adults || 1));
+    const children = Math.max(0, Number(manualDraft.children || 0));
+    const childAges = manualDraft.childAges
+      .slice(0, children)
+      .map((age) => Number(age))
+      .filter((age) => Number.isInteger(age) && age >= 0 && age <= 17);
+    const totalPrice = Number(String(manualDraft.totalPrice || "").replace(",", "."));
+    const selectedOffer = availableRooms.find((offer) => String(offer.room?.Id || "") === manualDraft.roomId) || null;
+    const adultTravellers = manualDraft.adultTravellers.slice(0, adults);
+    const childTravellers = manualDraft.childTravellers.slice(0, children);
+
+    if (!hotel) {
+      toast.error("Selectionnez un hotel.");
+      return;
+    }
+    if (!String(manualDraft.clientName || "").trim() || !String(manualDraft.clientPhone || "").trim()) {
+      toast.error("Nom client et telephone obligatoires.");
+      return;
+    }
+    if (!manualDraft.checkIn || !manualDraft.checkOut || manualDraft.checkOut < manualDraft.checkIn) {
+      toast.error("Dates de reservation invalides.");
+      return;
+    }
+    if (childAges.length !== children) {
+      toast.error("Renseignez l age de chaque enfant.");
+      return;
+    }
+    if (!selectedOffer || !manualDraft.boardingId || !manualDraft.roomId) {
+      toast.error("Selectionnez une formule et un type de chambre.");
+      return;
+    }
+    if (adultTravellers.some((traveller) => !String(traveller.firstName || "").trim() || !String(traveller.lastName || "").trim())) {
+      toast.error("Saisissez le nom et le prenom de chaque adulte.");
+      return;
+    }
+    if (childTravellers.some((traveller) => !String(traveller.firstName || "").trim() || !String(traveller.lastName || "").trim())) {
+      toast.error("Saisissez le nom et le prenom de chaque enfant.");
+      return;
+    }
+    setCreatingManual(true);
+    try {
+      const created = await createHotelReservationDemand({
+        hotelId: hotel.Id,
+        hotelName: hotel.Name,
+        hotelCityId: hotel.City?.Id ?? null,
+        hotelCityName: hotel.City?.Name || null,
+        hotelImageUrl: resolveHotelImageUrl(hotel),
+        clientName: String(manualDraft.clientName || "").trim(),
+        checkIn: manualDraft.checkIn,
+        checkOut: manualDraft.checkOut,
+        adults,
+        childAges,
+        boardingId: selectedOffer.boardingId || null,
+        boardingName: String(selectedOffer.boardingName || "").trim() || null,
+        roomId: selectedOffer.room?.Id || null,
+        roomName: String(selectedOffer.room?.Name || "").trim() || null,
+        totalPrice: Number.isFinite(totalPrice) && totalPrice > 0 ? totalPrice : null,
+        currency: String(manualDraft.currency || "TND").trim() || "TND",
+        clientPhone: String(manualDraft.clientPhone || "").trim(),
+        clientNote: String(manualDraft.clientNote || "").trim() || null,
+        paymentMode: manualDraft.paymentMode,
+        hotelContext: {
+          travellers: {
+            adults: adultTravellers.map((traveller) => ({
+              firstName: String(traveller.firstName || "").trim(),
+              lastName: String(traveller.lastName || "").trim(),
+            })),
+            children: childAges.map((age, index) => ({
+              firstName: String(childTravellers[index]?.firstName || "").trim(),
+              lastName: String(childTravellers[index]?.lastName || "").trim(),
+              age,
+            })),
+          },
+          rooms: [
+            {
+              boardingId: selectedOffer.boardingId,
+              boardingName: selectedOffer.boardingName,
+              roomId: selectedOffer.room?.Id || null,
+              roomName: selectedOffer.room?.Name || null,
+              price: Number.isFinite(totalPrice) && totalPrice > 0 ? totalPrice : null,
+            },
+          ],
+        },
+      });
+      setRows((prev) => [created, ...prev]);
+      resetManualDraft();
+      setManualOpen(false);
+      toast.success("Reservation hotel manuelle creee.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Creation manuelle impossible");
+    } finally {
+      setCreatingManual(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm">
@@ -303,14 +684,24 @@ export default function HotelReservationsPage() {
             <h1 className="mt-2 text-3xl font-bold text-gray-900">Reservations hotellerie</h1>
             <p className="mt-2 text-sm text-gray-500">Suivi des demandes clients, paiements, QR et vouchers pour la section hotels.</p>
           </div>
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
-          >
-            <RefreshCw size={16} />
-            Actualiser
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setManualOpen((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50"
+            >
+              <Plus size={16} />
+              {manualOpen ? "Fermer creation manuelle" : "Nouvelle reservation manuelle"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100"
+            >
+              <RefreshCw size={16} />
+              Actualiser
+            </button>
+          </div>
         </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-5">
@@ -321,6 +712,255 @@ export default function HotelReservationsPage() {
             </div>
           ))}
         </div>
+
+        {manualOpen ? (
+          <div className="mt-6 rounded-3xl border border-emerald-200 bg-emerald-50/40 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-emerald-900">Creation manuelle reservation hotel</p>
+                <p className="mt-1 text-xs text-emerald-800/80">Selectionnez un hotel, renseignez le client et creez la demande directement depuis l admin.</p>
+              </div>
+              <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-medium text-emerald-800">
+                {manualOpen ? "Reduire" : "Afficher"}
+                {manualOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 xl:grid-cols-4">
+              <select
+                value={manualDraft.cityId}
+                onChange={(event) => void handleManualCityChange(event.target.value)}
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="all">Toutes les villes</option>
+                {cities.map((city) => (
+                  <option key={city.Id} value={String(city.Id)}>
+                    {city.Name}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={manualHotelQuery}
+                onChange={(event) => setManualHotelQuery(event.target.value)}
+                placeholder="Filtrer hotel"
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              />
+              <select
+                value={manualDraft.hotelId}
+                onChange={(event) => handleManualHotelChange(event.target.value)}
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm xl:col-span-2"
+              >
+                <option value="">Selectionner hotel</option>
+                {filteredManualHotels.map((hotel) => (
+                  <option key={hotel.Id} value={String(hotel.Id)}>
+                    {hotel.Name} {hotel.City?.Name ? `- ${hotel.City.Name}` : ""}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                value={manualDraft.clientName}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, clientName: event.target.value }))}
+                placeholder="Nom et prenom client"
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              />
+              <input
+                value={manualDraft.clientPhone}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, clientPhone: event.target.value }))}
+                placeholder="Telephone client"
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              />
+              <input
+                type="date"
+                value={manualDraft.checkIn}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, checkIn: event.target.value }))}
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              />
+              <input
+                type="date"
+                value={manualDraft.checkOut}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, checkOut: event.target.value }))}
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              />
+
+              <input
+                type="number"
+                min="1"
+                value={manualDraft.adults}
+                onChange={(event) => handleManualAdultsChange(event.target.value)}
+                placeholder="Adultes"
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              />
+              <input
+                type="number"
+                min="0"
+                value={manualDraft.children}
+                onChange={(event) => handleManualChildrenChange(event.target.value)}
+                placeholder="Enfants"
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              />
+              <select
+                value={manualDraft.boardingId}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, boardingId: event.target.value, roomId: "" }))}
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+                disabled={manualOffersLoading || availableBoardings.length === 0}
+              >
+                <option value="">{manualOffersLoading ? "Chargement formules..." : "Selectionner formule"}</option>
+                {availableBoardings.map((boarding) => (
+                  <option key={boarding.id} value={boarding.id}>
+                    {boarding.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={manualDraft.roomId}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, roomId: event.target.value }))}
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+                disabled={manualOffersLoading || availableRooms.length === 0}
+              >
+                <option value="">{manualOffersLoading ? "Chargement chambres..." : "Selectionner type de chambre"}</option>
+                {availableRooms.map((offer, index) => (
+                  <option key={`${offer.boardingId || "b"}-${offer.room?.Id || index}`} value={String(offer.room?.Id || "")}>
+                    {String(offer.room?.Name || "Chambre")} {Number(offer.room?.PriceWithAffiliateMarkup || offer.room?.Price || offer.room?.BasePrice || offer.room?.MyGoBasePrice || 0) > 0 ? `- ${formatTnd(Number(offer.room?.PriceWithAffiliateMarkup || offer.room?.Price || offer.room?.BasePrice || offer.room?.MyGoBasePrice || 0))}` : ""}
+                  </option>
+                ))}
+              </select>
+
+              {manualDraft.childAges.map((age, index) => (
+                <input
+                  key={`manual-child-age-${index}`}
+                  type="number"
+                  min="0"
+                  max="17"
+                  value={age}
+                  onChange={(event) => setManualDraft((prev) => ({
+                    ...prev,
+                    childAges: prev.childAges.map((item, itemIndex) => (itemIndex === index ? event.target.value : item)),
+                  }))}
+                  placeholder={`Age enfant ${index + 1}`}
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+                />
+              ))}
+
+              {manualDraft.adultTravellers.map((traveller, index) => (
+                <div key={`adult-traveller-${index}`} className="grid gap-2 md:grid-cols-2 xl:col-span-2">
+                  <input
+                    value={traveller.firstName}
+                    onChange={(event) => setManualDraft((prev) => ({
+                      ...prev,
+                      adultTravellers: prev.adultTravellers.map((item, itemIndex) => itemIndex === index ? { ...item, firstName: event.target.value } : item),
+                    }))}
+                    placeholder={`Prenom adulte ${index + 1}`}
+                    className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={traveller.lastName}
+                    onChange={(event) => setManualDraft((prev) => ({
+                      ...prev,
+                      adultTravellers: prev.adultTravellers.map((item, itemIndex) => itemIndex === index ? { ...item, lastName: event.target.value } : item),
+                    }))}
+                    placeholder={`Nom adulte ${index + 1}`}
+                    className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+              ))}
+
+              {manualDraft.childTravellers.map((traveller, index) => (
+                <div key={`child-traveller-${index}`} className="grid gap-2 md:grid-cols-2 xl:col-span-2">
+                  <input
+                    value={traveller.firstName}
+                    onChange={(event) => setManualDraft((prev) => ({
+                      ...prev,
+                      childTravellers: prev.childTravellers.map((item, itemIndex) => itemIndex === index ? { ...item, firstName: event.target.value } : item),
+                    }))}
+                    placeholder={`Prenom enfant ${index + 1}`}
+                    className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={traveller.lastName}
+                    onChange={(event) => setManualDraft((prev) => ({
+                      ...prev,
+                      childTravellers: prev.childTravellers.map((item, itemIndex) => itemIndex === index ? { ...item, lastName: event.target.value } : item),
+                    }))}
+                    placeholder={`Nom enfant ${index + 1}`}
+                    className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+              ))}
+
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={manualDraft.totalPrice}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, totalPrice: event.target.value }))}
+                placeholder="Total prix client"
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              />
+              <input
+                value={manualDraft.currency}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, currency: event.target.value }))}
+                placeholder="Devise"
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              />
+              <select
+                value={manualDraft.paymentMode}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, paymentMode: event.target.value as ManualHotelReservationDraft["paymentMode"] }))}
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="avance">Avance</option>
+                <option value="totalite">Totalite</option>
+              </select>
+              <div className="rounded-xl border border-dashed border-emerald-300 bg-white px-3 py-2 text-xs text-emerald-900/80">
+                {selectedManualHotel ? (
+                  <div className="flex items-center gap-3">
+                    {resolveHotelImageUrl(selectedManualHotel) ? (
+                      <img src={resolveHotelImageUrl(selectedManualHotel) || ""} alt={selectedManualHotel.Name} className="h-16 w-20 rounded-lg border border-emerald-200 object-cover" />
+                    ) : (
+                      <div className="flex h-16 w-20 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-500">
+                        <Hotel size={18} />
+                      </div>
+                    )}
+                    <div className="space-y-1">
+                      <p>{`${selectedManualHotel.Name}${selectedManualHotel.City?.Name ? ` - ${selectedManualHotel.City.Name}` : ""}`}</p>
+                      <p>{manualOffersLoading ? "Chargement des formules et chambres..." : availableRooms.length > 0 ? `${availableBoardings.length} formule(s) et ${availableRooms.length} chambre(s) chargees` : "Aucune offre chargee pour ces dates / voyageurs"}</p>
+                    </div>
+                  </div>
+                ) : (
+                  "Aucun hotel selectionne"
+                )}
+              </div>
+
+              <textarea
+                value={manualDraft.clientNote}
+                onChange={(event) => setManualDraft((prev) => ({ ...prev, clientNote: event.target.value }))}
+                placeholder="Note client / note admin visible dans la demande"
+                rows={3}
+                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm xl:col-span-4"
+              />
+            </div>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={resetManualDraft}
+                disabled={creatingManual}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Reinitialiser
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCreateManualReservation()}
+                disabled={creatingManual}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {creatingManual ? <LoaderCircle size={16} className="animate-spin" /> : <Plus size={16} />}
+                Creer la reservation
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {loading ? (

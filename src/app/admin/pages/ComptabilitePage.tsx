@@ -44,6 +44,55 @@ type ManualBeneficiaryEntry = {
   createdAt: string;
 };
 
+type AdvanceEntry = {
+  id: string;
+  amount: number;
+  givenBy: string;
+  givenTo: string;
+  propertyLabel: string;
+  advanceDate: string;
+  note: string;
+  createdAt: string;
+};
+
+type AmicaleGrossRentalEntry = {
+  id: string;
+  propertyLabel: string;
+  weeksRented: number;
+  rentedFor: string;
+  ownerName: string;
+  createdAt: string;
+};
+
+type AmicaleGrossChargeStatus = "non_paye" | "paye";
+
+type AmicaleGrossChargePayer = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  createdAt: string;
+};
+
+type AmicaleGrossChargeEntry = {
+  id: string;
+  amount: number;
+  note: string;
+  chargeDate: string;
+  status: AmicaleGrossChargeStatus;
+  paidById: string;
+  createdAt: string;
+};
+
+type AmicaleGrossEntry = {
+  id: string;
+  name: string;
+  revenue: number;
+  benefit: number;
+  charges: AmicaleGrossChargeEntry[];
+  rentals: AmicaleGrossRentalEntry[];
+  createdAt: string;
+};
+
 type ContractAdjustment = {
   ownerPrice: string;
   comment: string;
@@ -73,6 +122,9 @@ type AccountingStore = {
   manualBenefits: ManualBenefitEntry[];
   manualCharges: ManualChargeEntry[];
   manualBeneficiaries: ManualBeneficiaryEntry[];
+  advances: AdvanceEntry[];
+  amicaleGrossEntries: AmicaleGrossEntry[];
+  amicaleGrossPayers: AmicaleGrossChargePayer[];
   beneficiaryNames: {
     first: string;
     second: string;
@@ -131,6 +183,12 @@ function normalizeText(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function formatPayerName(payer?: Pick<AmicaleGrossChargePayer, "firstName" | "lastName"> | null) {
+  const firstName = normalizeText(payer?.firstName);
+  const lastName = normalizeText(payer?.lastName);
+  return [firstName, lastName].filter(Boolean).join(" ").trim();
+}
+
 async function hashText(value: string) {
   const bytes = new TextEncoder().encode(value);
   const digest = await window.crypto.subtle.digest("SHA-256", bytes);
@@ -155,6 +213,9 @@ function loadStore(): AccountingStore {
       manualBenefits: [],
       manualCharges: [],
       manualBeneficiaries: [],
+      advances: [],
+      amicaleGrossEntries: [],
+      amicaleGrossPayers: [],
       beneficiaryNames: { first: "Partie A", second: "Partie B" },
     };
   }
@@ -172,6 +233,56 @@ function loadStore(): AccountingStore {
       manualBenefits: Array.isArray(parsed.manualBenefits) ? parsed.manualBenefits : [],
       manualCharges: Array.isArray(parsed.manualCharges) ? parsed.manualCharges : [],
       manualBeneficiaries: Array.isArray(parsed.manualBeneficiaries) ? parsed.manualBeneficiaries : [],
+      advances: Array.isArray(parsed.advances)
+        ? parsed.advances.map((entry) => ({
+            id: normalizeText(entry?.id) || createId("adv"),
+            amount: parseMoney(entry?.amount),
+            givenBy: normalizeText(entry?.givenBy),
+            givenTo: normalizeText(entry?.givenTo),
+            propertyLabel: normalizeText(entry?.propertyLabel),
+            advanceDate: normalizeText(entry?.advanceDate) || new Date().toISOString().slice(0, 10),
+            note: normalizeText(entry?.note),
+            createdAt: normalizeText(entry?.createdAt) || new Date().toISOString(),
+          }))
+        : [],
+      amicaleGrossEntries: Array.isArray(parsed.amicaleGrossEntries)
+        ? parsed.amicaleGrossEntries.map((entry) => ({
+            id: normalizeText(entry?.id) || createId("amg"),
+            name: normalizeText(entry?.name),
+            revenue: parseMoney(entry?.revenue),
+            benefit: parseMoney(entry?.benefit),
+            charges: Array.isArray(entry?.charges)
+              ? entry.charges.map((charge) => ({
+                  id: normalizeText(charge?.id) || createId("amgchg"),
+                  amount: parseMoney(charge?.amount),
+                  note: normalizeText(charge?.note),
+                  chargeDate: normalizeText(charge?.chargeDate) || new Date().toISOString().slice(0, 10),
+                  status: normalizeText(charge?.status) === "paye" ? "paye" : "non_paye",
+                  paidById: normalizeText(charge?.paidById),
+                  createdAt: normalizeText(charge?.createdAt) || new Date().toISOString(),
+                }))
+              : [],
+            rentals: Array.isArray(entry?.rentals)
+              ? entry.rentals.map((rental) => ({
+                  id: normalizeText(rental?.id) || createId("amgrent"),
+                  propertyLabel: normalizeText(rental?.propertyLabel),
+                  weeksRented: parseMoney(rental?.weeksRented),
+                  rentedFor: normalizeText(rental?.rentedFor),
+                  ownerName: normalizeText(rental?.ownerName),
+                  createdAt: normalizeText(rental?.createdAt) || new Date().toISOString(),
+                }))
+              : [],
+            createdAt: normalizeText(entry?.createdAt) || new Date().toISOString(),
+          }))
+        : [],
+      amicaleGrossPayers: Array.isArray(parsed.amicaleGrossPayers)
+        ? parsed.amicaleGrossPayers.map((payer) => ({
+            id: normalizeText(payer?.id) || createId("amgpay"),
+            firstName: normalizeText(payer?.firstName),
+            lastName: normalizeText(payer?.lastName),
+            createdAt: normalizeText(payer?.createdAt) || new Date().toISOString(),
+          }))
+        : [],
       beneficiaryNames: {
         first: normalizeText(parsed.beneficiaryNames?.first) || "Partie A",
         second: normalizeText(parsed.beneficiaryNames?.second) || "Partie B",
@@ -187,6 +298,9 @@ function loadStore(): AccountingStore {
       manualBenefits: [],
       manualCharges: [],
       manualBeneficiaries: [],
+      advances: [],
+      amicaleGrossEntries: [],
+      amicaleGrossPayers: [],
       beneficiaryNames: { first: "Partie A", second: "Partie B" },
     };
   }
@@ -258,6 +372,22 @@ function buildEmptyDrafts() {
     manualBenefit: { label: "", amount: "", comment: "" },
     manualCharge: { label: "", amount: "", comment: "", chargeDate: new Date().toISOString().slice(0, 10) },
     manualBeneficiary: { name: "", amount: "", comment: "" },
+    advance: { amount: "", givenBy: "", givenTo: "", propertyLabel: "", advanceDate: new Date().toISOString().slice(0, 10), note: "" },
+    amicaleGross: { name: "", revenue: "", benefit: "" },
+    amicaleGrossCharges: {} as Record<string, { amount: string; note: string; chargeDate: string; status: AmicaleGrossChargeStatus; paidById: string; payerFirstName: string; payerLastName: string }>,
+    amicaleGrossRentals: {} as Record<string, { propertyLabel: string; weeksRented: string; rentedFor: string; ownerName: string }>,
+  };
+}
+
+function buildEmptyAmicaleGrossChargeDraft() {
+  return {
+    amount: "",
+    note: "",
+    chargeDate: new Date().toISOString().slice(0, 10),
+    status: "non_paye" as AmicaleGrossChargeStatus,
+    paidById: "",
+    payerFirstName: "",
+    payerLastName: "",
   };
 }
 
@@ -449,27 +579,34 @@ export default function ComptabilitePage() {
   const manualBenefitTotal = useMemo(() => store.manualBenefits.reduce((sum, entry) => sum + parseMoney(entry.amount), 0), [store.manualBenefits]);
   const manualChargeTotal = useMemo(() => store.manualCharges.reduce((sum, entry) => sum + parseMoney(entry.amount), 0), [store.manualCharges]);
   const manualBeneficiaryTotal = useMemo(() => store.manualBeneficiaries.reduce((sum, entry) => sum + parseMoney(entry.amount), 0), [store.manualBeneficiaries]);
+  const amicaleGrossRevenueTotal = useMemo(() => store.amicaleGrossEntries.reduce((sum, entry) => sum + parseMoney(entry.revenue), 0), [store.amicaleGrossEntries]);
+  const amicaleGrossBenefitTotal = useMemo(() => store.amicaleGrossEntries.reduce((sum, entry) => sum + parseMoney(entry.benefit), 0), [store.amicaleGrossEntries]);
+  const amicaleGrossChargeTotal = useMemo(
+    () => store.amicaleGrossEntries.reduce((sum, entry) => sum + entry.charges.reduce((chargeSum, charge) => chargeSum + parseMoney(charge.amount), 0), 0),
+    [store.amicaleGrossEntries]
+  );
 
   const totalContracts = useMemo(() => contractRows.reduce((sum, row) => sum + row.gross, 0), [contractRows]);
   const totalAmicales = useMemo(() => amicaleRows.reduce((sum, row) => sum + row.gross, 0), [amicaleRows]);
   const totalHotels = useMemo(() => hotelRows.reduce((sum, row) => sum + row.gross, 0), [hotelRows]);
   const totalServices = useMemo(() => serviceRows.reduce((sum, row) => sum + row.grossRevenue, 0), [serviceRows]);
-  const chiffreAffaires = totalContracts + totalAmicales + totalHotels + totalServices + manualRevenueTotal;
+  const chiffreAffaires = totalContracts + totalAmicales + totalHotels + totalServices + manualRevenueTotal + amicaleGrossRevenueTotal;
 
   const totalLocationBenefits = useMemo(() => contractRows.reduce((sum, row) => sum + row.benefit, 0), [contractRows]);
   const totalAmicaleBenefits = useMemo(() => amicaleRows.reduce((sum, row) => sum + row.benefit, 0), [amicaleRows]);
   const totalHotelBenefits = useMemo(() => hotelRows.reduce((sum, row) => sum + row.benefit, 0), [hotelRows]);
   const totalServiceBenefits = useMemo(() => serviceRows.reduce((sum, row) => sum + row.benefit, 0), [serviceRows]);
-  const totalBenefits = totalLocationBenefits + totalAmicaleBenefits + totalHotelBenefits + totalServiceBenefits + manualBenefitTotal;
+  const totalBenefits = totalLocationBenefits + totalAmicaleBenefits + totalHotelBenefits + totalServiceBenefits + manualBenefitTotal + amicaleGrossBenefitTotal;
   const resultBeforeCharges = totalBenefits;
-  const netResult = resultBeforeCharges - manualChargeTotal;
+  const totalCharges = manualChargeTotal + amicaleGrossChargeTotal;
+  const netResult = resultBeforeCharges - totalCharges;
   const availableAfterManualBeneficiaries = netResult - manualBeneficiaryTotal;
   const baseShare = availableAfterManualBeneficiaries / 2;
 
   const totals = [
     { label: "Chiffre d affaire", value: chiffreAffaires, tone: "emerald", icon: ReceiptText },
     { label: "Benefices calcules", value: totalBenefits, tone: "sky", icon: Scale },
-    { label: "Charges", value: manualChargeTotal, tone: "amber", icon: Wallet },
+    { label: "Charges", value: totalCharges, tone: "amber", icon: Wallet },
     { label: "Net repartissable", value: netResult, tone: "violet", icon: Calculator },
   ] as const;
 
@@ -611,7 +748,288 @@ export default function ComptabilitePage() {
     toast.success("Beneficiaire manuel ajoute.");
   };
 
-  const removeEntry = (key: "manualRevenues" | "manualBenefits" | "manualCharges" | "manualBeneficiaries", id: string) => {
+  const addAdvance = () => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant ajout.");
+      return;
+    }
+    const amount = parseMoney(drafts.advance.amount);
+    const givenBy = normalizeText(drafts.advance.givenBy);
+    const givenTo = normalizeText(drafts.advance.givenTo);
+    const propertyLabel = normalizeText(drafts.advance.propertyLabel);
+    const advanceDate = normalizeText(drafts.advance.advanceDate);
+    const note = normalizeText(drafts.advance.note);
+    if (amount <= 0 || !givenBy || !givenTo || !propertyLabel || !advanceDate) {
+      toast.error("Ajoutez le montant, donnee par, a qui, le bien et la date.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      advances: [
+        {
+          id: createId("adv"),
+          amount,
+          givenBy,
+          givenTo,
+          propertyLabel,
+          advanceDate,
+          note,
+          createdAt: new Date().toISOString(),
+        },
+        ...prev.advances,
+      ],
+    }));
+    setDrafts((prev) => ({
+      ...prev,
+      advance: { amount: "", givenBy: "", givenTo: "", propertyLabel: "", advanceDate: new Date().toISOString().slice(0, 10), note: "" },
+    }));
+    toast.success("Avance ajoutee.");
+  };
+
+  const addAmicaleGrossEntry = () => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant ajout.");
+      return;
+    }
+    const name = normalizeText(drafts.amicaleGross.name);
+    const revenue = parseMoney(drafts.amicaleGross.revenue);
+    const benefit = parseMoney(drafts.amicaleGross.benefit);
+    if (!name || revenue <= 0 || benefit < 0) {
+      toast.error("Saisissez le nom de l amicale, un chiffre d affaire valide et un benefice superieur ou egal a zero.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      amicaleGrossEntries: [
+        {
+          id: createId("amg"),
+          name,
+          revenue,
+          benefit,
+          charges: [],
+          rentals: [],
+          createdAt: new Date().toISOString(),
+        },
+        ...prev.amicaleGrossEntries,
+      ],
+    }));
+    setDrafts((prev) => ({ ...prev, amicaleGross: { name: "", revenue: "", benefit: "" } }));
+    toast.success("Amicale en gros ajoutee.");
+  };
+
+  const updateAmicaleGrossChargeDraft = (
+    entryId: string,
+    patch: Partial<ReturnType<typeof buildEmptyAmicaleGrossChargeDraft>>
+  ) => {
+    setDrafts((prev) => ({
+      ...prev,
+      amicaleGrossCharges: {
+        ...prev.amicaleGrossCharges,
+        [entryId]: {
+          ...(prev.amicaleGrossCharges[entryId] || buildEmptyAmicaleGrossChargeDraft()),
+          ...patch,
+        },
+      },
+    }));
+  };
+
+  const addAmicaleGrossCharge = (entryId: string) => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant ajout.");
+      return;
+    }
+    const draft = drafts.amicaleGrossCharges[entryId] || buildEmptyAmicaleGrossChargeDraft();
+    const amount = parseMoney(draft.amount);
+    const chargeDate = normalizeText(draft.chargeDate);
+    const note = normalizeText(draft.note);
+    const status = draft.status === "paye" ? "paye" : "non_paye";
+    if (amount <= 0 || !chargeDate) {
+      toast.error("Ajoutez un montant et une date de charge.");
+      return;
+    }
+
+    let paidById = normalizeText(draft.paidById);
+    let newPayer: AmicaleGrossChargePayer | null = null;
+    if (status === "paye" && !paidById) {
+      const firstName = normalizeText(draft.payerFirstName);
+      const lastName = normalizeText(draft.payerLastName);
+      if (!firstName || !lastName) {
+        toast.error("Indiquez qui a paye la charge ou creez nom et prenom.");
+        return;
+      }
+      newPayer = {
+        id: createId("amgpay"),
+        firstName,
+        lastName,
+        createdAt: new Date().toISOString(),
+      };
+      paidById = newPayer.id;
+    }
+
+    setStore((prev) => ({
+      ...prev,
+      amicaleGrossPayers: newPayer ? [newPayer, ...prev.amicaleGrossPayers] : prev.amicaleGrossPayers,
+      amicaleGrossEntries: prev.amicaleGrossEntries.map((entry) =>
+        entry.id !== entryId
+          ? entry
+          : {
+              ...entry,
+              charges: [
+                {
+                  id: createId("amgchg"),
+                  amount,
+                  note,
+                  chargeDate,
+                  status,
+                  paidById: status === "paye" ? paidById : "",
+                  createdAt: new Date().toISOString(),
+                },
+                ...entry.charges,
+              ],
+            }
+      ),
+    }));
+
+    setDrafts((prev) => ({
+      ...prev,
+      amicaleGrossCharges: {
+        ...prev.amicaleGrossCharges,
+        [entryId]: buildEmptyAmicaleGrossChargeDraft(),
+      },
+    }));
+    toast.success("Charge amicale ajoutee.");
+  };
+
+  const updateAmicaleGrossRentalDraft = (
+    entryId: string,
+    patch: Partial<{ propertyLabel: string; weeksRented: string; rentedFor: string; ownerName: string }>
+  ) => {
+    setDrafts((prev) => ({
+      ...prev,
+      amicaleGrossRentals: {
+        ...prev.amicaleGrossRentals,
+        [entryId]: {
+          propertyLabel: "",
+          weeksRented: "",
+          rentedFor: "",
+          ownerName: "",
+          ...(prev.amicaleGrossRentals[entryId] || {}),
+          ...patch,
+        },
+      },
+    }));
+  };
+
+  const addAmicaleGrossRental = (entryId: string) => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant ajout.");
+      return;
+    }
+    const draft = drafts.amicaleGrossRentals[entryId] || { propertyLabel: "", weeksRented: "", rentedFor: "", ownerName: "" };
+    const propertyLabel = normalizeText(draft.propertyLabel);
+    const weeksRented = parseMoney(draft.weeksRented);
+    const rentedFor = normalizeText(draft.rentedFor);
+    const ownerName = normalizeText(draft.ownerName);
+    if (!propertyLabel || weeksRented <= 0 || !rentedFor || !ownerName) {
+      toast.error("Ajoutez le bien, le nombre de semaines, pour qui et le proprietaire.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      amicaleGrossEntries: prev.amicaleGrossEntries.map((entry) =>
+        entry.id !== entryId
+          ? entry
+          : {
+              ...entry,
+              rentals: [
+                {
+                  id: createId("amgrent"),
+                  propertyLabel,
+                  weeksRented,
+                  rentedFor,
+                  ownerName,
+                  createdAt: new Date().toISOString(),
+                },
+                ...entry.rentals,
+              ],
+            }
+      ),
+    }));
+    setDrafts((prev) => ({
+      ...prev,
+      amicaleGrossRentals: {
+        ...prev.amicaleGrossRentals,
+        [entryId]: { propertyLabel: "", weeksRented: "", rentedFor: "", ownerName: "" },
+      },
+    }));
+    toast.success("Suivi de location ajoute.");
+  };
+
+  const updateArrayEntry = <
+    K extends "manualRevenues" | "manualBenefits" | "manualCharges" | "manualBeneficiaries" | "advances"
+  >(
+    key: K,
+    id: string,
+    patch: Partial<AccountingStore[K][number]>
+  ) => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant modification.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      [key]: prev[key].map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+    }) as AccountingStore);
+  };
+
+  const updateAmicaleGrossEntry = (entryId: string, patch: Partial<AmicaleGrossEntry>) => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant modification.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      amicaleGrossEntries: prev.amicaleGrossEntries.map((entry) => (entry.id === entryId ? { ...entry, ...patch } : entry)),
+    }));
+  };
+
+  const updateAmicaleGrossCharge = (entryId: string, chargeId: string, patch: Partial<AmicaleGrossChargeEntry>) => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant modification.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      amicaleGrossEntries: prev.amicaleGrossEntries.map((entry) =>
+        entry.id !== entryId
+          ? entry
+          : {
+              ...entry,
+              charges: entry.charges.map((charge) => (charge.id === chargeId ? { ...charge, ...patch } : charge)),
+            }
+      ),
+    }));
+  };
+
+  const updateAmicaleGrossRental = (entryId: string, rentalId: string, patch: Partial<AmicaleGrossRentalEntry>) => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant modification.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      amicaleGrossEntries: prev.amicaleGrossEntries.map((entry) =>
+        entry.id !== entryId
+          ? entry
+          : {
+              ...entry,
+              rentals: entry.rentals.map((rental) => (rental.id === rentalId ? { ...rental, ...patch } : rental)),
+            }
+      ),
+    }));
+  };
+
+  const removeEntry = (key: "manualRevenues" | "manualBenefits" | "manualCharges" | "manualBeneficiaries" | "advances", id: string) => {
     if (!isUnlocked) {
       toast.error("Code administratif requis avant modification.");
       return;
@@ -620,6 +1038,51 @@ export default function ComptabilitePage() {
       ...prev,
       [key]: (prev[key] as Array<{ id: string }>).filter((item) => item.id !== id),
     }) as AccountingStore);
+  };
+
+  const removeAmicaleGrossEntry = (entryId: string) => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant modification.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      amicaleGrossEntries: prev.amicaleGrossEntries.filter((entry) => entry.id !== entryId),
+    }));
+    setDrafts((prev) => {
+      const nextCharges = { ...prev.amicaleGrossCharges };
+      delete nextCharges[entryId];
+      return {
+        ...prev,
+        amicaleGrossCharges: nextCharges,
+      };
+    });
+  };
+
+  const removeAmicaleGrossCharge = (entryId: string, chargeId: string) => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant modification.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      amicaleGrossEntries: prev.amicaleGrossEntries.map((entry) =>
+        entry.id !== entryId ? entry : { ...entry, charges: entry.charges.filter((charge) => charge.id !== chargeId) }
+      ),
+    }));
+  };
+
+  const removeAmicaleGrossRental = (entryId: string, rentalId: string) => {
+    if (!isUnlocked) {
+      toast.error("Code administratif requis avant modification.");
+      return;
+    }
+    setStore((prev) => ({
+      ...prev,
+      amicaleGrossEntries: prev.amicaleGrossEntries.map((entry) =>
+        entry.id !== entryId ? entry : { ...entry, rentals: entry.rentals.filter((rental) => rental.id !== rentalId) }
+      ),
+    }));
   };
 
   const unlockAccounting = async () => {
@@ -714,12 +1177,13 @@ export default function ComptabilitePage() {
 
       <SectionCard
         title="Chiffre d affaire detaille"
-        subtitle="Total des contrats, amicales TTC, hotels vouchers envoyes, services et autres affaires saisies manuellement."
+        subtitle="Total des contrats, amicales TTC, amicales en gros, hotels vouchers envoyes, services et autres affaires saisies manuellement."
         icon={<ReceiptText className="h-5 w-5" />}
       >
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <DataBlock label="Contrats" value={formatMoney(totalContracts)} help={`${contractRows.length} contrats`} />
           <DataBlock label="Amicales TTC" value={formatMoney(totalAmicales)} help={`${amicaleRows.length} demandes amicale`} />
+          <DataBlock label="Amicales en gros" value={formatMoney(amicaleGrossRevenueTotal)} help={`${store.amicaleGrossEntries.length} saisies`} />
           <DataBlock label="Services" value={formatMoney(totalServices)} help={`${serviceRows.length} lignes de services`} />
           <DataBlock label="Hotels confirmes" value={formatMoney(totalHotels)} help={`${hotelRows.length} vouchers envoyes`} />
           <DataBlock label="Autres affaires" value={formatMoney(manualRevenueTotal)} help={`${store.manualRevenues.length} saisies manuelles`} />
@@ -755,6 +1219,14 @@ export default function ComptabilitePage() {
                   <td className="px-4 py-3 font-semibold text-emerald-700">{formatMoney(entry.amount)}</td>
                   <td className="px-4 py-3 text-xs text-gray-500">{entry.comment || "-"}</td>
               </tr>
+              ))}
+              {store.amicaleGrossEntries.map((entry) => (
+                <tr key={entry.id}>
+                  <td className="px-4 py-3 font-medium text-gray-900">Amicale en gros</td>
+                  <td className="px-4 py-3 text-gray-600">{entry.name ? `${entry.name} | ${formatDateTime(entry.createdAt)}` : `Saisie du ${formatDateTime(entry.createdAt)}`}</td>
+                  <td className="px-4 py-3 font-semibold text-emerald-700">{formatMoney(entry.revenue)}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500">{`${formatMoney(entry.benefit)} benefice`}</td>
+                </tr>
               ))}
             </tbody>
           </table>
@@ -914,9 +1386,32 @@ export default function ComptabilitePage() {
                 ) : (
                   store.manualBenefits.map((entry) => (
                     <tr key={entry.id}>
-                      <td className="px-4 py-3 font-medium text-gray-900">{entry.label}</td>
-                      <td className="px-4 py-3 font-semibold text-emerald-700">{formatMoney(entry.amount)}</td>
-                      <td className="px-4 py-3 text-gray-600">{entry.comment || "-"}</td>
+                      <td className="px-4 py-3">
+                        <input
+                          value={entry.label}
+                          onChange={(event) => updateArrayEntry("manualBenefits", entry.id, { label: event.target.value })}
+                          disabled={!isUnlocked}
+                          className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          value={String(entry.amount)}
+                          onChange={(event) => updateArrayEntry("manualBenefits", entry.id, { amount: parseMoney(event.target.value) })}
+                          type="number"
+                          step="0.01"
+                          disabled={!isUnlocked}
+                          className="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-emerald-700"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          value={entry.comment}
+                          onChange={(event) => updateArrayEntry("manualBenefits", entry.id, { comment: event.target.value })}
+                          disabled={!isUnlocked}
+                          className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <button type="button" onClick={() => removeEntry("manualBenefits", entry.id)} disabled={!isUnlocked} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                           <Trash2 className="h-3.5 w-3.5" />
@@ -933,8 +1428,432 @@ export default function ComptabilitePage() {
       </SectionCard>
 
       <SectionCard
+        title="Amicales en gros"
+        subtitle="Chaque saisie ajoute un chiffre d affaire, un benefice et une liste de charges rattachees avec statut de paiement."
+        icon={<Building2 className="h-5 w-5" />}
+      >
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <input
+            value={drafts.amicaleGross.name}
+            onChange={(event) => setDrafts((prev) => ({ ...prev, amicaleGross: { ...prev.amicaleGross, name: event.target.value } }))}
+            placeholder="Nom amicale"
+            disabled={!isUnlocked}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            value={drafts.amicaleGross.revenue}
+            onChange={(event) => setDrafts((prev) => ({ ...prev, amicaleGross: { ...prev.amicaleGross, revenue: event.target.value } }))}
+            placeholder="Chiffre d affaire (DT)"
+            type="number"
+            step="0.01"
+            disabled={!isUnlocked}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            value={drafts.amicaleGross.benefit}
+            onChange={(event) => setDrafts((prev) => ({ ...prev, amicaleGross: { ...prev.amicaleGross, benefit: event.target.value } }))}
+            placeholder="Benefice (DT)"
+            type="number"
+            step="0.01"
+            disabled={!isUnlocked}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2 text-xs text-gray-500 xl:col-span-2">
+            Les charges se remplissent apres creation de la ligne amicale en gros.
+          </div>
+        </div>
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={addAmicaleGrossEntry}
+            disabled={!isUnlocked}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+          >
+            <Plus className="h-4 w-4" />
+            Ajouter une amicale en gros
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-4">
+          {store.amicaleGrossEntries.length === 0 ? <EmptyState text="Aucune amicale en gros saisie." /> : null}
+          {store.amicaleGrossEntries.map((entry) => {
+            const chargeDraft = drafts.amicaleGrossCharges[entry.id] || buildEmptyAmicaleGrossChargeDraft();
+            const rentalDraft = drafts.amicaleGrossRentals[entry.id] || { propertyLabel: "", weeksRented: "", rentedFor: "", ownerName: "" };
+            const entryChargeTotal = entry.charges.reduce((sum, charge) => sum + parseMoney(charge.amount), 0);
+            return (
+              <div key={entry.id} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">{entry.name || `Amicale en gros du ${formatDateTime(entry.createdAt)}`}</h3>
+                    <p className="mt-1 text-xs text-gray-500">Chiffre d affaire, benefice et charges saisis manuellement.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <div className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-gray-600">
+                      <span className="font-semibold text-gray-900">CA:</span> {formatMoney(entry.revenue)}
+                    </div>
+                    <div className="rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs text-gray-600">
+                      <span className="font-semibold text-gray-900">Benefice:</span> {formatMoney(entry.benefit)}
+                    </div>
+                    <div className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs text-gray-600">
+                      <span className="font-semibold text-gray-900">Charges:</span> {formatMoney(entryChargeTotal)}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeAmicaleGrossEntry(entry.id)}
+                      disabled={!isUnlocked}
+                      className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Supprimer
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <input
+                    value={entry.name}
+                    onChange={(event) => updateAmicaleGrossEntry(entry.id, { name: event.target.value })}
+                    placeholder="Nom amicale"
+                    disabled={!isUnlocked}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={String(entry.revenue)}
+                    onChange={(event) => updateAmicaleGrossEntry(entry.id, { revenue: parseMoney(event.target.value) })}
+                    placeholder="Chiffre d affaire (DT)"
+                    type="number"
+                    step="0.01"
+                    disabled={!isUnlocked}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={String(entry.benefit)}
+                    onChange={(event) => updateAmicaleGrossEntry(entry.id, { benefit: parseMoney(event.target.value) })}
+                    placeholder="Benefice (DT)"
+                    type="number"
+                    step="0.01"
+                    disabled={!isUnlocked}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-xs text-gray-500">
+                    Modifiez directement le nom, le CA et le benefice de cette amicale en gros.
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                  <input
+                    value={chargeDraft.amount}
+                    onChange={(event) => updateAmicaleGrossChargeDraft(entry.id, { amount: event.target.value })}
+                    placeholder="Montant charge (DT)"
+                    type="number"
+                    step="0.01"
+                    disabled={!isUnlocked}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={chargeDraft.note}
+                    onChange={(event) => updateAmicaleGrossChargeDraft(entry.id, { note: event.target.value })}
+                    placeholder="Note"
+                    disabled={!isUnlocked}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={chargeDraft.chargeDate}
+                    onChange={(event) => updateAmicaleGrossChargeDraft(entry.id, { chargeDate: event.target.value })}
+                    type="date"
+                    disabled={!isUnlocked}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <select
+                    value={chargeDraft.status}
+                    onChange={(event) => updateAmicaleGrossChargeDraft(entry.id, { status: event.target.value as AmicaleGrossChargeStatus, paidById: event.target.value === "paye" ? chargeDraft.paidById : "", payerFirstName: event.target.value === "paye" ? chargeDraft.payerFirstName : "", payerLastName: event.target.value === "paye" ? chargeDraft.payerLastName : "" })}
+                    disabled={!isUnlocked}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="non_paye">Non paye</option>
+                    <option value="paye">Paye</option>
+                  </select>
+                  <select
+                    value={chargeDraft.paidById}
+                    onChange={(event) => updateAmicaleGrossChargeDraft(entry.id, { paidById: event.target.value })}
+                    disabled={!isUnlocked || chargeDraft.status !== "paye"}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Choisir qui a paye</option>
+                    {store.amicaleGrossPayers.map((payer) => (
+                      <option key={payer.id} value={payer.id}>
+                        {formatPayerName(payer)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => addAmicaleGrossCharge(entry.id)}
+                    disabled={!isUnlocked}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Ajouter charge
+                  </button>
+                  {chargeDraft.status === "paye" ? (
+                    <>
+                      <input
+                        value={chargeDraft.payerFirstName}
+                        onChange={(event) => updateAmicaleGrossChargeDraft(entry.id, { payerFirstName: event.target.value })}
+                        placeholder="Nom payeur"
+                        disabled={!isUnlocked}
+                        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm xl:col-span-2"
+                      />
+                      <input
+                        value={chargeDraft.payerLastName}
+                        onChange={(event) => updateAmicaleGrossChargeDraft(entry.id, { payerLastName: event.target.value })}
+                        placeholder="Prenom payeur"
+                        disabled={!isUnlocked}
+                        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm xl:col-span-2"
+                      />
+                      <div className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-xs text-gray-500 xl:col-span-2">
+                        Si aucun payeur n est selectionne, nom + prenom creent automatiquement un nouveau profil.
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 text-left text-gray-500">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">Montant</th>
+                        <th className="px-4 py-3 font-semibold">Note</th>
+                        <th className="px-4 py-3 font-semibold">Date</th>
+                        <th className="px-4 py-3 font-semibold">Statut</th>
+                        <th className="px-4 py-3 font-semibold">Paye par</th>
+                        <th className="px-4 py-3 font-semibold">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {entry.charges.length === 0 ? (
+                        <tr>
+                          <td className="px-4 py-4 text-gray-500" colSpan={6}>
+                            Aucune charge pour cette amicale en gros.
+                          </td>
+                        </tr>
+                      ) : (
+                        entry.charges.map((charge) => {
+                          const payer = store.amicaleGrossPayers.find((candidate) => candidate.id === charge.paidById);
+                          return (
+                            <tr key={charge.id}>
+                              <td className="px-4 py-3">
+                                <input
+                                  value={String(charge.amount)}
+                                  onChange={(event) => updateAmicaleGrossCharge(entry.id, charge.id, { amount: parseMoney(event.target.value) })}
+                                  type="number"
+                                  step="0.01"
+                                  disabled={!isUnlocked}
+                                  className="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-rose-700"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <input
+                                  value={charge.note}
+                                  onChange={(event) => updateAmicaleGrossCharge(entry.id, charge.id, { note: event.target.value })}
+                                  disabled={!isUnlocked}
+                                  className="w-full min-w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <input
+                                  value={charge.chargeDate}
+                                  onChange={(event) => updateAmicaleGrossCharge(entry.id, charge.id, { chargeDate: event.target.value })}
+                                  type="date"
+                                  disabled={!isUnlocked}
+                                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={charge.status}
+                                  onChange={(event) =>
+                                    updateAmicaleGrossCharge(entry.id, charge.id, {
+                                      status: event.target.value as AmicaleGrossChargeStatus,
+                                      paidById: event.target.value === "paye" ? charge.paidById : "",
+                                    })
+                                  }
+                                  disabled={!isUnlocked}
+                                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                                >
+                                  <option value="non_paye">Non paye</option>
+                                  <option value="paye">Paye</option>
+                                </select>
+                              </td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={charge.paidById}
+                                  onChange={(event) => updateAmicaleGrossCharge(entry.id, charge.id, { paidById: event.target.value })}
+                                  disabled={!isUnlocked || charge.status !== "paye"}
+                                  className="min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                                >
+                                  <option value="">Choisir qui a paye</option>
+                                  {store.amicaleGrossPayers.map((payerOption) => (
+                                    <option key={payerOption.id} value={payerOption.id}>
+                                      {formatPayerName(payerOption)}
+                                    </option>
+                                  ))}
+                                </select>
+                                {charge.status === "paye" && !charge.paidById ? (
+                                  <p className="mt-1 text-xs text-amber-700">Payeur non selectionne.</p>
+                                ) : charge.status === "paye" ? (
+                                  <p className="mt-1 text-xs text-gray-500">{formatPayerName(payer) || "-"}</p>
+                                ) : null}
+                              </td>
+                              <td className="px-4 py-3">
+                                <button
+                                  type="button"
+                                  onClick={() => removeAmicaleGrossCharge(entry.id, charge.id)}
+                                  disabled={!isUnlocked}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  Supprimer
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-900">Suivi de location</h4>
+                      <p className="mt-1 text-xs text-gray-500">Ajoutez le bien, le nombre de semaines louees, pour qui et le proprietaire.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => addAmicaleGrossRental(entry.id)}
+                      disabled={!isUnlocked}
+                      className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-50"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Ajouter location
+                    </button>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <input
+                      value={rentalDraft.propertyLabel}
+                      onChange={(event) => updateAmicaleGrossRentalDraft(entry.id, { propertyLabel: event.target.value })}
+                      placeholder="Nom du bien"
+                      disabled={!isUnlocked}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                    />
+                    <input
+                      value={rentalDraft.weeksRented}
+                      onChange={(event) => updateAmicaleGrossRentalDraft(entry.id, { weeksRented: event.target.value })}
+                      placeholder="Combien de semaine louee"
+                      type="number"
+                      step="0.01"
+                      disabled={!isUnlocked}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                    />
+                    <input
+                      value={rentalDraft.rentedFor}
+                      onChange={(event) => updateAmicaleGrossRentalDraft(entry.id, { rentedFor: event.target.value })}
+                      placeholder="Pour qui"
+                      disabled={!isUnlocked}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                    />
+                    <input
+                      value={rentalDraft.ownerName}
+                      onChange={(event) => updateAmicaleGrossRentalDraft(entry.id, { ownerName: event.target.value })}
+                      placeholder="Quel proprietaire"
+                      disabled={!isUnlocked}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="mt-4 overflow-x-auto rounded-xl border border-gray-200 bg-gray-50">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-100 text-left text-gray-500">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold">Bien</th>
+                          <th className="px-4 py-3 font-semibold">Semaines</th>
+                          <th className="px-4 py-3 font-semibold">Pour qui</th>
+                          <th className="px-4 py-3 font-semibold">Proprietaire</th>
+                          <th className="px-4 py-3 font-semibold">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {entry.rentals.length === 0 ? (
+                          <tr>
+                            <td className="px-4 py-4 text-gray-500" colSpan={5}>
+                              Aucun suivi de location pour cette amicale en gros.
+                            </td>
+                          </tr>
+                        ) : (
+                          entry.rentals.map((rental) => (
+                            <tr key={rental.id}>
+                              <td className="px-4 py-3">
+                                <input
+                                  value={rental.propertyLabel}
+                                  onChange={(event) => updateAmicaleGrossRental(entry.id, rental.id, { propertyLabel: event.target.value })}
+                                  disabled={!isUnlocked}
+                                  className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <input
+                                  value={String(rental.weeksRented)}
+                                  onChange={(event) => updateAmicaleGrossRental(entry.id, rental.id, { weeksRented: parseMoney(event.target.value) })}
+                                  type="number"
+                                  step="0.01"
+                                  disabled={!isUnlocked}
+                                  className="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <input
+                                  value={rental.rentedFor}
+                                  onChange={(event) => updateAmicaleGrossRental(entry.id, rental.id, { rentedFor: event.target.value })}
+                                  disabled={!isUnlocked}
+                                  className="w-full min-w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <input
+                                  value={rental.ownerName}
+                                  onChange={(event) => updateAmicaleGrossRental(entry.id, rental.id, { ownerName: event.target.value })}
+                                  disabled={!isUnlocked}
+                                  className="w-full min-w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <button
+                                  type="button"
+                                  onClick={() => removeAmicaleGrossRental(entry.id, rental.id)}
+                                  disabled={!isUnlocked}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  Supprimer
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
+      <SectionCard
         title="Charges"
-        subtitle="Chaque charge demande un nom, une valeur, une date et un commentaire optionnel."
+        subtitle="Charges generales hors amicales en gros. Les charges des amicales en gros sont suivies dans leur section dediee."
         icon={<Wallet className="h-5 w-5" />}
       >
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -1002,15 +1921,196 @@ export default function ComptabilitePage() {
               ) : (
                 store.manualCharges.map((entry) => (
                   <tr key={entry.id}>
-                    <td className="px-4 py-3 font-medium text-gray-900">{entry.label}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatDate(entry.chargeDate)}</td>
-                    <td className="px-4 py-3 font-semibold text-rose-700">{formatMoney(entry.amount)}</td>
-                    <td className="px-4 py-3 text-gray-600">{entry.comment || "-"}</td>
+                    <td className="px-4 py-3">
+                      <input
+                        value={entry.label}
+                        onChange={(event) => updateArrayEntry("manualCharges", entry.id, { label: event.target.value })}
+                        disabled={!isUnlocked}
+                        className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        value={entry.chargeDate}
+                        onChange={(event) => updateArrayEntry("manualCharges", entry.id, { chargeDate: event.target.value })}
+                        type="date"
+                        disabled={!isUnlocked}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        value={String(entry.amount)}
+                        onChange={(event) => updateArrayEntry("manualCharges", entry.id, { amount: parseMoney(event.target.value) })}
+                        type="number"
+                        step="0.01"
+                        disabled={!isUnlocked}
+                        className="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-rose-700"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        value={entry.comment}
+                        onChange={(event) => updateArrayEntry("manualCharges", entry.id, { comment: event.target.value })}
+                        disabled={!isUnlocked}
+                        className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <button type="button" onClick={() => removeEntry("manualCharges", entry.id)} disabled={!isUnlocked} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                           <Trash2 className="h-3.5 w-3.5" />
                           Supprimer
                         </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Avances"
+        subtitle="Suivi des avances donnees entre personnes, rattachees a un bien."
+        icon={<Wallet className="h-5 w-5" />}
+      >
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <input
+            value={drafts.advance.amount}
+            onChange={(event) => setDrafts((prev) => ({ ...prev, advance: { ...prev.advance, amount: event.target.value } }))}
+            placeholder="Montant avance (DT)"
+            type="number"
+            step="0.01"
+            disabled={!isUnlocked}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            value={drafts.advance.givenBy}
+            onChange={(event) => setDrafts((prev) => ({ ...prev, advance: { ...prev.advance, givenBy: event.target.value } }))}
+            placeholder="Avance donnee par"
+            disabled={!isUnlocked}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            value={drafts.advance.givenTo}
+            onChange={(event) => setDrafts((prev) => ({ ...prev, advance: { ...prev.advance, givenTo: event.target.value } }))}
+            placeholder="Avance donnee a qui"
+            disabled={!isUnlocked}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            value={drafts.advance.propertyLabel}
+            onChange={(event) => setDrafts((prev) => ({ ...prev, advance: { ...prev.advance, propertyLabel: event.target.value } }))}
+            placeholder="Quel bien"
+            disabled={!isUnlocked}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            value={drafts.advance.advanceDate}
+            onChange={(event) => setDrafts((prev) => ({ ...prev, advance: { ...prev.advance, advanceDate: event.target.value } }))}
+            type="date"
+            disabled={!isUnlocked}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            value={drafts.advance.note}
+            onChange={(event) => setDrafts((prev) => ({ ...prev, advance: { ...prev.advance, note: event.target.value } }))}
+            placeholder="Note"
+            disabled={!isUnlocked}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm md:col-span-2 xl:col-span-5"
+          />
+        </div>
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={addAdvance}
+            disabled={!isUnlocked}
+            className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+          >
+            <Plus className="h-4 w-4" />
+            Ajouter l avance
+          </button>
+        </div>
+        <div className="mt-4 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-left text-gray-500">
+              <tr>
+                <th className="px-4 py-3 font-semibold">Montant</th>
+                <th className="px-4 py-3 font-semibold">Donnee par</th>
+                <th className="px-4 py-3 font-semibold">A qui</th>
+                <th className="px-4 py-3 font-semibold">Bien</th>
+                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-4 py-3 font-semibold">Note</th>
+                <th className="px-4 py-3 font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {store.advances.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-4 text-gray-500" colSpan={7}>
+                    Aucune avance saisie.
+                  </td>
+                </tr>
+              ) : (
+                store.advances.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="px-4 py-3">
+                      <input
+                        value={String(entry.amount)}
+                        onChange={(event) => updateArrayEntry("advances", entry.id, { amount: parseMoney(event.target.value) })}
+                        type="number"
+                        step="0.01"
+                        disabled={!isUnlocked}
+                        className="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-amber-700"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        value={entry.givenBy}
+                        onChange={(event) => updateArrayEntry("advances", entry.id, { givenBy: event.target.value })}
+                        disabled={!isUnlocked}
+                        className="w-full min-w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        value={entry.givenTo}
+                        onChange={(event) => updateArrayEntry("advances", entry.id, { givenTo: event.target.value })}
+                        disabled={!isUnlocked}
+                        className="w-full min-w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        value={entry.propertyLabel}
+                        onChange={(event) => updateArrayEntry("advances", entry.id, { propertyLabel: event.target.value })}
+                        disabled={!isUnlocked}
+                        className="w-full min-w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        value={entry.advanceDate}
+                        onChange={(event) => updateArrayEntry("advances", entry.id, { advanceDate: event.target.value })}
+                        type="date"
+                        disabled={!isUnlocked}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        value={entry.note}
+                        onChange={(event) => updateArrayEntry("advances", entry.id, { note: event.target.value })}
+                        disabled={!isUnlocked}
+                        className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <button type="button" onClick={() => removeEntry("advances", entry.id)} disabled={!isUnlocked} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Supprimer
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -1116,9 +2216,32 @@ export default function ComptabilitePage() {
                   ) : (
                     store.manualBeneficiaries.map((entry) => (
                       <tr key={entry.id}>
-                        <td className="px-4 py-3 font-medium text-gray-900">{entry.name}</td>
-                        <td className="px-4 py-3 font-semibold text-sky-700">{formatMoney(entry.amount)}</td>
-                        <td className="px-4 py-3 text-gray-600">{entry.comment || "-"}</td>
+                        <td className="px-4 py-3">
+                          <input
+                            value={entry.name}
+                            onChange={(event) => updateArrayEntry("manualBeneficiaries", entry.id, { name: event.target.value })}
+                            disabled={!isUnlocked}
+                            className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            value={String(entry.amount)}
+                            onChange={(event) => updateArrayEntry("manualBeneficiaries", entry.id, { amount: parseMoney(event.target.value) })}
+                            type="number"
+                            step="0.01"
+                            disabled={!isUnlocked}
+                            className="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-sky-700"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            value={entry.comment}
+                            onChange={(event) => updateArrayEntry("manualBeneficiaries", entry.id, { comment: event.target.value })}
+                            disabled={!isUnlocked}
+                            className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <button type="button" onClick={() => removeEntry("manualBeneficiaries", entry.id)} disabled={!isUnlocked} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                             <Trash2 className="h-3.5 w-3.5" />
@@ -1134,7 +2257,7 @@ export default function ComptabilitePage() {
           </div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <DataBlock label="Net avant beneficiaires manuels" value={formatMoney(netResult)} help="benefices - charges" />
+          <DataBlock label="Net avant beneficiaires manuels" value={formatMoney(netResult)} help="benefices - toutes les charges" />
           <DataBlock label="Beneficiaires manuels" value={formatMoney(manualBeneficiaryTotal)} help={`${store.manualBeneficiaries.length} lignes`} />
           <DataBlock label="Solde apres allocations" value={formatMoney(availableAfterManualBeneficiaries)} help="peut devenir negatif si les allocations depassent le net" />
           <DataBlock label="Partage de base" value={formatMoney(baseShare)} help="Solde apres allocations / 2" />
@@ -1159,6 +2282,7 @@ export default function ComptabilitePage() {
             allowDate={false}
             disabled={!isUnlocked}
             onDelete={(id) => removeEntry("manualRevenues", id)}
+            onUpdate={(id, patch) => updateArrayEntry("manualRevenues", id, patch as Partial<ManualRevenueEntry>)}
           />
           <ManualEntryPanel
             title="Autres benefices"
@@ -1172,6 +2296,7 @@ export default function ComptabilitePage() {
             allowDate={false}
             disabled={!isUnlocked}
             onDelete={(id) => removeEntry("manualBenefits", id)}
+            onUpdate={(id, patch) => updateArrayEntry("manualBenefits", id, patch as Partial<ManualBenefitEntry>)}
           />
         </div>
       </SectionCard>
@@ -1301,6 +2426,7 @@ function ManualEntryPanel<T extends { id: string; label?: string; name?: string;
   valuePlaceholder,
   allowDate,
   disabled,
+  onUpdate,
 }: {
   title: string;
   description: string;
@@ -1313,6 +2439,7 @@ function ManualEntryPanel<T extends { id: string; label?: string; name?: string;
   valuePlaceholder: string;
   allowDate: boolean;
   disabled?: boolean;
+  onUpdate: (id: string, patch: Partial<T>) => void;
 }) {
   return (
     <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
@@ -1381,10 +2508,43 @@ function ManualEntryPanel<T extends { id: string; label?: string; name?: string;
             ) : (
               entries.map((entry) => (
                 <tr key={entry.id}>
-                  <td className="px-4 py-3 font-medium text-gray-900">{entry.label || entry.name || "-"}</td>
-                  {allowDate ? <td className="px-4 py-3 text-gray-600">{formatDate(entry.chargeDate || entry.createdAt)}</td> : null}
-                  <td className="px-4 py-3 font-semibold text-emerald-700">{formatMoney(entry.amount)}</td>
-                  <td className="px-4 py-3 text-gray-600">{entry.comment || "-"}</td>
+                  <td className="px-4 py-3">
+                    <input
+                      value={entry.label || entry.name || ""}
+                      onChange={(event) => onUpdate(entry.id, ("label" in entry ? { label: event.target.value } : { name: event.target.value }) as Partial<T>)}
+                      disabled={disabled}
+                      className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900"
+                    />
+                  </td>
+                  {allowDate ? (
+                    <td className="px-4 py-3">
+                      <input
+                        value={entry.chargeDate || ""}
+                        onChange={(event) => onUpdate(entry.id, { chargeDate: event.target.value } as Partial<T>)}
+                        type="date"
+                        disabled={disabled}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                      />
+                    </td>
+                  ) : null}
+                  <td className="px-4 py-3">
+                    <input
+                      value={String(entry.amount)}
+                      onChange={(event) => onUpdate(entry.id, { amount: parseMoney(event.target.value) } as Partial<T>)}
+                      type="number"
+                      step="0.01"
+                      disabled={disabled}
+                      className="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-emerald-700"
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <input
+                      value={entry.comment || ""}
+                      onChange={(event) => onUpdate(entry.id, { comment: event.target.value } as Partial<T>)}
+                      disabled={disabled}
+                      className="w-full min-w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                    />
+                  </td>
                   <td className="px-4 py-3">
                     <button type="button" onClick={() => onDelete(entry.id)} disabled={disabled} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                       <Trash2 className="h-3.5 w-3.5" />

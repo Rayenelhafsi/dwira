@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { CheckCircle2, ChevronRight, Code2, Eye, FileText, Printer, RefreshCw, Ticket, Trash2, Upload, Users } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Code2, Eye, FileText, Printer, RefreshCw, Ticket, Trash2, Upload, Users } from "lucide-react";
 import { createAmicaleApi, deleteAmicaleApi, fetchAmicalesAdmin, normalizeAmicaleHotelMarkupPercent, type AmicaleItem, updateAmicaleApi } from "../../utils/amicales";
 import type { HotelReservationDemand, ReservationDemand, ReservationDemandStatus } from "../types";
 import { regenerateHotelVoucher, uploadHotelVoucherPdf } from "../../services/hotels";
@@ -85,6 +85,14 @@ function formatCurrency(value?: number | string | null) {
   const num = Number(value || 0);
   if (!Number.isFinite(num)) return "0 DT";
   return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(num)} DT`;
+}
+
+function parseOptionalAmount(value: string): number | null {
+  const raw = String(value || "").trim().replace(",", ".");
+  if (!raw) return null;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric) || numeric < 0) return Number.NaN;
+  return Math.round(numeric * 100) / 100;
 }
 
 function resolveAssetUrl(url?: string | null) {
@@ -265,6 +273,9 @@ export default function AmicalesPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [uploadingVoucherId, setUploadingVoucherId] = useState<string | null>(null);
   const [hotelMarkupById, setHotelMarkupById] = useState<Record<string, string>>({});
+  const [financialDrafts, setFinancialDrafts] = useState<Record<string, { ownerAmount: string; ownerTotal: string; netProfit: string }>>({});
+  const [expandedFinancials, setExpandedFinancials] = useState<Record<string, boolean>>({});
+  const [savingFinancialDemandId, setSavingFinancialDemandId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -551,6 +562,73 @@ export default function AmicalesPage() {
     }
   };
 
+  const getFinancialDraft = (demand: AmicaleDemandRow) => {
+    const existing = financialDrafts[demand.id];
+    if (existing) return existing;
+    return {
+      ownerAmount: demand.montant_donne_proprietaire === null || demand.montant_donne_proprietaire === undefined ? "" : String(Math.round(Number(demand.montant_donne_proprietaire) * 100) / 100),
+      ownerTotal: demand.montant_total_proprietaire === null || demand.montant_total_proprietaire === undefined ? "" : String(Math.round(Number(demand.montant_total_proprietaire) * 100) / 100),
+      netProfit: demand.profit_net === null || demand.profit_net === undefined ? "" : String(Math.round(Number(demand.profit_net) * 100) / 100),
+    };
+  };
+
+  const handleFinancialDraftChange = (
+    demand: AmicaleDemandRow,
+    patch: Partial<{ ownerAmount: string; ownerTotal: string; netProfit: string }>
+  ) => {
+    const current = getFinancialDraft(demand);
+    const next = { ...current, ...patch };
+    if (patch.ownerAmount !== undefined && patch.netProfit === undefined) {
+      const parsedOwnerAmount = Number(String(patch.ownerAmount || "").replace(",", "."));
+      if (Number.isFinite(parsedOwnerAmount)) {
+        next.netProfit = String(Math.round((Number(demand.total_amount || 0) - parsedOwnerAmount) * 100) / 100);
+      }
+    }
+    setFinancialDrafts((prev) => ({ ...prev, [demand.id]: next }));
+  };
+
+  const handleSaveFinancials = async (demand: AmicaleDemandRow) => {
+    const draft = getFinancialDraft(demand);
+    const ownerAmount = parseOptionalAmount(draft.ownerAmount);
+    const ownerTotal = parseOptionalAmount(draft.ownerTotal);
+    const netProfit = parseOptionalAmount(draft.netProfit);
+    if ((ownerAmount !== null && !Number.isFinite(ownerAmount)) || (ownerTotal !== null && !Number.isFinite(ownerTotal)) || (netProfit !== null && !Number.isFinite(netProfit))) {
+      toast.error("Montants invalides");
+      return;
+    }
+    setSavingFinancialDemandId(demand.id);
+    try {
+      const endpoint = String(demand.source_kind || "").trim() === "hotel"
+        ? `${API_URL}/hotel-reservation-demands/${encodeURIComponent(demand.id)}`
+        : `${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`;
+      const response = await fetch(endpoint, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          montant_donne_proprietaire: ownerAmount,
+          montant_total_proprietaire: ownerTotal,
+          profit_net: netProfit,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(String(payload?.error || "Sauvegarde montants impossible"));
+      }
+      const updated = await response.json().catch(() => null);
+      if (updated?.id) {
+        setDemandRows((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
+      } else {
+        await loadData();
+      }
+      toast.success("Montants de la demande mis a jour");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sauvegarde montants impossible");
+    } finally {
+      setSavingFinancialDemandId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -829,6 +907,8 @@ export default function AmicalesPage() {
                 const consultPath = buildPropertyPath(demand);
                 const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";
                 const isHotelDemand = String(demand.source_kind || "").trim() === "hotel";
+                const hasGeneratedVoucher = Boolean(String(demand.voucher_url || "").trim() || String(demand.voucher_generated_at || "").trim());
+                const financialDraft = getFinancialDraft(demand);
                 const roomLines = isHotelDemand ? getHotelDemandRoomLines(demand) : [];
                 const travellerLines = isHotelDemand ? getHotelDemandTravellerLines(demand) : { adultLines: [], childLines: [] };
                 return (
@@ -905,6 +985,70 @@ export default function AmicalesPage() {
                               <Printer className="h-3.5 w-3.5" />
                               Imprimer voucher
                             </button>
+                          </div>
+                        ) : null}
+                        {hasGeneratedVoucher ? (
+                          <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedFinancials((prev) => ({ ...prev, [demand.id]: !prev[demand.id] }))}
+                              className="flex w-full items-center justify-between gap-3 text-left text-xs text-emerald-900"
+                            >
+                              <span className="font-medium">Pilotage financier contrat</span>
+                              <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-medium text-emerald-800">
+                                {expandedFinancials[demand.id] ? "Reduire" : "Afficher"}
+                                {expandedFinancials[demand.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                              </span>
+                            </button>
+                            {expandedFinancials[demand.id] ? (
+                              <div className="mt-3 grid grid-cols-1 gap-3">
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                  <label className="block">
+                                    <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">Montant donne au proprietaire</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={financialDraft.ownerAmount}
+                                      onChange={(event) => handleFinancialDraftChange(demand, { ownerAmount: event.target.value })}
+                                      className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                  <label className="block">
+                                    <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">Montant total proprietaire</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={financialDraft.ownerTotal}
+                                      onChange={(event) => handleFinancialDraftChange(demand, { ownerTotal: event.target.value })}
+                                      className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                  <label className="block">
+                                    <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">Profit net</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={financialDraft.netProfit}
+                                      onChange={(event) => handleFinancialDraftChange(demand, { netProfit: event.target.value })}
+                                      className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                </div>
+                                <div className="flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSaveFinancials(demand)}
+                                    disabled={savingFinancialDemandId === demand.id}
+                                    className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-60"
+                                  >
+                                    {savingFinancialDemandId === demand.id ? "Enregistrement..." : "Enregistrer montants"}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                         <div className="flex flex-wrap gap-2 pt-1">

@@ -95,7 +95,10 @@ function getKeyFeatureLabels(bien: Bien) {
   const labels = new Set<string>();
   const seasonal = bien.location_saisonniere_config || null;
   const amenities = Array.isArray(bien.caracteristiques) ? bien.caracteristiques : [];
-  if (bien.proche_plage || seasonal?.proche_plage || amenities.some((item) => /pied|plage|front de mer/i.test(String(item)))) labels.add("Pied dans l'eau");
+  const distancePlage = Number(seasonal?.distance_plage_m ?? bien.distance_plage_m ?? Number.NaN);
+  const hasDistancePlage = Number.isFinite(distancePlage);
+  const hasExplicitBeachfrontAmenity = amenities.some((item) => /pied dans l'?eau|front de mer|bord de mer|acces direct plage/i.test(String(item)));
+  if ((hasDistancePlage && distancePlage <= 50) || hasExplicitBeachfrontAmenity) labels.add("Pied dans l'eau");
   if (bien.vue_mer || seasonal?.vue_mer || amenities.some((item) => /vue mer/i.test(String(item)))) labels.add('Vue mer');
   if (seasonal?.distance_plage_m && Number(seasonal.distance_plage_m) <= 120) labels.add('Acces plage rapide');
   if (amenities.some((item) => /piscine/i.test(String(item)))) labels.add('Piscine');

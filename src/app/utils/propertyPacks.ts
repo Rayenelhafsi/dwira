@@ -278,7 +278,12 @@ function buildFeatureTags(properties: Property[], pack: PropertyPack) {
     });
   }
   for (const property of properties) {
-    if (property.seasonalConfig?.prochePlage || property.amenities.some((item) => /plage|pied/i.test(item))) tags.add("Pied dans l'eau");
+    const distancePlage = Number(property.seasonalConfig?.distancePlageM ?? Number.NaN);
+    const hasDistancePlage = Number.isFinite(distancePlage);
+    if (
+      (hasDistancePlage && distancePlage <= 50)
+      || property.amenities.some((item) => /pied dans l'?eau|front de mer|bord de mer|acces direct plage/i.test(item))
+    ) tags.add("Pied dans l'eau");
     if (property.seasonalConfig?.piscinePrivee || property.seasonalConfig?.piscinePartagee || property.amenities.some((item) => /piscine/i.test(item))) tags.add("Piscine");
     if (property.seasonalConfig?.vueMer || property.amenities.some((item) => /vue mer|mer/i.test(item))) tags.add("Vue mer");
     if (property.seasonalConfig?.terrasse || property.amenities.some((item) => /terrasse/i.test(item))) tags.add("Terrasse");

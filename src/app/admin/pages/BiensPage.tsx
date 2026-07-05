@@ -802,15 +802,22 @@ const deriveSeasonFilterSignalsFromFeatures = (entries: SelectedFeatureEntry[]) 
   const tokenBag = new Set<string>();
   const exteriorHints = ['exterieur', 'jardin', 'caracteristique'];
   const interiorHints = ['confort', 'equipement', 'interieur'];
+  let explicitDistancePlageM: number | null = null;
 
   for (const entry of entries) {
     const tabNorm = normalizeFeatureName(String(entry.tabLabel || ''));
+    const nameNorm = normalizeFeatureName(String(entry.name || ''));
     const fragments = splitFeatureFragments(entry);
     fragments.forEach((fragment) => tokenBag.add(normalizeFeatureName(fragment)));
     const isExterior = exteriorHints.some((hint) => tabNorm.includes(hint));
     const isInterior = interiorHints.some((hint) => tabNorm.includes(hint));
     if (isExterior) exteriorValues.push(...fragments);
     if (isInterior) interiorValues.push(...fragments);
+    if (explicitDistancePlageM === null && nameNorm.includes('distance plage')) {
+      const rawValue = String(entry.value ?? '').replace(',', '.').trim();
+      const nextValue = Number(rawValue);
+      if (Number.isFinite(nextValue) && nextValue >= 0) explicitDistancePlageM = nextValue;
+    }
   }
 
   const hasToken = (...tokens: string[]) => {
@@ -822,8 +829,13 @@ const deriveSeasonFilterSignalsFromFeatures = (entries: SelectedFeatureEntry[]) 
 
   const hasPiedDansEau = hasToken('pied dans l eau', 'front de mer', 'bord de mer', 'acces direct plage');
   const hasVueMer = hasToken('vue mer', 'vue sur mer') || hasPiedDansEau;
-  const hasProchePlage = hasToken('proche plage', 'pres de la plage', 'a quelques pas de la plage', 'plage') || hasPiedDansEau;
-  const derivedDistance = hasPiedDansEau ? 0 : (hasProchePlage ? 150 : null);
+  const hasProchePlagePhrase = hasToken('proche plage', 'pres de la plage', 'a quelques pas de la plage');
+  const hasProchePlage = hasPiedDansEau
+    || hasProchePlagePhrase
+    || (explicitDistancePlageM !== null && explicitDistancePlageM <= 300);
+  const derivedDistance = hasPiedDansEau
+    ? 0
+    : (explicitDistancePlageM ?? (hasProchePlagePhrase ? 150 : null));
 
   return {
     exterieurJardin: Array.from(new Set(exteriorValues)),

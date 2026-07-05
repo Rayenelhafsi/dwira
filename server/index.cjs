@@ -1928,6 +1928,15 @@ async function ensureHotelReservationDemandSchema() {
   if (!(await columnExists('hotel_reservation_demands', 'admin_note'))) {
     await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN admin_note TEXT NULL AFTER client_note');
   }
+  if (!(await columnExists('hotel_reservation_demands', 'montant_donne_proprietaire'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN montant_donne_proprietaire DECIMAL(12,2) NULL AFTER voucher_qr_image_url');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'montant_total_proprietaire'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN montant_total_proprietaire DECIMAL(12,2) NULL AFTER montant_donne_proprietaire');
+  }
+  if (!(await columnExists('hotel_reservation_demands', 'profit_net'))) {
+    await pool.query('ALTER TABLE hotel_reservation_demands ADD COLUMN profit_net DECIMAL(12,2) NULL AFTER montant_total_proprietaire');
+  }
 }
 
 async function ensurePaiementsSchema() {
@@ -2395,6 +2404,9 @@ function formatHotelReservationDemandRow(row) {
     clicktopay_checkout_url: row.clicktopay_checkout_url || null,
     clicktopay_paid_at: row.clicktopay_paid_at || null,
     voucher_qr_image_url: row.voucher_qr_image_url || null,
+    montant_donne_proprietaire: row.montant_donne_proprietaire === null || row.montant_donne_proprietaire === undefined ? null : Number(row.montant_donne_proprietaire),
+    montant_total_proprietaire: row.montant_total_proprietaire === null || row.montant_total_proprietaire === undefined ? null : Number(row.montant_total_proprietaire),
+    profit_net: row.profit_net === null || row.profit_net === undefined ? null : Number(row.profit_net),
     provider_booking_id: row.provider_booking_id || null,
     provider_booking_state: row.provider_booking_state || null,
     provider_booking_currency: row.provider_booking_currency || null,
@@ -4049,6 +4061,15 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
   const nextRoomName = patch?.room_name !== undefined ? (String(patch.room_name || '').trim() || null) : (current.room_name || null);
   const nextCheckIn = patch?.check_in !== undefined ? (String(patch.check_in || '').trim() || null) : (current.check_in || null);
   const nextCheckOut = patch?.check_out !== undefined ? (String(patch.check_out || '').trim() || null) : (current.check_out || null);
+  const nextOwnerPaid = patch?.montant_donne_proprietaire !== undefined
+    ? (Number.isFinite(Number(patch.montant_donne_proprietaire)) ? Number(patch.montant_donne_proprietaire) : null)
+    : (current.montant_donne_proprietaire === null || current.montant_donne_proprietaire === undefined ? null : Number(current.montant_donne_proprietaire));
+  const nextOwnerTotal = patch?.montant_total_proprietaire !== undefined
+    ? (Number.isFinite(Number(patch.montant_total_proprietaire)) ? Number(patch.montant_total_proprietaire) : null)
+    : (current.montant_total_proprietaire === null || current.montant_total_proprietaire === undefined ? null : Number(current.montant_total_proprietaire));
+  const nextNetProfit = patch?.profit_net !== undefined
+    ? (Number.isFinite(Number(patch.profit_net)) ? Number(patch.profit_net) : null)
+    : (current.profit_net === null || current.profit_net === undefined ? null : Number(current.profit_net));
   const currentHotelContext = safeParseJson(current.hotel_context_json, null);
   const nextHotelContext = patch?.hotel_context !== undefined
     ? normalizeHotelTravellersForAdminUpdate(patch.hotel_context, parseJsonArray(current.child_ages_json))
@@ -4133,6 +4154,7 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
      `UPDATE hotel_reservation_demands
      SET status = ?, admin_note = ?, client_note = ?,
          client_name = ?, client_phone = ?, amicale_name = ?, hotel_name = ?, boarding_name = ?, room_name = ?, check_in = ?, check_out = ?,
+         montant_donne_proprietaire = ?, montant_total_proprietaire = ?, profit_net = ?,
          hotel_context_json = ?,
          voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?, voucher_qr_image_url = ?,
          voucher_url = ?, voucher_generated_at = ?, voucher_sent_at = ?, agency_validation_at = ?,
@@ -4151,6 +4173,9 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
       nextRoomName,
       nextCheckIn,
       nextCheckOut,
+      nextOwnerPaid,
+      nextOwnerTotal,
+      nextNetProfit,
       nextHotelContextJson,
       resolvedVoucherId,
       resolvedVoucherNumber,
@@ -13127,6 +13152,9 @@ function formatReservationDemandRow(row) {
     voucher_number: row.voucher_number || null,
     voucher_url: row.voucher_url || null,
     voucher_generated_at: row.voucher_generated_at || null,
+    montant_donne_proprietaire: row.montant_donne_proprietaire === null || row.montant_donne_proprietaire === undefined ? null : Number(row.montant_donne_proprietaire),
+    montant_total_proprietaire: row.montant_total_proprietaire === null || row.montant_total_proprietaire === undefined ? null : Number(row.montant_total_proprietaire),
+    profit_net: row.profit_net === null || row.profit_net === undefined ? null : Number(row.profit_net),
     guests: Number(row.guests || 1),
     adult_guests: Number(row.adult_guests || row.guests || 1),
     child_guests: Number(row.child_guests || 0),
@@ -22505,11 +22533,21 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     const finalizationDueAt = body.finalization_due_at !== undefined ? body.finalization_due_at : current.finalization_due_at;
     const contractId = body.contract_id !== undefined ? body.contract_id : current.contract_id;
     const paymentId = body.payment_id !== undefined ? body.payment_id : current.payment_id;
+    const ownerPaid = body.montant_donne_proprietaire !== undefined
+      ? (Number.isFinite(Number(body.montant_donne_proprietaire)) ? Number(body.montant_donne_proprietaire) : null)
+      : (current.montant_donne_proprietaire === null || current.montant_donne_proprietaire === undefined ? null : Number(current.montant_donne_proprietaire));
+    const ownerTotal = body.montant_total_proprietaire !== undefined
+      ? (Number.isFinite(Number(body.montant_total_proprietaire)) ? Number(body.montant_total_proprietaire) : null)
+      : (current.montant_total_proprietaire === null || current.montant_total_proprietaire === undefined ? null : Number(current.montant_total_proprietaire));
+    const netProfit = body.profit_net !== undefined
+      ? (Number.isFinite(Number(body.profit_net)) ? Number(body.profit_net) : null)
+      : (current.profit_net === null || current.profit_net === undefined ? null : Number(current.profit_net));
 
     await pool.query(
       `UPDATE reservation_demands
        SET status = ?, owner_notified_at = ?, owner_response_at = ?, client_confirmation_clicked_at = ?,
            payment_mode = ?, total_amount = ?, amount_due_now = ?,
+           montant_donne_proprietaire = ?, montant_total_proprietaire = ?, profit_net = ?,
            selected_fixed_services_json = ?, selected_variable_services_json = ?, variable_services_quote_json = ?, variable_services_quote_total = ?, variable_services_quote_status = ?,
            identity_document_type = ?, identity_document_number = ?, identity_document_country = ?,
            identity_first_name = ?, identity_last_name = ?,
@@ -22525,6 +22563,9 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         paymentMode,
         totalAmount,
         amountDueNow,
+        ownerPaid,
+        ownerTotal,
+        netProfit,
         JSON.stringify(selectedFixedServices),
         JSON.stringify(selectedVariableServices),
         JSON.stringify(variableServicesQuote),
@@ -26286,9 +26327,18 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'created_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER payment_receipt_note');
   }
-      if (!(await columnExists('reservation_demands', 'updated_at'))) {
-        await pool.query('ALTER TABLE reservation_demands ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
-      }
+  if (!(await columnExists('reservation_demands', 'updated_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
+  }
+  if (!(await columnExists('reservation_demands', 'montant_donne_proprietaire'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN montant_donne_proprietaire DECIMAL(12,2) NULL AFTER voucher_generated_at');
+  }
+  if (!(await columnExists('reservation_demands', 'montant_total_proprietaire'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN montant_total_proprietaire DECIMAL(12,2) NULL AFTER montant_donne_proprietaire');
+  }
+  if (!(await columnExists('reservation_demands', 'profit_net'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN profit_net DECIMAL(12,2) NULL AFTER montant_total_proprietaire');
+  }
     })().catch((error) => {
       ensureReservationDemandSchemaPromise = null;
       throw error;
@@ -32027,12 +32077,8 @@ function getDateOverlapDays({ startDate, endDate, rangeStart, rangeEndInclusive 
 }
 
 async function fetchStatsAvailabilityInventoryRows({ propertyId = null }) {
-  const hasModeBienColumn = await columnExists('biens', 'mode_bien');
-  const modeExpr = hasModeBienColumn
-    ? `COALESCE(NULLIF(b.mode, ''), NULLIF(b.mode_bien, ''), 'location_saisonniere')`
-    : `COALESCE(NULLIF(b.mode, ''), 'location_saisonniere')`;
   const params = [];
-  let whereClause = `WHERE ${modeExpr} = 'location_saisonniere'`;
+  let whereClause = `WHERE COALESCE(NULLIF(b.mode, ''), 'location_saisonniere') = 'location_saisonniere'`;
   if (propertyId) {
     whereClause += ' AND b.id = ?';
     params.push(propertyId);
@@ -32064,10 +32110,6 @@ async function fetchStatsAvailabilityInventoryRows({ propertyId = null }) {
 }
 
 async function fetchStatsAvailabilityRows({ range, propertyId = null }) {
-  const hasModeBienColumn = await columnExists('biens', 'mode_bien');
-  const modeExpr = hasModeBienColumn
-    ? `COALESCE(NULLIF(b.mode, ''), NULLIF(b.mode_bien, ''), 'location_saisonniere')`
-    : `COALESCE(NULLIF(b.mode, ''), 'location_saisonniere')`;
   const params = [range.dateTo, range.dateFrom];
   let propertyWhere = '';
   if (propertyId) {
@@ -32099,7 +32141,7 @@ async function fetchStatsAvailabilityRows({ range, propertyId = null }) {
      FROM unavailable_dates ud
      INNER JOIN biens b ON b.id = ud.bien_id
      LEFT JOIN zones z ON z.id = b.zone_id
-     WHERE ${modeExpr} = 'location_saisonniere'
+     WHERE COALESCE(NULLIF(b.mode, ''), 'location_saisonniere') = 'location_saisonniere'
        AND ud.start_date <= ?
        AND ud.end_date >= ?
        AND LOWER(TRIM(COALESCE(ud.status, 'blocked'))) IN ('blocked', 'booked', 'pending')

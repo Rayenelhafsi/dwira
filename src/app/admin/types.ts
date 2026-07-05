@@ -718,6 +718,9 @@ export interface ReservationDemand {
   voucher_number?: string | null;
   voucher_url?: string | null;
   voucher_generated_at?: string | null;
+  montant_donne_proprietaire?: number | null;
+  montant_total_proprietaire?: number | null;
+  profit_net?: number | null;
   reservation_payment_id?: string | null;
   reservation_payment_paid_at?: string | null;
   services_payment_id?: string | null;
