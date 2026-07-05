@@ -32,6 +32,28 @@ function containsAnyNormalized(values, ...tokens) {
   return normalizedTokens.some((token) => normalizedValues.some((value) => value.includes(token)));
 }
 
+function extractDistancePlageMetersFromTexts(lines) {
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const raw = String(line || "").replace(",", ".");
+    const match =
+      raw.match(/distance\s*plage[^0-9]*([0-9]+(?:\.[0-9]+)?)/i)
+      || raw.match(/([0-9]+(?:\.[0-9]+)?)\s*m(?:e|è)?t?res?\s+de\s+la\s+plage/i);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
+}
+
+function resolveDistancePlageMeters({ directDistance, seasonalDistance, textSources }) {
+  const textDistance = extractDistancePlageMetersFromTexts(textSources);
+  if (textDistance !== null) return textDistance;
+  const direct = Number(directDistance);
+  if (Number.isFinite(direct) && direct >= 0) return direct;
+  const seasonal = Number(seasonalDistance);
+  return Number.isFinite(seasonal) && seasonal >= 0 ? seasonal : null;
+}
+
 function withTimeout(promise, ms, label) {
   return Promise.race([
     promise,
@@ -121,13 +143,18 @@ function matchesSeasideOption(p, option) {
   const distancePlage = Number(sc.distancePlageM ?? Number.NaN);
   const hasDistance = Number.isFinite(distancePlage);
   if (option === "pied_dans_eau") {
-    return (Boolean(sc.vueMer) && hasDistance && distancePlage <= 50)
-      || hasAny("pied dans l eau", "front de mer", "bord de mer", "acces direct plage");
+    return hasDistance
+      ? distancePlage <= 50
+      : (
+        (Boolean(sc.vueMer) && hasAny("front de mer", "bord de mer", "acces direct plage"))
+        || hasAny("pied dans l eau", "front de mer", "bord de mer", "acces direct plage")
+      );
   }
   if (option === "vue_sur_mer") return sc.vue === "mer" || Boolean(sc.vueMer) || hasAny("vue sur mer", "vue mer");
   if (option === "pres_plage") {
-    return Boolean(sc.prochePlage) || (hasDistance && distancePlage <= 300)
-      || hasAny("proche plage", "pres de la plage", "a quelques pas de la plage");
+    return hasDistance
+      ? distancePlage <= 300
+      : Boolean(sc.prochePlage) || hasAny("proche plage", "pres de la plage", "a quelques pas de la plage");
   }
   return false;
 }
@@ -202,12 +229,17 @@ function mapProjectRows(rows, mediaRows = []) {
 
   return (rows || []).map((r) => {
     const scRaw = parseJsonSafe(r.location_saisonniere_config_json);
+    const resolvedDistancePlageM = resolveDistancePlageMeters({
+      directDistance: r.distance_plage_m,
+      seasonalDistance: scRaw.distance_plage_m,
+      textSources: [r.description, r.titre],
+    });
     const resolvedCapacity = resolveProjectGuestCapacity(scRaw, r.nb_chambres);
     const seasonalConfig = {
       vueMer: Boolean(r.vue_mer) || Boolean(scRaw.vue_mer),
       vue: String(scRaw.vue || "").toLowerCase() || null,
-      prochePlage: Boolean(r.proche_plage) || Boolean(scRaw.proche_plage),
-      distancePlageM: Number.isFinite(Number(r.distance_plage_m)) ? Number(r.distance_plage_m) : Number(scRaw.distance_plage_m ?? Number.NaN),
+      prochePlage: resolvedDistancePlageM !== null ? resolvedDistancePlageM <= 300 : (Boolean(r.proche_plage) || Boolean(scRaw.proche_plage)),
+      distancePlageM: resolvedDistancePlageM ?? Number.NaN,
       etage: scRaw.etage ?? r.etage ?? null,
       piscinePrivee: Boolean(scRaw.piscinePrivee ?? scRaw.piscine_privee),
       piscinePartagee: Boolean(scRaw.piscinePartagee ?? scRaw.piscine_partagee),

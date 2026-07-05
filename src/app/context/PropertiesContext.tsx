@@ -57,6 +57,37 @@ function normalizeBienType(type: string): BienType {
   return (LEGACY_TYPE_MAP[type] || type || 'appartement') as BienType;
 }
 
+function extractDistancePlageMetersFromTexts(lines: string[]): number | null {
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const raw = String(line || '').replace(',', '.');
+    const match =
+      raw.match(/distance\s*plage[^0-9]*([0-9]+(?:\.[0-9]+)?)/i)
+      || raw.match(/([0-9]+(?:\.[0-9]+)?)\s*m(?:e|è)?t?res?\s+de\s+la\s+plage/i);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
+}
+
+function resolveBienDistancePlageM(source: {
+  distance_plage_m?: number | null;
+  location_saisonniere_config?: { distance_plage_m?: number | null } | null;
+  caracteristiques?: string[];
+  description?: string | null;
+  titre?: string | null;
+}): number | null {
+  const characteristicDistance = extractDistancePlageMetersFromTexts([
+    ...(source.caracteristiques || []),
+    String(source.description || '').trim(),
+    String(source.titre || '').trim(),
+  ]);
+  if (characteristicDistance !== null) return characteristicDistance;
+  const directDistance = toNullableNumber(source.distance_plage_m);
+  if (directDistance !== null) return directDistance;
+  return toNullableNumber((source.location_saisonniere_config as any)?.distance_plage_m);
+}
+
 function buildResidenceTemplateBienFromChild(source?: Partial<Bien> | null, configuration?: string | null): Partial<Bien> {
   const normalizedType = normalizeBienType(String(source?.type || 'appartement')) === 'villa_maison' ? 'villa_maison' : 'appartement';
   return {
@@ -404,6 +435,13 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
   const effectiveCaracteristiques = caracteristiquesWithValuesFromDb.length > 0
     ? caracteristiquesWithValuesFromDb
     : (caracteristiquesFromDb.length > 0 ? caracteristiquesFromDb : parsedDescription.caracteristiques);
+  const resolvedDistancePlageM = resolveBienDistancePlageM({
+    distance_plage_m: toNullableNumber((row as any).distance_plage_m),
+    location_saisonniere_config: locationSaisonniereConfig,
+    caracteristiques: effectiveCaracteristiques,
+    description: parsedDescription.description,
+    titre: String((row as any).titre || '').trim(),
+  });
   const resolvedCapacity = resolveBienCapacity({
     nbChambres: row.nb_chambres,
     nbSalleBain: row.nb_salle_bain,
@@ -468,8 +506,8 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     etage: toNullableNumber((row as any).etage),
     configuration: resolvedCapacity.configuration,
     annee_construction: toNullableNumber((row as any).annee_construction),
-    distance_plage_m: toNullableNumber((row as any).distance_plage_m),
-    proche_plage: toBoolean((row as any).proche_plage),
+    distance_plage_m: resolvedDistancePlageM,
+    proche_plage: resolvedDistancePlageM !== null ? resolvedDistancePlageM <= 300 : toBoolean((row as any).proche_plage),
     chauffage_central: toBoolean((row as any).chauffage_central),
     climatisation: toBoolean((row as any).climatisation),
     balcon: toBoolean((row as any).balcon),
@@ -698,6 +736,19 @@ function bienToProperty(
     caracteristiques: bien.caracteristiques,
   });
   const seasonalRawConfig = bien.location_saisonniere_config || {};
+  const resolvedDistancePlageM = resolveBienDistancePlageM({
+    distance_plage_m: bien.distance_plage_m,
+    location_saisonniere_config: bien.location_saisonniere_config,
+    caracteristiques: Array.isArray(bien.caracteristiques) ? bien.caracteristiques : [],
+    description: bien.description,
+    titre: bien.titre,
+  });
+  const resolvedProchePlage = resolvedDistancePlageM !== null
+    ? resolvedDistancePlageM <= 300
+    : (
+      Boolean(bien.proche_plage)
+      || Boolean((bien.location_saisonniere_config as any)?.proche_plage)
+    );
   const poolSignalValues = [
     ...(Array.isArray((seasonalRawConfig as any)?.exterieur_jardin) ? (seasonalRawConfig as any).exterieur_jardin : []),
     ...(Array.isArray(bien.caracteristiques) ? bien.caracteristiques : []),
@@ -945,12 +996,8 @@ function bienToProperty(
         Boolean(bien.vue_mer)
         || Boolean((bien.location_saisonniere_config as any)?.vue_mer)
         || String((bien.location_saisonniere_config as any)?.vue || '').toLowerCase() === 'mer',
-      prochePlage:
-        Boolean(bien.proche_plage)
-        || Boolean((bien.location_saisonniere_config as any)?.proche_plage),
-      distancePlageM:
-        bien.distance_plage_m
-        ?? ((bien.location_saisonniere_config as any)?.distance_plage_m ?? null),
+      prochePlage: resolvedProchePlage,
+      distancePlageM: resolvedDistancePlageM,
       piscinePrivee: hasPrivatePool,
       piscinePartagee: hasSharedPool,
       exterieurJardin: Array.isArray((bien.location_saisonniere_config as any)?.exterieur_jardin)
