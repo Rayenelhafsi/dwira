@@ -199,6 +199,30 @@ const getPropertyLocationValues = (property: any): string[] => {
     .filter(Boolean);
 };
 
+const getPropertyLocationHierarchyParts = (property: any): string[] => {
+  const hierarchy = property?.filterProfile?.locationHierarchy;
+  return [
+    hierarchy?.pays,
+    hierarchy?.gouvernerat,
+    hierarchy?.region,
+    hierarchy?.quartier || property?.filterProfile?.locationLabel || property?.location,
+  ]
+    .map((value) => normalizeLocationMatchToken(value))
+    .filter(Boolean)
+    .filter((value, index, items) => items.indexOf(value) === index);
+};
+
+const hasExactLocationHierarchyMatch = (property: any, selectedParts: string[]) => {
+  if (selectedParts.length === 0) return false;
+  const hierarchyParts = getPropertyLocationHierarchyParts(property);
+  if (hierarchyParts.length < selectedParts.length) return false;
+  for (let start = 0; start <= hierarchyParts.length - selectedParts.length; start += 1) {
+    const matchesWindow = selectedParts.every((part, index) => hierarchyParts[start + index] === part);
+    if (matchesWindow) return true;
+  }
+  return false;
+};
+
 const propertyMatchesLocation = (property: any, selectedLocation: string) => {
   const selectedParts = String(selectedLocation || "")
     .split("/")
@@ -212,9 +236,7 @@ const propertyMatchesLocation = (property: any, selectedLocation: string) => {
   );
 
   if (selectedParts.length > 1) {
-    return selectedParts.every((part) =>
-      normalizedValues.some((value) => value === part || value.includes(part) || part.includes(value))
-    );
+    return hasExactLocationHierarchyMatch(property, selectedParts);
   }
 
   return normalizedValues.some((value) =>
