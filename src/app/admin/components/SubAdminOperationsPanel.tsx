@@ -256,6 +256,8 @@ type PickerOption = {
   subtitle?: string;
   badge?: string;
   badgeTone?: "emerald" | "sky" | "slate";
+  sortDate?: string;
+  sortFallback?: string;
   metaBadges?: Array<{
     label: string;
     tone?: "emerald" | "sky" | "amber" | "slate";
@@ -383,15 +385,6 @@ function formatDateOnly(value?: string | null) {
   const parsed = new Date(String(value).replace(" ", "T"));
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString("fr-FR", { timeZone: "Africa/Tunis" });
-}
-
-function formatStayPeriodLabel(startValue?: string | null, endValue?: string | null) {
-  const startLabel = startValue ? formatDateOnly(startValue) : "";
-  const endLabel = endValue ? formatDateOnly(endValue) : "";
-  if (startLabel && endLabel) return `Sejour ${startLabel} au ${endLabel}`;
-  if (startLabel) return `Arrivee ${startLabel}`;
-  if (endLabel) return `Depart ${endLabel}`;
-  return "";
 }
 
 function normalizeAssignmentStatus(value?: string | null) {
@@ -1123,6 +1116,89 @@ export default function SubAdminOperationsPanel({
     const contractDateMap = new Map(
       contracts.map((contract) => [String(contract.id || "").trim(), { start: contract.date_debut || null, fallback: contract.created_at || null }])
     );
+    const buildDateOptions = ({
+      baseId,
+      selectValue,
+      title,
+      subtitle,
+      primaryTone,
+      metaBadges,
+      note,
+      noteTone,
+      highlight,
+      disabled,
+      arrivalDate,
+      departureDate,
+      fallbackDate,
+    }: {
+      baseId: string;
+      selectValue?: string;
+      title: string;
+      subtitle: string;
+      primaryTone: "emerald" | "sky";
+      metaBadges: PickerOption["metaBadges"];
+      note?: string;
+      noteTone?: PickerOption["noteTone"];
+      highlight?: PickerOption["highlight"];
+      disabled?: boolean;
+      arrivalDate?: string | null;
+      departureDate?: string | null;
+      fallbackDate?: string | null;
+    }) => {
+      const items: PickerOption[] = [];
+      if (arrivalDate) {
+        items.push({
+          id: `${baseId}-arrival`,
+          selectValue,
+          title,
+          subtitle,
+          badge: `Arrivee ${formatDateOnly(arrivalDate)}`,
+          badgeTone: primaryTone,
+          sortDate: arrivalDate,
+          sortFallback: fallbackDate || undefined,
+          metaBadges: [...(metaBadges || []), { label: "Arrivee", tone: "emerald" }],
+          note,
+          noteTone,
+          highlight,
+          disabled,
+        });
+      }
+      if (departureDate) {
+        items.push({
+          id: `${baseId}-departure`,
+          selectValue,
+          title,
+          subtitle,
+          badge: `Depart ${formatDateOnly(departureDate)}`,
+          badgeTone: primaryTone,
+          sortDate: departureDate,
+          sortFallback: fallbackDate || undefined,
+          metaBadges: [...(metaBadges || []), { label: "Depart", tone: "amber" }],
+          note,
+          noteTone,
+          highlight,
+          disabled,
+        });
+      }
+      if (items.length === 0) {
+        items.push({
+          id: `${baseId}-default`,
+          selectValue,
+          title,
+          subtitle,
+          badge: fallbackDate ? formatDateOnly(fallbackDate) : undefined,
+          badgeTone: primaryTone,
+          sortFallback: fallbackDate || undefined,
+          metaBadges,
+          note,
+          noteTone,
+          highlight,
+          disabled,
+        });
+      }
+      return items;
+    };
+
     const baseOptions = [...contracts]
       .filter((contract) => {
         if (!needle) return true;
@@ -1140,17 +1216,11 @@ export default function SubAdminOperationsPanel({
           .map((value) => String(value || "").toLowerCase())
           .some((value) => value.includes(needle));
       })
-      .sort((left, right) => {
-        const dateCompare = compareNearestArrivalDates(left.date_debut, right.date_debut, left.created_at, right.created_at);
-        if (dateCompare !== 0) return dateCompare;
-        return parseSortDate(right.created_at) - parseSortDate(left.created_at);
-      })
-      .map((contract) => {
+      .flatMap((contract) => {
         const isAmicale =
           String(contract.reservation_payment_mode || "").trim().toLowerCase() === "amicale"
           || Boolean(String(contract.pricing_amicale_id || "").trim());
         const contractLabel = String(contract.id || "").trim();
-        const stayPeriodLabel = formatStayPeriodLabel(contract.date_debut, contract.date_fin);
         const titleParts = [String(contract.bien_titre || "").trim(), String(contract.bien_reference || "").trim()].filter(Boolean);
         const metaBadges = [
           { label: isAmicale ? "Contrat amicale" : "Contrat particulier", tone: isAmicale ? "sky" : "emerald" },
@@ -1158,8 +1228,9 @@ export default function SubAdminOperationsPanel({
           contract.amicale_name ? { label: `Amicale ${String(contract.amicale_name).trim()}`, tone: "sky" } : null,
         ].filter(Boolean) as PickerOption["metaBadges"];
 
-        return {
-          id: contract.id,
+        return buildDateOptions({
+          baseId: contract.id,
+          selectValue: contract.id,
           title: titleParts.length > 0 ? titleParts.join(" - ") : contractLabel,
           subtitle: [
             contractLabel ? `Contrat ${contractLabel}` : "",
@@ -1167,15 +1238,17 @@ export default function SubAdminOperationsPanel({
           ]
             .filter(Boolean)
             .join(" | "),
-          badge: stayPeriodLabel || (contract.created_at ? formatDateOnly(contract.created_at) : undefined),
-          badgeTone: isAmicale ? "sky" : "emerald",
+          primaryTone: isAmicale ? "sky" : "emerald",
           metaBadges,
           note: isAmicale
             ? `Note terrain: amicale : ${String(contract.amicale_name || "Amicale").trim()}`
             : undefined,
           noteTone: isAmicale ? "sky" : "slate",
           highlight: isAmicale ? "amicale" : "default",
-        } satisfies PickerOption;
+          arrivalDate: contract.date_debut || null,
+          departureDate: contract.date_fin || null,
+          fallbackDate: contract.created_at || null,
+        });
       });
 
     const knownContractIds = new Set(
@@ -1201,14 +1274,13 @@ export default function SubAdminOperationsPanel({
           .map((value) => String(value || "").toLowerCase())
           .some((value) => value.includes(needle));
       })
-      .map((demand) => {
+      .flatMap((demand) => {
         const linkedContractId = String(demand.contract_id || "").trim();
         const canAssignFromVoucher =
           demand.source_kind === "property"
           && Boolean(String(demand.voucher_url || "").trim());
         const hasLinkedContract = Boolean(linkedContractId);
         const canSelectForAssignment = hasLinkedContract || canAssignFromVoucher;
-        const stayPeriodLabel = formatStayPeriodLabel(demand.start_date, demand.end_date);
         const demandLabel = demand.source_kind === "hotel" ? "Demande hotel amicale" : "Demande bien amicale";
         const titleParts = [String(demand.bien_reference || "").trim(), String(demand.bien_titre || "").trim()].filter(Boolean);
         const note = hasLinkedContract
@@ -1219,8 +1291,8 @@ export default function SubAdminOperationsPanel({
               ? "Demande hotel sans contrat lie: visible ici, non affectable depuis ce popup."
               : "Demande adherant sans voucher PDF: generer le voucher avant affectation.";
 
-        return {
-          id: demand.id,
+        return buildDateOptions({
+          baseId: demand.id,
           selectValue: hasLinkedContract ? linkedContractId : canAssignFromVoucher ? `${RESERVATION_DEMAND_PICKER_PREFIX}${String(demand.demand_id || "").trim()}` : undefined,
           title: titleParts.length > 0 ? titleParts.join(" - ") : demand.demand_id,
           subtitle: [
@@ -1229,8 +1301,7 @@ export default function SubAdminOperationsPanel({
           ]
             .filter(Boolean)
             .join(" | "),
-          badge: stayPeriodLabel || undefined,
-          badgeTone: "sky",
+          primaryTone: "sky",
           metaBadges: [
             { label: demandLabel, tone: "sky" },
             demand.amicale_name ? { label: `Amicale ${String(demand.amicale_name).trim()}`, tone: "sky" } : null,
@@ -1244,19 +1315,18 @@ export default function SubAdminOperationsPanel({
           noteTone: canSelectForAssignment ? "sky" : "slate",
           highlight: "amicale",
           disabled: !canSelectForAssignment,
-        } satisfies PickerOption;
+          arrivalDate: demand.start_date || null,
+          departureDate: demand.end_date || null,
+          fallbackDate: demand.created_at || null,
+        });
       });
 
     return [...baseOptions, ...amicaleDemandOptions].sort((left, right) => {
-      const leftDemand = amicaleDemands.find((entry) => entry.id === left.id);
-      const rightDemand = amicaleDemands.find((entry) => entry.id === right.id);
-      const leftContract = contractDateMap.get(String(left.selectValue || left.id || "").trim());
-      const rightContract = contractDateMap.get(String(right.selectValue || right.id || "").trim());
       return compareNearestArrivalDates(
-        leftDemand?.start_date || leftContract?.start || null,
-        rightDemand?.start_date || rightContract?.start || null,
-        leftDemand?.created_at || leftContract?.fallback || null,
-        rightDemand?.created_at || rightContract?.fallback || null
+        left.sortDate || null,
+        right.sortDate || null,
+        left.sortFallback || contractDateMap.get(String(left.selectValue || left.id || "").trim())?.fallback || null,
+        right.sortFallback || contractDateMap.get(String(right.selectValue || right.id || "").trim())?.fallback || null
       );
     });
   }, [amicaleDemands, contractSearch, contracts]);
