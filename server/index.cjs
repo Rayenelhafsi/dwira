@@ -2706,8 +2706,9 @@ async function generateHotelVoucherHtml({ demand, voucherNumber, voucherId, qrPa
     fs.mkdirSync(vouchersDir, { recursive: true });
   }
   const safeDemandId = String(demand?.id || `hotel_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '');
-  const fileName = `voucher-${safeDemandId}.html`;
-  const pdfFileName = `voucher-${safeDemandId}.pdf`;
+  const generationToken = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+  const fileName = `voucher-${safeDemandId}-${generationToken}.html`;
+  const pdfFileName = `voucher-${safeDemandId}-${generationToken}.pdf`;
   const filePath = path.join(vouchersDir, fileName);
   const pdfPath = path.join(vouchersDir, pdfFileName);
   const voucherRelativePath = `/contracts/hotel-vouchers/${fileName}`;
@@ -27234,11 +27235,13 @@ app.get('/api/unavailable-dates/:bien_id', async (req, res) => {
 app.post('/api/unavailable-dates', requireAdminSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
-    const { bien_id, start_date, end_date, status } = req.body;
+    const { bien_id, start_date, end_date, status, color, sync_source, sync_uid } = req.body;
     const id = 'ud' + Date.now();
     await pool.query(
-      'INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [id, bien_id, start_date, end_date, status || 'blocked', null, null]
+      `INSERT INTO unavailable_dates (
+         id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline, color, sync_source, sync_uid
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, bien_id, start_date, end_date, status || 'blocked', null, null, color || null, sync_source || null, sync_uid || null]
     );
     await syncResidenceParentFromChild(bien_id);
     const [newDate] = await pool.query('SELECT * FROM unavailable_dates WHERE id = ?', [id]);

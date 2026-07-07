@@ -1639,6 +1639,7 @@ export default function NotificationsPage() {
   const syncUnavailableDatesForBien = useCallback(async (bienId: string, dates: DateStatus[]) => {
     const normalizedBienId = String(bienId || '').trim();
     if (!normalizedBienId) return;
+    const isProtectedSyncSource = (value: unknown) => String(value || '').trim() === 'amicale_gross';
 
     const normalizeStatus = (value: unknown): 'blocked' | 'pending' | 'booked' => {
       const raw = String(value || '').trim().toLowerCase();
@@ -1651,6 +1652,7 @@ export default function NotificationsPage() {
 
     const desired = (Array.isArray(dates) ? dates : [])
       .map((item) => {
+        if (isProtectedSyncSource(item?.sync_source)) return null;
         const start = normalizeSqlDate(item?.start);
         const end = normalizeSqlDate(item?.end);
         const status = normalizeStatus(item?.status);
@@ -1669,10 +1671,12 @@ export default function NotificationsPage() {
       start_date?: string;
       end_date?: string;
       status?: string;
+      sync_source?: string | null;
     }>;
 
     const existingBuckets = new Map<string, Array<{ id: string }>>();
     for (const row of Array.isArray(existingRows) ? existingRows : []) {
+      if (isProtectedSyncSource(row?.sync_source)) continue;
       const id = String(row?.id || '').trim();
       const start = normalizeSqlDate(row?.start_date);
       const end = normalizeSqlDate(row?.end_date);

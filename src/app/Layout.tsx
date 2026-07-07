@@ -8,7 +8,24 @@ import { getSiteMaintenanceStatus, readCachedSiteMaintenanceStatus, type SiteMai
 import { useAuth } from "./context/AuthContext";
 import { MAINTENANCE_ACCESS_PATH } from "./config/maintenance";
 import { trackGaPageView } from "./utils/analytics";
-import { hasTrackingConsent } from "./utils/consent";
+import { getOrCreateTrackingSessionId, hasTrackingConsent } from "./utils/consent";
+import { trackPublicClientInteraction } from "./utils/clientInteractions";
+
+const PUBLIC_SESSION_TRACKED_KEY = "dwira_public_session_started_v1";
+
+function deriveTrackingChannelFromSearch(searchValue: string) {
+  const params = new URLSearchParams(String(searchValue || "").replace(/^\?/, ""));
+  if (String(params.get("partner") || params.get("partnerAgencyId") || params.get("partner_agency_id") || params.get("publicPartnerSlug") || "").trim()) {
+    return "partner" as const;
+  }
+  if (
+    String(params.get("amicale") || params.get("amicaleId") || params.get("pricingAmicaleId") || params.get("pricing_amicale_id") || "").trim()
+    || String(params.get("paymentMode") || params.get("payment_mode") || "").trim().toLowerCase() === "amicale"
+  ) {
+    return "amicale" as const;
+  }
+  return "direct" as const;
+}
 
 const LazyPartnersLogoMarquee = lazy(() =>
   import("./components/PartnersLogoMarquee").then((module) => ({ default: module.PartnersLogoMarquee }))
@@ -109,6 +126,44 @@ export function Layout() {
     if (!hasTrackingConsent()) return;
     const fullPath = `${location.pathname}${location.search}${location.hash}`;
     void trackGaPageView(fullPath).catch(() => {});
+  }, [consentRevision, hidePublicChrome, location.hash, location.pathname, location.search]);
+
+  useEffect(() => {
+    if (hidePublicChrome) return;
+    if (!hasTrackingConsent()) return;
+    const sessionId = getOrCreateTrackingSessionId();
+    const trackingChannel = deriveTrackingChannelFromSearch(location.search);
+    const fullPath = `${location.pathname}${location.search}${location.hash}`;
+    const referrerSource = typeof document !== "undefined" ? (document.referrer || undefined) : undefined;
+
+    if (typeof window !== "undefined" && !window.sessionStorage.getItem(PUBLIC_SESSION_TRACKED_KEY)) {
+      window.sessionStorage.setItem(PUBLIC_SESSION_TRACKED_KEY, "1");
+      void trackPublicClientInteraction({
+        type: "session_start",
+        propertyTitle: "Session site web",
+        sessionId,
+        path: fullPath,
+        channel: trackingChannel,
+        referrerSource,
+        metadata: {
+          channel: trackingChannel,
+          landingPath: fullPath,
+        },
+      }).catch(() => {});
+    }
+
+    void trackPublicClientInteraction({
+      type: "site_open",
+      propertyTitle: "Site web Dwira",
+      sessionId,
+      path: fullPath,
+      channel: trackingChannel,
+      referrerSource,
+      metadata: {
+        channel: trackingChannel,
+        pagePath: fullPath,
+      },
+    }).catch(() => {});
   }, [consentRevision, hidePublicChrome, location.hash, location.pathname, location.search]);
 
   useEffect(() => {

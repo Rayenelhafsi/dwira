@@ -21,6 +21,9 @@ import { getOptimizedMediaUrl, resolveMediaUrl } from '../../utils/media';
 import locationSaisonniereServicesData from '../../data/locationSaisonniereServices.json';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const AMICALE_GROSS_UNAVAILABLE_COLOR = '#6b7280';
+const AMICALE_GROSS_SYNC_SOURCE = 'amicale_gross';
+const AMICALE_GROSS_STORAGE_KEY = 'dwira_admin_amicales_en_gros_v1';
 const ADMIN_IMAGE_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23e5e7eb'/%3E%3Cpath d='M170 240l92-90 64 64 54-54 90 80H170z' fill='%23cbd5e1'/%3E%3Ccircle cx='250' cy='126' r='30' fill='%23cbd5e1'/%3E%3C/svg%3E";
 const HEIC_IMAGE_RE = /\.hei[cf](?:$|[?#])/i;
@@ -38,6 +41,72 @@ const LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK = (locationSaisonniereSer
 );
 const buildDefaultPaidServices = (services: ServicePayantBien[] = LOCATION_SAISONNIERE_SERVICES_CATALOGUE_FALLBACK) =>
   services.map((service) => normalizeServicePayant(service));
+const readAmicaleGrossDisplayEntries = (bienId?: string | null): Array<{ arrivalDate: string; departureDate: string }> => {
+  if (typeof window === 'undefined') return [];
+  const normalizedBienId = String(bienId || '').trim();
+  if (!normalizedBienId) return [];
+  try {
+    const raw = window.localStorage.getItem(AMICALE_GROSS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => ({
+        bienId: String(entry?.bienId || '').trim(),
+        arrivalDate: String(entry?.arrivalDate || '').trim().slice(0, 10),
+        departureDate: String(entry?.departureDate || '').trim().slice(0, 10),
+      }))
+      .filter((entry) =>
+        entry.bienId === normalizedBienId
+        && /^\d{4}-\d{2}-\d{2}$/.test(entry.arrivalDate)
+        && /^\d{4}-\d{2}-\d{2}$/.test(entry.departureDate)
+        && entry.departureDate >= entry.arrivalDate
+      )
+      .map((entry) => ({
+        arrivalDate: entry.arrivalDate,
+        departureDate: entry.departureDate,
+      }));
+  } catch {
+    return [];
+  }
+};
+const mergeAmicaleGrossDatesForDisplay = (bienId: string, rows: DateStatus[]): DateStatus[] => {
+  const normalizedBienId = String(bienId || '').trim();
+  const grossEntries = readAmicaleGrossDisplayEntries(normalizedBienId);
+  const grossKeys = new Set(grossEntries.map((entry) => `${entry.arrivalDate}|${entry.departureDate}`));
+  const normalizedRows = (Array.isArray(rows) ? rows : []).map((row) => {
+    const start = String(row?.start || '').slice(0, 10);
+    const end = String(row?.end || '').slice(0, 10);
+    const key = `${start}|${end}`;
+    if (
+      String(row?.sync_source || '').trim() === AMICALE_GROSS_SYNC_SOURCE
+      || String(row?.color || '').trim().toLowerCase() === AMICALE_GROSS_UNAVAILABLE_COLOR
+      || grossKeys.has(key)
+    ) {
+      return {
+        ...row,
+        status: 'blocked' as const,
+        color: AMICALE_GROSS_UNAVAILABLE_COLOR,
+        sync_source: AMICALE_GROSS_SYNC_SOURCE,
+      };
+    }
+    return row;
+  });
+
+  const byKey = new Map<string, DateStatus>();
+  normalizedRows.forEach((row) => {
+    const key = `${String(row?.start || '').slice(0, 10)}|${String(row?.end || '').slice(0, 10)}|${String(row?.status || 'blocked').trim().toLowerCase() || 'blocked'}`;
+    const existing = byKey.get(key);
+    const rowIsGross = String(row?.sync_source || '').trim() === AMICALE_GROSS_SYNC_SOURCE
+      || String(row?.color || '').trim().toLowerCase() === AMICALE_GROSS_UNAVAILABLE_COLOR;
+    const existingIsGross = String(existing?.sync_source || '').trim() === AMICALE_GROSS_SYNC_SOURCE
+      || String(existing?.color || '').trim().toLowerCase() === AMICALE_GROSS_UNAVAILABLE_COLOR;
+    if (!existing || (rowIsGross && !existingIsGross)) {
+      byKey.set(key, row);
+    }
+  });
+  return Array.from(byKey.values());
+};
 const buildResidenceTemplateBienSnapshot = (
   source?: Partial<Bien> | null,
   mainType?: 'appartement' | 'villa_maison',
@@ -1705,6 +1774,7 @@ export default function BiensPage() {
   const syncUnavailableDatesForBien = async (bienId: string, dates: DateStatus[]) => {
     const normalizedBienId = String(bienId || '').trim();
     if (!normalizedBienId) return;
+    const isProtectedSyncSource = (value: unknown) => String(value || '').trim() === AMICALE_GROSS_SYNC_SOURCE;
 
     const normalizeStatus = (value: unknown): 'blocked' | 'pending' | 'booked' => {
       const raw = String(value || '').trim().toLowerCase();
@@ -1717,6 +1787,7 @@ export default function BiensPage() {
 
     const desired = (Array.isArray(dates) ? dates : [])
       .map((item) => {
+        if (isProtectedSyncSource(item?.sync_source)) return null;
         const start = normalizeSqlDate(item?.start);
         const end = normalizeSqlDate(item?.end);
         const status = normalizeStatus(item?.status);
@@ -1735,6 +1806,7 @@ export default function BiensPage() {
       end_date?: string;
       status?: string;
       reservation_demand_id?: string | null;
+      sync_source?: string | null;
     }>;
 
     // Sync exactly what the admin keeps in the calendar list:
@@ -1742,6 +1814,7 @@ export default function BiensPage() {
     const managedExisting = Array.isArray(existingRows) ? existingRows : [];
     const existingBuckets = new Map<string, Array<{ id: string }>>();
     for (const row of managedExisting) {
+      if (isProtectedSyncSource(row?.sync_source)) continue;
       const id = String(row?.id || '').trim();
       const start = normalizeSqlDate(row?.start_date);
       const end = normalizeSqlDate(row?.end_date);
@@ -2686,7 +2759,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           } satisfies DateStatus;
         })
         .filter((row: DateStatus | null): row is DateStatus => Boolean(row));
-      setUnavailableDates(normalizedDates);
+      setUnavailableDates(mergeAmicaleGrossDatesForDisplay(currentBienId, normalizedDates));
       const successMessage = String(nextConfig.airbnb_last_sync_message || '').trim()
         || `${Number(payload?.importedEvents || 0)} evenement(s) synchronises`;
       toast.success(successMessage);
@@ -3163,7 +3236,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           })
           .filter((row): row is DateStatus => Boolean(row));
         if (!cancelled) {
-          setUnavailableDates(normalizedRows);
+          setUnavailableDates(mergeAmicaleGrossDatesForDisplay(String(initialData?.id || ''), normalizedRows));
         }
       } catch {
         // Keep initial unavailable dates as fallback.
@@ -10385,20 +10458,53 @@ export function AdminCalendar({
     return `Amicale: ${amicaleOptions.find((item) => item.id === value)?.name || value}`;
   }, [amicaleOptions]);
 
-  const getDateStatus = (date: Date): DateStatus | undefined => dates.find((range) => {
-    if (!range?.start || !range?.end) return false;
-    const start = parseDateSafe(range.start);
-    const end = parseDateSafe(range.end);
-    if (!start || !end || end < start) return false;
-    return isWithinInterval(date, { start, end });
-  });
+  const isAmicaleGrossStatus = (status?: DateStatus | null) =>
+    String(status?.sync_source || '').trim() === AMICALE_GROSS_SYNC_SOURCE
+    || String(status?.color || '').trim().toLowerCase() === AMICALE_GROSS_UNAVAILABLE_COLOR;
+  const getDateStatus = (date: Date): DateStatus | undefined => {
+    const matches = dates.filter((range) => {
+      if (!range?.start || !range?.end) return false;
+      const start = parseDateSafe(range.start);
+      const end = parseDateSafe(range.end);
+      if (!start || !end || end < start) return false;
+      return isWithinInterval(date, { start, end });
+    });
+    if (matches.length === 0) return undefined;
+    const amicaleGross = matches.find((range) => isAmicaleGrossStatus(range));
+    return amicaleGross || matches[0];
+  };
   const handleDateClick = (date: Date) => { if (isBefore(date, today)) return; if (!selectionStart || (selectionStart && selectionEnd)) { setSelectionStart(date); setSelectionEnd(null); } else { if (date < selectionStart) setSelectionStart(date); else setSelectionEnd(date); } };
   const buildDateStatus = (start: string, end: string): DateStatus => ({ start, end, status: selectedStatus, color: selectedStatus === 'booked' ? '#ef4444' : selectedStatus === 'pending' ? '#f97316' : '#111827' });
   const handleAddPeriod = () => { if (!selectionStart || !selectionEnd) return; const start = format(selectionStart < selectionEnd ? selectionStart : selectionEnd, 'yyyy-MM-dd'); const end = format(selectionStart < selectionEnd ? selectionEnd : selectionStart, 'yyyy-MM-dd'); onDatesChange([...dates, buildDateStatus(start, end)]); setSelectionStart(null); setSelectionEnd(null); toast.success('Periode ajoutee'); };
   const handleManualAddPeriod = () => { if (!manualStartDate || !manualEndDate) return toast.error('Choisissez les deux dates'); if (manualEndDate < manualStartDate) return toast.error('La date de fin doit etre apres la date de debut'); onDatesChange([...dates, buildDateStatus(manualStartDate, manualEndDate)]); setManualStartDate(''); setManualEndDate(''); toast.success('Periode ajoutee'); };
   const handleRemovePeriod = (index: number) => { onDatesChange(dates.filter((_, i) => i !== index)); toast.success('Periode supprimee'); };
-  const getDayClassName = (date: Date) => { const status = getDateStatus(date); const isPast = isBefore(date, today); const isSelected = (selectionStart && date.getTime() === selectionStart.getTime()) || (selectionEnd && date.getTime() === selectionEnd.getTime()); const inSelectionRange = selectionStart && selectionEnd && isWithinInterval(date, { start: selectionStart < selectionEnd ? selectionStart : selectionEnd, end: selectionStart < selectionEnd ? selectionEnd : selectionStart }); let base = "w-full h-12 sm:h-14 lg:h-16 flex items-center justify-center text-sm rounded-lg cursor-pointer "; if (isPast) base += "text-gray-300 cursor-not-allowed "; else if (status) base += "text-white font-medium "; else if (isSelected || inSelectionRange) base += "bg-emerald-500 text-white font-bold "; else base += "bg-green-100 text-green-700 hover:bg-green-200 "; return base; };
-  const getDayBackground = (date: Date) => { const status = getDateStatus(date); if (status?.color) return status.color; if (status?.status === 'booked') return '#ef4444'; if (status?.status === 'pending') return '#f97316'; if (status?.status === 'blocked') return '#111827'; return ''; };
+  const getDayClassName = (date: Date) => {
+    const status = getDateStatus(date);
+    const isPast = isBefore(date, today);
+    const isSelected = (selectionStart && date.getTime() === selectionStart.getTime()) || (selectionEnd && date.getTime() === selectionEnd.getTime());
+    const inSelectionRange = selectionStart && selectionEnd && isWithinInterval(date, { start: selectionStart < selectionEnd ? selectionStart : selectionEnd, end: selectionStart < selectionEnd ? selectionEnd : selectionStart });
+    let base = "w-full h-12 sm:h-14 lg:h-16 flex items-center justify-center text-sm rounded-lg cursor-pointer border ";
+    if (isPast) base += "border-transparent text-gray-300 cursor-not-allowed ";
+    else if (status) base += `${isAmicaleGrossStatus(status) ? 'text-white border-slate-500' : 'text-white border-transparent'} font-medium `;
+    else if (isSelected || inSelectionRange) base += "bg-emerald-500 border-emerald-500 text-white font-bold ";
+    else base += "bg-green-100 border-green-100 text-green-700 hover:bg-green-200 ";
+    return base;
+  };
+  const getDayStyle = (date: Date): React.CSSProperties | undefined => {
+    const status = getDateStatus(date);
+    if (!status) return undefined;
+    if (isAmicaleGrossStatus(status)) {
+      return {
+        backgroundColor: AMICALE_GROSS_UNAVAILABLE_COLOR,
+        backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.22) 0 7px, rgba(255,255,255,0.06) 7px 14px)',
+      };
+    }
+    if (status?.color) return { backgroundColor: status.color };
+    if (status?.status === 'booked') return { backgroundColor: '#ef4444' };
+    if (status?.status === 'pending') return { backgroundColor: '#f97316' };
+    if (status?.status === 'blocked') return { backgroundColor: '#111827' };
+    return undefined;
+  };
 
   const addPricingPeriod = (start: string, end: string) => {
     const nightly = Math.max(0, Number(periodNightlyPrice || 0));
@@ -10594,8 +10700,8 @@ export function AdminCalendar({
       </div>
       <div className="flex items-center justify-between mb-4"><button type="button" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronLeft className="h-5 w-5" /></button><h4 className="text-lg font-semibold capitalize">{format(currentMonth, "MMMM yyyy", { locale: fr })}</h4><button type="button" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 hover:bg-gray-100 rounded-lg"><ChevronRight className="h-5 w-5" /></button></div>
       <div className="grid grid-cols-7 gap-1 mb-2">{["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map(day => <div key={day} className="text-center text-xs font-semibold text-gray-500 py-2">{day}</div>)}</div>
-      <div className="grid grid-cols-7 gap-1">{days.map((day, idx) => <div key={idx} onClick={() => handleDateClick(day)}><div className={getDayClassName(day)} style={{ backgroundColor: getDayBackground(day) || undefined }}><span>{format(day, "d")}</span></div></div>)}</div>
-      {dates.length > 0 && <div className="mt-6 pt-4 border-t"><h5 className="font-semibold mb-3">Periodes indisponibles</h5><div className="space-y-2">{dates.map((date, index) => <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div className="flex items-center gap-3"><div className="w-4 h-4 rounded" style={{ backgroundColor: date.color || '#111827' }}></div><span className="text-sm">{formatDateSafe(date.start)} - {formatDateSafe(date.end)}</span></div><button type="button" onClick={() => handleRemovePeriod(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-4 w-4" /></button></div>)}</div></div>}
+      <div className="grid grid-cols-7 gap-1">{days.map((day, idx) => <div key={idx} onClick={() => handleDateClick(day)}><div className={getDayClassName(day)} style={getDayStyle(day)}><span>{format(day, "d")}</span></div></div>)}</div>
+      {dates.length > 0 && <div className="mt-6 pt-4 border-t"><h5 className="font-semibold mb-3">Periodes indisponibles</h5><div className="space-y-2">{dates.map((date, index) => { const isGross = isAmicaleGrossStatus(date); return <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div className="flex items-center gap-3"><div className="w-4 h-4 rounded border border-slate-300" style={isGross ? { backgroundColor: AMICALE_GROSS_UNAVAILABLE_COLOR, backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.22) 0 3px, rgba(255,255,255,0.06) 3px 6px)' } : { backgroundColor: date.color || '#111827' }}></div><span className="text-sm">{formatDateSafe(date.start)} - {formatDateSafe(date.end)}{isGross ? ' · Amicale en gros' : ''}</span></div><button type="button" onClick={() => handleRemovePeriod(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-4 w-4" /></button></div>; })}</div></div>}
       {pricingPeriods.length > 0 && <div className="mt-6 pt-4 border-t"><h5 className="font-semibold mb-3">Periodes tarifaires</h5><div className="space-y-2">{pricingPeriods.map((period, index) => <div key={period.id || `${period.start}-${period.end}-${index}`} className="flex items-center justify-between p-3 bg-sky-50 rounded-lg border border-sky-100"><div className="space-y-1"><p className="text-sm font-medium text-gray-900">{formatDateSafe(period.start)} - {formatDateSafe(period.end)}</p><p className="text-xs text-gray-600">Portee: <span className="font-semibold text-gray-900">{resolvePricingScopeLabel(period)}</span></p><p className="text-xs text-gray-600">Nuit: <span className="font-semibold text-gray-900">{Number(period.prix_nuitee || 0)} DT</span> | Semaine: <span className="font-semibold text-gray-900">{Number(period.prix_semaine || 0)} DT</span></p><p className="text-xs text-gray-600">Minimum sejour: <span className="font-semibold text-gray-900">{Math.max(1, Number(period.minimum_nuitees || 1))} nuit(s)</span></p><p className="text-xs text-gray-600">Check-in: <span className="font-semibold text-gray-900">{period.checkin_jour || 'Libre'}</span> | Check-out: <span className="font-semibold text-gray-900">{period.checkout_jour || 'Libre'}</span></p></div><button type="button" onClick={() => handleRemovePricingPeriod(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-4 w-4" /></button></div>)}</div></div>}
     </div>
   );

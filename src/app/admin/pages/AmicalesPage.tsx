@@ -1,16 +1,63 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Code2, Eye, FileText, Printer, RefreshCw, Ticket, Trash2, Upload, Users } from "lucide-react";
+import { format as formatDateFn } from "date-fns";
+import { CalendarDays, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Code2, Eye, FileText, Printer, RefreshCw, Search, Sparkles, Ticket, Trash2, Upload, Users } from "lucide-react";
 import { createAmicaleApi, deleteAmicaleApi, fetchAmicalesAdmin, normalizeAmicaleHotelMarkupPercent, type AmicaleItem, updateAmicaleApi } from "../../utils/amicales";
-import type { HotelReservationDemand, ReservationDemand, ReservationDemandStatus } from "../types";
+import type { Bien, HotelReservationDemand, Proprietaire, ReservationDemand, ReservationDemandStatus } from "../types";
 import { regenerateHotelVoucher, uploadHotelVoucherPdf } from "../../services/hotels";
+import { Calendar } from "../../components/ui/calendar";
+import { resolveMediaUrl } from "../../utils/media";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
+const AMICALE_GROSS_STORAGE_KEY = "dwira_admin_amicales_en_gros_v1";
+const AMICALE_GROSS_UNAVAILABLE_COLOR = "#6b7280";
+const AMICALE_GROSS_SYNC_SOURCE = "amicale_gross";
+const BIEN_IMAGE_FALLBACK = "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=900&q=80";
 
-type AdminAmicaleTab = "amicales" | "demandes";
+type AdminAmicaleTab = "amicales" | "en_gros" | "demandes";
 type DemandSectionTab = "actives" | "rejetees";
 type DemandSortMode = "arrival" | "recent";
+
+type AmicaleGrossManualEntry = {
+  id: string;
+  amicaleId: string;
+  amicaleName: string;
+  bienId: string;
+  bienReference: string;
+  bienTitle: string;
+  arrivalDate: string;
+  departureDate: string;
+  ownerAdvanceAmount: number;
+  rentalTotalAmount: number;
+  note: string;
+  benefitAmount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type UnavailableDateApiRow = {
+  id?: string;
+  bien_id?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: string;
+  color?: string | null;
+  sync_source?: string | null;
+  sync_uid?: string | null;
+};
+
+type AmicaleGrossDraft = {
+  entryId: string | null;
+  amicaleId: string;
+  bienId: string;
+  arrivalDate: string;
+  departureDate: string;
+  ownerAdvanceAmount: string;
+  rentalTotalAmount: string;
+  note: string;
+  benefitAmount: string;
+};
 
 type AmicaleDemandRow = ReservationDemand & {
   amicale_name?: string | null;
@@ -88,6 +135,10 @@ function formatCurrency(value?: number | string | null) {
   return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(num)} DT`;
 }
 
+function createLocalId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function parseSortDate(value?: string | null) {
   if (!value) return Number.NaN;
   return new Date(String(value).replace(" ", "T")).getTime();
@@ -134,6 +185,73 @@ function parseOptionalAmount(value: string): number | null {
   const numeric = Number(raw);
   if (!Number.isFinite(numeric) || numeric < 0) return Number.NaN;
   return Math.round(numeric * 100) / 100;
+}
+
+function loadAmicaleGrossEntries() {
+  if (typeof window === "undefined") return [] as AmicaleGrossManualEntry[];
+  try {
+    const raw = window.localStorage.getItem(AMICALE_GROSS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((entry) => ({
+      id: String(entry?.id || createLocalId("amg")).trim(),
+      amicaleId: String(entry?.amicaleId || "").trim(),
+      amicaleName: String(entry?.amicaleName || "").trim(),
+      bienId: String(entry?.bienId || "").trim(),
+      bienReference: String(entry?.bienReference || "").trim(),
+      bienTitle: String(entry?.bienTitle || "").trim(),
+      arrivalDate: String(entry?.arrivalDate || "").trim(),
+      departureDate: String(entry?.departureDate || "").trim(),
+      ownerAdvanceAmount: Number(entry?.ownerAdvanceAmount || 0) || 0,
+      rentalTotalAmount: Number(entry?.rentalTotalAmount || 0) || 0,
+      note: String(entry?.note || "").trim(),
+      benefitAmount: Number(entry?.benefitAmount || 0) || 0,
+      createdAt: String(entry?.createdAt || new Date().toISOString()).trim(),
+      updatedAt: String(entry?.updatedAt || entry?.createdAt || new Date().toISOString()).trim(),
+    })) as AmicaleGrossManualEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function buildEmptyAmicaleGrossDraft(): AmicaleGrossDraft {
+  return {
+    entryId: null,
+    amicaleId: "",
+    bienId: "",
+    arrivalDate: "",
+    departureDate: "",
+    ownerAdvanceAmount: "",
+    rentalTotalAmount: "",
+    note: "",
+    benefitAmount: "",
+  };
+}
+
+function formatDateInputValue(value?: string | Date | null) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+    return formatDateFn(value, "yyyy-MM-dd");
+  }
+  return String(value || "").trim().slice(0, 10);
+}
+
+function parseDateInputValue(value?: string | null) {
+  const normalized = formatDateInputValue(value);
+  if (!normalized) return null;
+  const parsed = new Date(`${normalized}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getBienPreviewImage(bien?: Bien | null) {
+  if (!bien) return BIEN_IMAGE_FALLBACK;
+  const mediaList = Array.isArray(bien.media) ? bien.media : [];
+  const firstImage = mediaList.find((item) => String(item?.type || "").toLowerCase() !== "video" && String(item?.url || "").trim());
+  const directImage = resolveMediaUrl(String(firstImage?.url || "").trim());
+  if (directImage) return directImage;
+  const fallbackImage = resolveMediaUrl(String((bien as { image_url?: string | null }).image_url || "").trim());
+  return fallbackImage || BIEN_IMAGE_FALLBACK;
 }
 
 function resolveAssetUrl(url?: string | null) {
@@ -299,6 +417,8 @@ function buildHotelVoucherPatch(demand: AmicaleDemandRow) {
 
 export default function AmicalesPage() {
   const [amicales, setAmicales] = useState<AmicaleItem[]>([]);
+  const [biens, setBiens] = useState<Bien[]>([]);
+  const [proprietaires, setProprietaires] = useState<Proprietaire[]>([]);
   const [demandRows, setDemandRows] = useState<AmicaleDemandRow[]>([]);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -318,18 +438,28 @@ export default function AmicalesPage() {
   const [financialDrafts, setFinancialDrafts] = useState<Record<string, { ownerAmount: string; ownerTotal: string; netProfit: string }>>({});
   const [expandedFinancials, setExpandedFinancials] = useState<Record<string, boolean>>({});
   const [savingFinancialDemandId, setSavingFinancialDemandId] = useState<string | null>(null);
+  const [savingAmicaleGross, setSavingAmicaleGross] = useState(false);
+  const [amicaleGrossDraft, setAmicaleGrossDraft] = useState<AmicaleGrossDraft>(() => buildEmptyAmicaleGrossDraft());
+  const [amicaleGrossEntries, setAmicaleGrossEntries] = useState<AmicaleGrossManualEntry[]>(() => loadAmicaleGrossEntries());
+  const [amicaleGrossPropertySearch, setAmicaleGrossPropertySearch] = useState("");
 
   const loadData = useCallback(async (options?: { background?: boolean }) => {
     if (!options?.background) setLoading(true);
     try {
-      const [amicalesResponse, demandsResponse, hotelDemandsResponse] = await Promise.all([
+      const [amicalesResponse, biensResponse, proprietairesResponse, demandsResponse, hotelDemandsResponse] = await Promise.all([
         fetchAmicalesAdmin(),
+        fetch(`${API_URL}/biens`, { credentials: "include", cache: "no-store" }),
+        fetch(`${API_URL}/proprietaires`, { credentials: "include", cache: "no-store" }),
         fetch(`${API_URL}/reservation-demands`, { credentials: "include" }),
         fetch(`${API_URL}/hotel-reservation-demands`, { credentials: "include" }),
       ]);
+      const biensJson = biensResponse.ok ? await biensResponse.json().catch(() => []) : [];
+      const proprietairesJson = proprietairesResponse.ok ? await proprietairesResponse.json().catch(() => []) : [];
       const demandJson = demandsResponse.ok ? await demandsResponse.json().catch(() => []) : [];
       const hotelDemandJson = hotelDemandsResponse.ok ? await hotelDemandsResponse.json().catch(() => []) : [];
       setAmicales(Array.isArray(amicalesResponse) ? amicalesResponse : []);
+      setBiens(Array.isArray(biensJson) ? biensJson : []);
+      setProprietaires(Array.isArray(proprietairesJson) ? proprietairesJson : []);
       setDemandRows(sortAmicaleDemandRows(
         [
           ...(Array.isArray(demandJson) ? demandJson : []),
@@ -368,6 +498,50 @@ export default function AmicalesPage() {
     );
   }, [amicales]);
 
+  useEffect(() => {
+    if (!biens.length) return;
+    const missingMediaBienIds = biens
+      .filter((item) => !Array.isArray(item.media) || item.media.length === 0)
+      .map((item) => String(item.id || "").trim())
+      .filter(Boolean);
+    if (!missingMediaBienIds.length) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/media-bulk?bien_ids=${encodeURIComponent(missingMediaBienIds.join(","))}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const mediaRows = await response.json().catch(() => []);
+        if (cancelled || !Array.isArray(mediaRows)) return;
+        const mediaByBienId = new Map<string, any[]>();
+        for (const media of mediaRows) {
+          const bienId = String(media?.bien_id || "").trim();
+          if (!bienId) continue;
+          const current = mediaByBienId.get(bienId) || [];
+          current.push(media);
+          mediaByBienId.set(bienId, current);
+        }
+        setBiens((current) => current.map((item) => {
+          const bienId = String(item.id || "").trim();
+          const media = mediaByBienId.get(bienId);
+          return media && media.length > 0 ? { ...item, media } : item;
+        }));
+      } catch {
+        // ignore media preview failures
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [biens]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(AMICALE_GROSS_STORAGE_KEY, JSON.stringify(amicaleGrossEntries));
+  }, [amicaleGrossEntries]);
+
   const amicaleCounts = useMemo(() => {
     const waitingAmicale = demandRows.filter((row) => row.status === "attente_validation_amicale").length;
     const waitingAgency = demandRows.filter((row) => row.status === "attente_validation_par_agence").length;
@@ -383,6 +557,14 @@ export default function AmicalesPage() {
     }
     return map;
   }, [amicales]);
+
+  const proprietaireNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of proprietaires) {
+      map.set(String(item.id || "").trim(), String(item.nom || "").trim());
+    }
+    return map;
+  }, [proprietaires]);
 
   const scopedDemandRows = useMemo(() => (
     demandSectionTab === "rejetees"
@@ -401,6 +583,70 @@ export default function AmicalesPage() {
     }
     return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, "fr"));
   }, [scopedDemandRows, amicaleNameById]);
+
+  const selectedGrossAmicale = useMemo(
+    () => amicales.find((item) => String(item.id || "").trim() === amicaleGrossDraft.amicaleId) || null,
+    [amicales, amicaleGrossDraft.amicaleId]
+  );
+
+  const selectedGrossBien = useMemo(
+    () => biens.find((item) => String(item.id || "").trim() === amicaleGrossDraft.bienId) || null,
+    [biens, amicaleGrossDraft.bienId]
+  );
+
+  const selectedGrossOwnerName = useMemo(() => {
+    if (!selectedGrossBien) return "";
+    return proprietaireNameById.get(String(selectedGrossBien.proprietaire_id || "").trim()) || String((selectedGrossBien as { proprietaire_nom?: string | null }).proprietaire_nom || "").trim();
+  }, [proprietaireNameById, selectedGrossBien]);
+
+  const grossArrivalDate = useMemo(
+    () => parseDateInputValue(amicaleGrossDraft.arrivalDate),
+    [amicaleGrossDraft.arrivalDate]
+  );
+  const grossDepartureDate = useMemo(
+    () => parseDateInputValue(amicaleGrossDraft.departureDate),
+    [amicaleGrossDraft.departureDate]
+  );
+
+  const missingGrossSetupLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (!amicaleGrossDraft.amicaleId) labels.push("amicale");
+    if (!amicaleGrossDraft.bienId) labels.push("bien");
+    if (!amicaleGrossDraft.arrivalDate) labels.push("arrivee");
+    if (!amicaleGrossDraft.departureDate) labels.push("depart");
+    return labels;
+  }, [
+    amicaleGrossDraft.amicaleId,
+    amicaleGrossDraft.arrivalDate,
+    amicaleGrossDraft.bienId,
+    amicaleGrossDraft.departureDate,
+  ]);
+
+  const filteredGrossBiens = useMemo(() => {
+    const needle = String(amicaleGrossPropertySearch || "").trim().toLowerCase();
+    return biens
+      .slice()
+      .sort((left, right) => String(left.reference || "").localeCompare(String(right.reference || ""), "fr"))
+      .filter((item) => {
+        if (!needle) return true;
+        const ownerName = proprietaireNameById.get(String(item.proprietaire_id || "").trim()) || String((item as { proprietaire_nom?: string | null }).proprietaire_nom || "").trim();
+        const bag = [
+          item.reference,
+          item.titre,
+          ownerName,
+        ].map((value) => String(value || "").toLowerCase());
+        return bag.some((value) => value.includes(needle));
+      });
+  }, [amicaleGrossPropertySearch, biens, proprietaireNameById]);
+
+  const sortedAmicaleGrossEntries = useMemo(() => (
+    [...amicaleGrossEntries].sort((left, right) => {
+      const leftTime = parseSortDate(left.arrivalDate);
+      const rightTime = parseSortDate(right.arrivalDate);
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
+      return parseSortDate(right.updatedAt) - parseSortDate(left.updatedAt);
+    })
+  ), [amicaleGrossEntries]);
 
   const filteredDemands = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
@@ -661,6 +907,225 @@ export default function AmicalesPage() {
     }
   };
 
+  const resetAmicaleGrossDraft = () => {
+    setAmicaleGrossDraft(buildEmptyAmicaleGrossDraft());
+  };
+
+  const fetchUnavailableDatesForBien = useCallback(async (bienId: string) => {
+    const normalizedBienId = String(bienId || "").trim();
+    if (!normalizedBienId) return [] as UnavailableDateApiRow[];
+    const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(normalizedBienId)}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error("Impossible de charger les indisponibilites du bien");
+    }
+    const rows = await response.json().catch(() => []);
+    return Array.isArray(rows) ? (rows as UnavailableDateApiRow[]) : [];
+  }, []);
+
+  const deleteUnavailableDateById = useCallback(async (id: string) => {
+    const normalizedId = String(id || "").trim();
+    if (!normalizedId) return;
+    const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(normalizedId)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error("Impossible de supprimer l indisponibilite amicale en gros");
+    }
+  }, []);
+
+  const syncAmicaleGrossUnavailableDate = useCallback(async (
+    entry: AmicaleGrossManualEntry,
+    previousEntry?: AmicaleGrossManualEntry | null
+  ) => {
+    const syncUid = String(entry.id || "").trim();
+    if (!syncUid) {
+      throw new Error("Identifiant amicale en gros manquant");
+    }
+    const bienIds = Array.from(new Set([
+      String(entry.bienId || "").trim(),
+      String(previousEntry?.bienId || "").trim(),
+    ].filter(Boolean)));
+
+    for (const bienId of bienIds) {
+      const rows = await fetchUnavailableDatesForBien(bienId);
+      const matchingRows = rows.filter((row) =>
+        String(row?.sync_source || "").trim() === AMICALE_GROSS_SYNC_SOURCE
+        && String(row?.sync_uid || "").trim() === syncUid
+      );
+      for (const row of matchingRows) {
+        await deleteUnavailableDateById(String(row.id || "").trim());
+      }
+    }
+
+    const createResponse = await fetch(`${API_URL}/unavailable-dates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        bien_id: entry.bienId,
+        start_date: entry.arrivalDate,
+        end_date: entry.departureDate,
+        status: "blocked",
+        color: AMICALE_GROSS_UNAVAILABLE_COLOR,
+        sync_source: AMICALE_GROSS_SYNC_SOURCE,
+        sync_uid: syncUid,
+      }),
+    });
+    if (!createResponse.ok) {
+      const data = await createResponse.json().catch(() => null);
+      throw new Error(String(data?.error || "Impossible d enregistrer l indisponibilite amicale en gros"));
+    }
+  }, [deleteUnavailableDateById, fetchUnavailableDatesForBien]);
+
+  const removeAmicaleGrossUnavailableDate = useCallback(async (entry: AmicaleGrossManualEntry) => {
+    const bienId = String(entry?.bienId || "").trim();
+    const syncUid = String(entry?.id || "").trim();
+    if (!bienId || !syncUid) return;
+    const rows = await fetchUnavailableDatesForBien(bienId);
+    const matchingRows = rows.filter((row) =>
+      String(row?.sync_source || "").trim() === AMICALE_GROSS_SYNC_SOURCE
+      && String(row?.sync_uid || "").trim() === syncUid
+    );
+    for (const row of matchingRows) {
+      await deleteUnavailableDateById(String(row.id || "").trim());
+    }
+  }, [deleteUnavailableDateById, fetchUnavailableDatesForBien]);
+
+  const handleSaveAmicaleGrossEntry = async () => {
+    const selectedAmicaleId = String(amicaleGrossDraft.amicaleId || "").trim();
+    const selectedBienId = String(amicaleGrossDraft.bienId || "").trim();
+    const arrivalDate = String(amicaleGrossDraft.arrivalDate || "").trim();
+    const departureDate = String(amicaleGrossDraft.departureDate || "").trim();
+    const ownerAdvanceAmount = parseOptionalAmount(amicaleGrossDraft.ownerAdvanceAmount);
+    const rentalTotalAmount = parseOptionalAmount(amicaleGrossDraft.rentalTotalAmount);
+    const benefitAmount = parseOptionalAmount(amicaleGrossDraft.benefitAmount);
+    const note = String(amicaleGrossDraft.note || "").trim();
+    const amicale = amicales.find((item) => String(item.id || "").trim() === selectedAmicaleId) || null;
+    const bien = biens.find((item) => String(item.id || "").trim() === selectedBienId) || null;
+    if (!amicale || !bien || !arrivalDate || !departureDate) {
+      toast.error("Selectionnez l amicale, le bien et les dates.");
+      return;
+    }
+    if (parseSortDate(arrivalDate) > parseSortDate(departureDate)) {
+      toast.error("La date de depart doit etre apres la date d arrivee.");
+      return;
+    }
+    if (
+      ownerAdvanceAmount === null || !Number.isFinite(ownerAdvanceAmount)
+      || rentalTotalAmount === null || !Number.isFinite(rentalTotalAmount)
+      || benefitAmount === null || !Number.isFinite(benefitAmount)
+      || !note
+    ) {
+      toast.error("Saisissez les 4 variables manuelles: avance, location totale, note et benefice.");
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const previousEntry = amicaleGrossDraft.entryId
+      ? (amicaleGrossEntries.find((entry) => entry.id === amicaleGrossDraft.entryId) || null)
+      : null;
+    const nextEntry: AmicaleGrossManualEntry = {
+      id: amicaleGrossDraft.entryId || createLocalId("amg"),
+      amicaleId: selectedAmicaleId,
+      amicaleName: String(amicale.name || "").trim(),
+      bienId: selectedBienId,
+      bienReference: String(bien.reference || "").trim(),
+      bienTitle: String(bien.titre || "").trim(),
+      arrivalDate,
+      departureDate,
+      ownerAdvanceAmount,
+      rentalTotalAmount,
+      note,
+      benefitAmount,
+      createdAt: amicaleGrossDraft.entryId
+        ? (amicaleGrossEntries.find((entry) => entry.id === amicaleGrossDraft.entryId)?.createdAt || nowIso)
+        : nowIso,
+      updatedAt: nowIso,
+    };
+
+    setSavingAmicaleGross(true);
+    try {
+      await syncAmicaleGrossUnavailableDate(nextEntry, previousEntry);
+      setAmicaleGrossEntries((current) => {
+        if (amicaleGrossDraft.entryId) {
+          return current.map((entry) => (entry.id === amicaleGrossDraft.entryId ? nextEntry : entry));
+        }
+        return [nextEntry, ...current];
+      });
+      resetAmicaleGrossDraft();
+      toast.success(amicaleGrossDraft.entryId ? "Saisie amicale en gros mise a jour." : "Saisie amicale en gros ajoutee.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Enregistrement amicale en gros impossible");
+    } finally {
+      setSavingAmicaleGross(false);
+    }
+  };
+
+  const handleEditAmicaleGrossEntry = (entry: AmicaleGrossManualEntry) => {
+    setActiveTab("en_gros");
+    setAmicaleGrossDraft({
+      entryId: entry.id,
+      amicaleId: entry.amicaleId,
+      bienId: entry.bienId,
+      arrivalDate: entry.arrivalDate,
+      departureDate: entry.departureDate,
+      ownerAdvanceAmount: String(entry.ownerAdvanceAmount),
+      rentalTotalAmount: String(entry.rentalTotalAmount),
+      note: entry.note,
+      benefitAmount: String(entry.benefitAmount),
+    });
+  };
+
+  const handleDeleteAmicaleGrossEntry = async (entryId: string) => {
+    if (!window.confirm("Supprimer cette saisie amicale en gros ?")) return;
+    const targetEntry = amicaleGrossEntries.find((entry) => entry.id === entryId) || null;
+    setSavingAmicaleGross(true);
+    try {
+      if (targetEntry) {
+        await removeAmicaleGrossUnavailableDate(targetEntry);
+      }
+      setAmicaleGrossEntries((current) => current.filter((entry) => entry.id !== entryId));
+      if (amicaleGrossDraft.entryId === entryId) {
+        resetAmicaleGrossDraft();
+      }
+      toast.success("Saisie amicale en gros supprimee.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Suppression amicale en gros impossible");
+    } finally {
+      setSavingAmicaleGross(false);
+    }
+  };
+
+  const handleAmicaleGrossCalendarDayClick = (date: Date) => {
+    const clicked = formatDateInputValue(date);
+    const currentArrival = parseDateInputValue(amicaleGrossDraft.arrivalDate);
+    const currentDeparture = parseDateInputValue(amicaleGrossDraft.departureDate);
+    if (!currentArrival || currentDeparture) {
+      setAmicaleGrossDraft((prev) => ({
+        ...prev,
+        arrivalDate: clicked,
+        departureDate: "",
+      }));
+      return;
+    }
+    if (date.getTime() < currentArrival.getTime()) {
+      setAmicaleGrossDraft((prev) => ({
+        ...prev,
+        arrivalDate: clicked,
+        departureDate: formatDateInputValue(currentArrival),
+      }));
+      return;
+    }
+    setAmicaleGrossDraft((prev) => ({
+      ...prev,
+      departureDate: clicked,
+    }));
+  };
+
   const getFinancialDraft = (demand: AmicaleDemandRow) => {
     const existing = financialDrafts[demand.id];
     if (existing) return existing;
@@ -762,6 +1227,13 @@ export default function AmicalesPage() {
           className={`rounded-md px-3 py-2 text-sm font-medium ${activeTab === "amicales" ? "bg-emerald-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
         >
           Amicales
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("en_gros")}
+          className={`rounded-md px-3 py-2 text-sm font-medium ${activeTab === "en_gros" ? "bg-emerald-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
+        >
+          Amicale en gros
         </button>
         <button
           type="button"
@@ -930,6 +1402,372 @@ export default function AmicalesPage() {
             )}
           </div>
         </>
+      )}
+
+      {activeTab === "en_gros" && (
+        <div className="space-y-5">
+          <div className="overflow-hidden rounded-[28px] border border-emerald-100 bg-gradient-to-br from-emerald-950 via-emerald-900 to-cyan-900 p-6 text-white shadow-[0_24px_80px_-32px_rgba(4,120,87,0.55)]">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100/90">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Amicale en gros
+                </div>
+                <h2 className="mt-4 text-2xl font-bold tracking-tight">Saisie visuelle des locations amicales</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50/80">
+                  Choisissez l amicale, trouvez le bien avec photo et proprietaire, puis definissez la plage de sejour avec le calendrier du site avant de saisir vos montants manuels.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <GlassMetricCard label="Saisies en gros" value={String(amicaleGrossEntries.length)} />
+                <GlassMetricCard label="Avances proprietaire" value={formatCurrency(sortedAmicaleGrossEntries.reduce((sum, entry) => sum + Number(entry.ownerAdvanceAmount || 0), 0))} />
+                <GlassMetricCard label="Location totale" value={formatCurrency(sortedAmicaleGrossEntries.reduce((sum, entry) => sum + Number(entry.rentalTotalAmount || 0), 0))} />
+                <GlassMetricCard label="Benefice" value={formatCurrency(sortedAmicaleGrossEntries.reduce((sum, entry) => sum + Number(entry.benefitAmount || 0), 0))} />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-emerald-100 bg-white p-4 shadow-[0_22px_60px_-40px_rgba(15,118,110,0.45)] sm:p-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Nouvelle saisie amicale en gros</h3>
+                <p className="mt-1 text-sm text-slate-500">Etape 1: amicale. Etape 2: bien avec photo et proprietaire. Etape 3: periode dans le calendrier. Etape 4: montants et note.</p>
+              </div>
+              {amicaleGrossDraft.entryId ? (
+                <button
+                  type="button"
+                  onClick={resetAmicaleGrossDraft}
+                  className="inline-flex items-center rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Annuler modification
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.5fr)]">
+              <div className="space-y-4">
+                <div className="rounded-3xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-emerald-50/40 p-4">
+                  <label className="block space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Amicale</span>
+                    <select
+                      value={amicaleGrossDraft.amicaleId}
+                      onChange={(event) => setAmicaleGrossDraft((prev) => ({ ...prev, amicaleId: event.target.value }))}
+                      className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                    >
+                      <option value="">Selectionner amicale</option>
+                      {amicales.map((item) => (
+                        <option key={item.id} value={item.id}>{item.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Selection du bien</p>
+                      <p className="mt-1 text-xs text-slate-500">Recherche par reference, titre ou nom proprietaire.</p>
+                    </div>
+                    <div className="relative w-full sm:max-w-sm">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={amicaleGrossPropertySearch}
+                        onChange={(event) => setAmicaleGrossPropertySearch(event.target.value)}
+                        placeholder="Filtrer par reference ou nom proprietaire"
+                        className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid max-h-[540px] grid-cols-1 gap-3 overflow-auto pr-1 md:grid-cols-2">
+                    {filteredGrossBiens.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-sm text-slate-500 md:col-span-2">
+                        Aucun bien ne correspond a ce filtre.
+                      </div>
+                    ) : filteredGrossBiens.map((bien) => {
+                      const isSelected = amicaleGrossDraft.bienId === bien.id;
+                      const ownerName = proprietaireNameById.get(String(bien.proprietaire_id || "").trim()) || String((bien as { proprietaire_nom?: string | null }).proprietaire_nom || "").trim() || "Proprietaire inconnu";
+                      const imageSrc = getBienPreviewImage(bien);
+                      return (
+                        <button
+                          key={bien.id}
+                          type="button"
+                          onClick={() => setAmicaleGrossDraft((prev) => ({ ...prev, bienId: bien.id }))}
+                          className={`overflow-hidden rounded-[22px] border text-left transition ${isSelected ? "border-emerald-400 bg-emerald-50 shadow-[0_20px_45px_-32px_rgba(16,185,129,0.75)]" : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-[0_18px_40px_-30px_rgba(15,23,42,0.28)]"}`}
+                        >
+                          <div className="relative h-32 overflow-hidden">
+                            <img
+                              src={imageSrc}
+                              alt={bien.titre || bien.reference || "Bien"}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                              onError={(event) => {
+                                if (event.currentTarget.src !== BIEN_IMAGE_FALLBACK) {
+                                  event.currentTarget.src = BIEN_IMAGE_FALLBACK;
+                                }
+                              }}
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/55 via-slate-900/10 to-transparent" />
+                            <div className="absolute left-3 top-3 rounded-full bg-white/92 px-2.5 py-1 text-[11px] font-semibold text-slate-800 shadow-sm">
+                              {bien.reference || bien.id}
+                            </div>
+                          </div>
+                          <div className="space-y-2 p-4">
+                            <p className="line-clamp-2 text-sm font-semibold text-slate-900">{bien.titre || "Bien sans titre"}</p>
+                            <div className="flex flex-wrap gap-2">
+                              <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">{ownerName}</span>
+                              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">{formatCurrency(bien.prix_nuitee || 0)} / nuit</span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-3xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Selection active</p>
+                      <p className="mt-1 text-base font-semibold text-slate-900">{selectedGrossAmicale?.name || "Aucune amicale selectionnee"}</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {selectedGrossBien ? `${selectedGrossBien.reference} - ${selectedGrossBien.titre}` : "Choisissez un bien dans la grille a gauche."}
+                      </p>
+                    </div>
+                    {selectedGrossBien ? (
+                      <div className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+                        {selectedGrossOwnerName || "Sans proprietaire"}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {selectedGrossBien ? (
+                    <div className="mt-4 overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-sm">
+                      <div className="grid gap-0 md:grid-cols-[170px_minmax(0,1fr)]">
+                        <div className="h-40 bg-slate-100">
+                          <img
+                            src={getBienPreviewImage(selectedGrossBien)}
+                            alt={selectedGrossBien.titre || selectedGrossBien.reference || "Bien"}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                            onError={(event) => {
+                              if (event.currentTarget.src !== BIEN_IMAGE_FALLBACK) {
+                                event.currentTarget.src = BIEN_IMAGE_FALLBACK;
+                              }
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-3 p-4">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{selectedGrossBien.reference || selectedGrossBien.id}</p>
+                            <p className="mt-1 text-lg font-semibold text-slate-900">{selectedGrossBien.titre || "Bien sans titre"}</p>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <InfoPill label="Proprietaire" value={selectedGrossOwnerName || "-"} />
+                            <InfoPill label="Prix nuit base" value={formatCurrency(selectedGrossBien.prix_nuitee || 0)} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-700">
+                      <CalendarDays className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-semibold text-slate-900">Calendrier de sejour</h4>
+                      <p className="mt-1 text-sm text-slate-500">Selectionnez la date d arrivee puis la date de depart avec le meme style de calendrier que le site.</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 overflow-hidden rounded-[24px] border border-emerald-100 bg-emerald-50/40 p-3">
+                    <Calendar
+                      numberOfMonths={2}
+                      selected={grossArrivalDate || undefined}
+                      modifiers={{
+                        arrival: grossArrivalDate || undefined,
+                        departure: grossDepartureDate || undefined,
+                        inRange: (date) => {
+                          if (!grossArrivalDate || !grossDepartureDate) return false;
+                          return date > grossArrivalDate && date < grossDepartureDate;
+                        },
+                      }}
+                      modifiersClassNames={{
+                        arrival: "rounded-full bg-emerald-700 font-semibold !text-white shadow-[0_10px_22px_rgba(4,120,87,0.35)] hover:bg-emerald-800",
+                        departure: "rounded-full bg-emerald-700 font-semibold !text-white shadow-[0_10px_22px_rgba(4,120,87,0.35)] hover:bg-emerald-800",
+                        inRange: "rounded-none bg-emerald-700 font-semibold !text-white hover:bg-emerald-700",
+                      }}
+                      onDayClick={handleAmicaleGrossCalendarDayClick}
+                      className="mx-auto w-full"
+                      classNames={{
+                        months: "flex flex-col gap-6 lg:flex-row lg:justify-center",
+                        month: "w-full rounded-[20px] bg-white p-3 shadow-sm",
+                        caption_label: "text-sm font-semibold text-slate-900",
+                        table: "w-full border-separate border-spacing-y-1.5",
+                        row: "flex w-full mt-2",
+                        head_cell: "w-10 text-[11px] font-semibold uppercase tracking-wide text-slate-400",
+                        cell: "relative h-10 w-10 overflow-visible p-0 text-center text-sm",
+                        day: "relative z-10 h-10 w-10 rounded-full text-sm font-medium text-slate-700 transition-colors hover:bg-emerald-50",
+                        day_today: "bg-emerald-100 text-emerald-800",
+                        day_selected: "!text-white shadow-none",
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Arrivee</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">{formatDateOnly(amicaleGrossDraft.arrivalDate) || "-"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Depart</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">{formatDateOnly(amicaleGrossDraft.departureDate) || "-"}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[28px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-5">
+              <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Variables manuelles</p>
+                  <p className="mt-1 text-xs text-slate-500">Tous les champs ci-dessous sont saisis manuellement par l administration.</p>
+                </div>
+                <div className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                  {selectedGrossBien ? `${selectedGrossBien.reference} | ${formatDateOnly(amicaleGrossDraft.arrivalDate)} -> ${formatDateOnly(amicaleGrossDraft.departureDate)}` : "-"}
+                </div>
+              </div>
+
+              {missingGrossSetupLabels.length > 0 ? (
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Champs encore manquants pour finaliser la saisie: {missingGrossSetupLabels.join(", ")}.
+                </div>
+              ) : null}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Montant avance donnee au proprietaire</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={amicaleGrossDraft.ownerAdvanceAmount}
+                    onChange={(event) => setAmicaleGrossDraft((prev) => ({ ...prev, ownerAdvanceAmount: event.target.value }))}
+                    placeholder="0"
+                    className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Montant location total</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={amicaleGrossDraft.rentalTotalAmount}
+                    onChange={(event) => setAmicaleGrossDraft((prev) => ({ ...prev, rentalTotalAmount: event.target.value }))}
+                    placeholder="0"
+                    className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                  />
+                </label>
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Note</span>
+                  <textarea
+                    value={amicaleGrossDraft.note}
+                    onChange={(event) => setAmicaleGrossDraft((prev) => ({ ...prev, note: event.target.value }))}
+                    placeholder="Note interne admin"
+                    rows={4}
+                    className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Benefice</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={amicaleGrossDraft.benefitAmount}
+                    onChange={(event) => setAmicaleGrossDraft((prev) => ({ ...prev, benefitAmount: event.target.value }))}
+                    placeholder="0"
+                    className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleSaveAmicaleGrossEntry()}
+                  disabled={savingAmicaleGross}
+                  className="inline-flex items-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {savingAmicaleGross ? "Enregistrement..." : (amicaleGrossDraft.entryId ? "Mettre a jour" : "Enregistrer la saisie")}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-gray-200 bg-white p-4 shadow-[0_20px_55px_-40px_rgba(15,23,42,0.35)] sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Saisies enregistrees</h2>
+                <p className="mt-1 text-sm text-slate-500">Suivi local des amicales en gros avec modification et suppression.</p>
+              </div>
+            </div>
+
+            {sortedAmicaleGrossEntries.length === 0 ? (
+              <p className="mt-4 text-sm text-gray-500">Aucune saisie amicale en gros pour le moment.</p>
+            ) : (
+              <div className="mt-4 grid gap-4">
+                {sortedAmicaleGrossEntries.map((entry) => (
+                  <div key={entry.id} className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50/60 to-cyan-50/60 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white">{entry.amicaleName || "Amicale"}</span>
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{entry.bienReference || "-"}</span>
+                        </div>
+                        <div>
+                          <p className="text-base font-semibold text-gray-900">{entry.bienTitle || "Bien sans titre"}</p>
+                          <p className="text-sm text-gray-500">{formatDateOnly(entry.arrivalDate)} au {formatDateOnly(entry.departureDate)}</p>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          <InfoPill label="Avance proprietaire" value={formatCurrency(entry.ownerAdvanceAmount)} />
+                          <InfoPill label="Location totale" value={formatCurrency(entry.rentalTotalAmount)} />
+                          <InfoPill label="Benefice" value={formatCurrency(entry.benefitAmount)} />
+                        </div>
+                        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Note</p>
+                          <p className="mt-2 whitespace-pre-wrap">{entry.note || "-"}</p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEditAmicaleGrossEntry(entry)}
+                          className="rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                        >
+                          Modifier
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteAmicaleGrossEntry(entry.id)}
+                          className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                        >
+                          Supprimer
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {activeTab === "demandes" && (
@@ -1275,7 +2113,7 @@ function StatCard({
   tone,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   tone: "emerald" | "sky" | "amber" | "indigo";
 }) {
   const tones: Record<typeof tone, string> = {
@@ -1288,6 +2126,24 @@ function StatCard({
     <div className={`rounded-xl border p-4 ${tones[tone]}`}>
       <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{label}</p>
       <p className="mt-1 text-2xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function GlassMetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[22px] border border-white/15 bg-white/10 px-4 py-4 backdrop-blur-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-50/70">{label}</p>
+      <p className="mt-3 text-2xl font-bold text-white">{value}</p>
+    </div>
+  );
+}
+
+function InfoPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/70 bg-white/90 px-3 py-2 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-gray-900">{value}</p>
     </div>
   );
 }

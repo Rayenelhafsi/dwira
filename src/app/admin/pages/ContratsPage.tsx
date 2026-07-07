@@ -621,10 +621,11 @@ export default function ContratsPage() {
       setIsRefreshing(true);
     }
     setError(null);
+    const requestTs = Date.now();
     const [contratsResult, biensResult, locatairesResult] = await Promise.allSettled([
-      fetch(`${API_URL}/contrats`, { credentials: 'include' }),
-      fetch(`${API_URL}/biens`, { credentials: 'include' }),
-      fetch(`${API_URL}/locataires`, { credentials: 'include' }),
+      fetch(`${API_URL}/contrats?_ts=${requestTs}`, { credentials: 'include', cache: 'no-store' }),
+      fetch(`${API_URL}/biens?_ts=${requestTs}`, { credentials: 'include', cache: 'no-store' }),
+      fetch(`${API_URL}/locataires?_ts=${requestTs}`, { credentials: 'include', cache: 'no-store' }),
     ]);
 
     let hasAnyData = false;
