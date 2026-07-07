@@ -266,6 +266,8 @@ type PickerOption = {
   disabled?: boolean;
 };
 
+const RESERVATION_DEMAND_PICKER_PREFIX = "reservation-demand:";
+
 type DeleteTarget =
   | {
       kind: "assignment" | "task" | "charge" | "technician" | "technician_assignment";
@@ -381,6 +383,15 @@ function formatDateOnly(value?: string | null) {
   const parsed = new Date(String(value).replace(" ", "T"));
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString("fr-FR", { timeZone: "Africa/Tunis" });
+}
+
+function formatStayPeriodLabel(startValue?: string | null, endValue?: string | null) {
+  const startLabel = startValue ? formatDateOnly(startValue) : "";
+  const endLabel = endValue ? formatDateOnly(endValue) : "";
+  if (startLabel && endLabel) return `Sejour ${startLabel} au ${endLabel}`;
+  if (startLabel) return `Arrivee ${startLabel}`;
+  if (endLabel) return `Depart ${endLabel}`;
+  return "";
 }
 
 function normalizeAssignmentStatus(value?: string | null) {
@@ -1011,6 +1022,12 @@ export default function SubAdminOperationsPanel({
       setAssignmentVariablesOpen(false);
       return;
     }
+    if (contractId.startsWith(RESERVATION_DEMAND_PICKER_PREFIX)) {
+      setAssignmentContractDetails(null);
+      setAssignmentContractLoading(false);
+      setAssignmentVariablesOpen(false);
+      return;
+    }
 
     let cancelled = false;
     setAssignmentContractLoading(true);
@@ -1133,8 +1150,7 @@ export default function SubAdminOperationsPanel({
           String(contract.reservation_payment_mode || "").trim().toLowerCase() === "amicale"
           || Boolean(String(contract.pricing_amicale_id || "").trim());
         const contractLabel = String(contract.id || "").trim();
-        const arrivalDate = contract.date_debut ? formatDateOnly(contract.date_debut) : "";
-        const departureDate = contract.date_fin ? formatDateOnly(contract.date_fin) : "";
+        const stayPeriodLabel = formatStayPeriodLabel(contract.date_debut, contract.date_fin);
         const titleParts = [String(contract.bien_titre || "").trim(), String(contract.bien_reference || "").trim()].filter(Boolean);
         const metaBadges = [
           { label: isAmicale ? "Contrat amicale" : "Contrat particulier", tone: isAmicale ? "sky" : "emerald" },
@@ -1151,14 +1167,12 @@ export default function SubAdminOperationsPanel({
           ]
             .filter(Boolean)
             .join(" | "),
-          badge: contract.date_debut ? `Arrivee ${arrivalDate}` : contract.created_at ? formatDateOnly(contract.created_at) : undefined,
+          badge: stayPeriodLabel || (contract.created_at ? formatDateOnly(contract.created_at) : undefined),
           badgeTone: isAmicale ? "sky" : "emerald",
           metaBadges,
           note: isAmicale
-            ? `Note terrain: amicale : ${String(contract.amicale_name || "Amicale").trim()}${departureDate ? ` | depart ${departureDate}` : ""}`
-            : departureDate
-              ? `Depart prevu: ${departureDate}`
-              : undefined,
+            ? `Note terrain: amicale : ${String(contract.amicale_name || "Amicale").trim()}`
+            : undefined,
           noteTone: isAmicale ? "sky" : "slate",
           highlight: isAmicale ? "amicale" : "default",
         } satisfies PickerOption;
@@ -1189,20 +1203,25 @@ export default function SubAdminOperationsPanel({
       })
       .map((demand) => {
         const linkedContractId = String(demand.contract_id || "").trim();
+        const canAssignFromVoucher =
+          demand.source_kind === "property"
+          && Boolean(String(demand.voucher_url || "").trim());
         const hasLinkedContract = Boolean(linkedContractId);
-        const arrivalDate = demand.start_date ? formatDateOnly(demand.start_date) : "";
-        const departureDate = demand.end_date ? formatDateOnly(demand.end_date) : "";
+        const canSelectForAssignment = hasLinkedContract || canAssignFromVoucher;
+        const stayPeriodLabel = formatStayPeriodLabel(demand.start_date, demand.end_date);
         const demandLabel = demand.source_kind === "hotel" ? "Demande hotel amicale" : "Demande bien amicale";
         const titleParts = [String(demand.bien_reference || "").trim(), String(demand.bien_titre || "").trim()].filter(Boolean);
         const note = hasLinkedContract
-          ? `Note terrain: amicale : ${String(demand.amicale_name || "Amicale").trim()}${departureDate ? ` | depart ${departureDate}` : ""}`
-          : demand.source_kind === "hotel"
-            ? "Demande hotel sans contrat lie: visible ici, non affectable depuis ce popup."
-            : "Demande adherant sans contrat lie: creer ou generer le contrat avant affectation.";
+          ? `Note terrain: amicale : ${String(demand.amicale_name || "Amicale").trim()}`
+          : canAssignFromVoucher
+            ? `Affectation via voucher PDF: amicale : ${String(demand.amicale_name || "Amicale").trim()}`
+            : demand.source_kind === "hotel"
+              ? "Demande hotel sans contrat lie: visible ici, non affectable depuis ce popup."
+              : "Demande adherant sans voucher PDF: generer le voucher avant affectation.";
 
         return {
           id: demand.id,
-          selectValue: hasLinkedContract ? linkedContractId : undefined,
+          selectValue: hasLinkedContract ? linkedContractId : canAssignFromVoucher ? `${RESERVATION_DEMAND_PICKER_PREFIX}${String(demand.demand_id || "").trim()}` : undefined,
           title: titleParts.length > 0 ? titleParts.join(" - ") : demand.demand_id,
           subtitle: [
             `Demande ${String(demand.demand_id || "").trim()}`,
@@ -1210,17 +1229,21 @@ export default function SubAdminOperationsPanel({
           ]
             .filter(Boolean)
             .join(" | "),
-          badge: demand.start_date ? `Arrivee ${arrivalDate}` : undefined,
+          badge: stayPeriodLabel || undefined,
           badgeTone: "sky",
           metaBadges: [
             { label: demandLabel, tone: "sky" },
             demand.amicale_name ? { label: `Amicale ${String(demand.amicale_name).trim()}`, tone: "sky" } : null,
-            hasLinkedContract ? { label: `Contrat ${linkedContractId}`, tone: "emerald" } : { label: "Sans contrat", tone: "amber" },
+            hasLinkedContract
+              ? { label: `Contrat ${linkedContractId}`, tone: "emerald" }
+              : canAssignFromVoucher
+                ? { label: "Voucher PDF", tone: "emerald" }
+                : { label: "Sans contrat", tone: "amber" },
           ].filter(Boolean) as PickerOption["metaBadges"],
           note,
-          noteTone: hasLinkedContract ? "sky" : "slate",
+          noteTone: canSelectForAssignment ? "sky" : "slate",
           highlight: "amicale",
-          disabled: !hasLinkedContract,
+          disabled: !canSelectForAssignment,
         } satisfies PickerOption;
       });
 
@@ -1237,6 +1260,10 @@ export default function SubAdminOperationsPanel({
       );
     });
   }, [amicaleDemands, contractSearch, contracts]);
+  const selectedAssignmentContractPickerOption = useMemo(
+    () => contractPickerOptions.find((entry) => String(entry.selectValue || entry.id || "").trim() === String(assignmentDraft.contractId || "").trim()) || null,
+    [assignmentDraft.contractId, contractPickerOptions]
+  );
 
   const bienPickerOptions = useMemo(() => {
     const needle = bienSearch.trim().toLowerCase();
@@ -1260,6 +1287,11 @@ export default function SubAdminOperationsPanel({
       toast.error("Sous-admin et contrat obligatoires");
       return;
     }
+    const rawSelection = String(assignmentDraft.contractId || "").trim();
+    const reservationDemandId = rawSelection.startsWith(RESERVATION_DEMAND_PICKER_PREFIX)
+      ? rawSelection.slice(RESERVATION_DEMAND_PICKER_PREFIX.length).trim()
+      : "";
+    const contractId = reservationDemandId ? "" : rawSelection;
     setSaving(true);
     try {
       const response = await fetch(buildApiUrl("/subadmin/contracts"), {
@@ -1268,7 +1300,8 @@ export default function SubAdminOperationsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           subadmin_id: assignmentDraft.subadminId,
-          contract_id: assignmentDraft.contractId,
+          contract_id: contractId || null,
+          reservation_demand_id: reservationDemandId || null,
           urgent: assignmentDraft.urgent,
           note: assignmentDraft.note,
         }),
@@ -1668,7 +1701,11 @@ export default function SubAdminOperationsPanel({
 
                 <SelectionButton
                   label="Contrat"
-                  value={selectedAssignmentContract ? buildContractLabel(selectedAssignmentContract) : ""}
+                  value={
+                    selectedAssignmentContract
+                      ? buildContractLabel(selectedAssignmentContract)
+                      : selectedAssignmentContractPickerOption?.title || ""
+                  }
                   placeholder="Choisir le contrat dans un popup"
                   onOpen={() => setPickerOpen("contract")}
                   onClear={() => {
@@ -2735,7 +2772,16 @@ export default function SubAdminOperationsPanel({
         description="Contrats et demandes adherants visibles dans une seule liste, tries par arrivee la plus proche."
         searchValue={contractSearch}
         onSearchChange={setContractSearch}
-        options={contractPickerOptions}
+        options={
+          activeTab === "tasks"
+            ? contractPickerOptions.map((option) => ({
+                ...option,
+                disabled:
+                  option.disabled
+                  || String(option.selectValue || "").trim().startsWith(RESERVATION_DEMAND_PICKER_PREFIX),
+              }))
+            : contractPickerOptions
+        }
         selectedId={activeTab === "tasks" ? taskDraft.contractId : assignmentDraft.contractId}
         onSelect={(id) => {
           if (activeTab === "tasks") {

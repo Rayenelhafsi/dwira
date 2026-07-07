@@ -11574,6 +11574,77 @@ async function ensureAutoContractForDemand(current, actorId = 'client') {
   return { contractId };
 }
 
+async function ensureAssignmentContractForReservationDemand(current, actorId = 'admin') {
+  if (!current) return { contractId: null };
+  const existingContractId = String(current.contract_id || '').trim();
+  if (existingContractId) return { contractId: existingContractId };
+
+  const demandId = String(current.id || '').trim();
+  const voucherUrl = String(current.voucher_url || '').trim();
+  if (!demandId) return { contractId: null };
+  if (!voucherUrl) {
+    throw new Error('Le voucher PDF doit etre genere avant affectation de cette demande adherant');
+  }
+  if (!String(current.bien_id || '').trim()) {
+    throw new Error('Bien introuvable pour affectation de la demande adherant');
+  }
+
+  const clientEmail = normalizeEmailForCompare(current.client_email || '') || `${demandId}@dwira.local`;
+  const clientPhone = String(current.client_phone || current.amicale_phone || '').trim();
+  const clientName = String(current.client_name || current.amicale_name || 'Client amicale').trim();
+  const locataireId = await upsertLocataireFromReservationProfile({
+    userId: current.client_user_id ? String(current.client_user_id).trim() : null,
+    name: clientName,
+    email: clientEmail,
+    telephone: clientPhone,
+    cin: '',
+  });
+
+  const now = getAgencySqlDateTime();
+  const contractId = `c${Date.now()}`;
+  const amountDueNow = Number.isFinite(Number(current.amount_due_now)) && Number(current.amount_due_now) >= 0
+    ? Number(current.amount_due_now)
+    : 0;
+
+  await pool.query(
+    `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      contractId,
+      current.bien_id,
+      locataireId,
+      current.start_date || null,
+      current.end_date || null,
+      amountDueNow,
+      voucherUrl,
+      null,
+      'automatique',
+      'actif',
+      now,
+    ]
+  );
+
+  await pool.query(
+    `UPDATE reservation_demands
+     SET contract_id = ?,
+         contract_generated_at = COALESCE(contract_generated_at, ?),
+         updated_at = ?
+     WHERE id = ?`,
+    [contractId, now, now, demandId]
+  );
+
+  await appendReservationDemandHistory(
+    demandId,
+    String(current.status || 'voucher_en_cours').trim() || 'voucher_en_cours',
+    'admin',
+    String(actorId || 'admin').trim() || 'admin',
+    `Contrat technique ${contractId} cree pour affectation sous-admin a partir du voucher`,
+    now
+  );
+
+  return { contractId };
+}
+
 async function upsertPasskeyUser({ email, name }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Client';
@@ -30379,17 +30450,39 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
 app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
   try {
     await ensureSubadminOperationsSchema();
-    const contractId = String(req.body?.contract_id || '').trim();
+    await ensureContractsSchema();
+    await ensureReservationDemandSchema();
+    let contractId = String(req.body?.contract_id || '').trim();
+    const reservationDemandId = String(req.body?.reservation_demand_id || '').trim();
     const requestedSubadminId = resolveSubadminScopeId(req, req.body?.subadmin_id);
     const urgent = req.body?.urgent === true || req.body?.urgent === 1 || String(req.body?.urgent || '').trim() === 'true';
     const note = String(req.body?.note || '').trim() || null;
-    if (!contractId || !requestedSubadminId) {
-      return res.status(400).json({ error: 'contract_id et subadmin_id requis' });
+    if ((!contractId && !reservationDemandId) || !requestedSubadminId) {
+      return res.status(400).json({ error: 'contract_id ou reservation_demand_id, et subadmin_id requis' });
     }
     if (!ensureSubadminAccess(req, res, requestedSubadminId)) return;
     const subadmin = await fetchSubadminAccountById(requestedSubadminId);
     if (!subadmin) {
       return res.status(404).json({ error: 'Sous-admin introuvable ou inactif' });
+    }
+    if (!contractId && reservationDemandId) {
+      await ensureReservationDemandSchema();
+      const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [reservationDemandId]);
+      const demand = demandRows?.[0] || null;
+      if (!demand) {
+        return res.status(404).json({ error: 'Demande adherant introuvable' });
+      }
+      if (!isAmicaleDemand(demand)) {
+        return res.status(400).json({ error: 'Seules les demandes adherants peuvent etre affectees sans contrat existant' });
+      }
+      const ensured = await ensureAssignmentContractForReservationDemand(
+        demand,
+        String(req.authUser?.id || req.authUser?.email || 'admin')
+      );
+      contractId = String(ensured.contractId || '').trim();
+    }
+    if (!contractId) {
+      return res.status(400).json({ error: 'Contrat introuvable pour cette affectation' });
     }
     const [contractRows] = await pool.query('SELECT id, bien_id FROM contrats WHERE id = ? LIMIT 1', [contractId]);
     if (!contractRows?.[0]) {
