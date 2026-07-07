@@ -170,6 +170,29 @@ function safeParseJson(value, fallbackValue = null) {
   }
 }
 
+function normalizePaymentReceipts(value, fallbackReceipt = null) {
+  const parsed = safeParseJson(value, []);
+  const list = Array.isArray(parsed) ? parsed : [];
+  const normalized = list
+    .map((entry) => ({
+      url: String(entry?.url || entry?.image_url || '').trim() || null,
+      uploaded_at: String(entry?.uploaded_at || entry?.uploadedAt || '').trim() || null,
+      note: String(entry?.note || '').trim() || null,
+      payment_id: String(entry?.payment_id || entry?.paymentId || '').trim() || null,
+    }))
+    .filter((entry) => entry.url);
+  if (normalized.length > 0) return normalized;
+  if (fallbackReceipt?.url) {
+    return [{
+      url: String(fallbackReceipt.url || '').trim() || null,
+      uploaded_at: String(fallbackReceipt.uploaded_at || '').trim() || null,
+      note: String(fallbackReceipt.note || '').trim() || null,
+      payment_id: String(fallbackReceipt.payment_id || '').trim() || null,
+    }].filter((entry) => entry.url);
+  }
+  return [];
+}
+
 function isLocalHostname(hostname) {
   const normalized = String(hostname || '').trim().toLowerCase();
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
@@ -13258,6 +13281,12 @@ function formatReservationDemandRow(row) {
     payment_receipt_image_url: row.payment_receipt_image_url || null,
     payment_receipt_uploaded_at: row.payment_receipt_uploaded_at || null,
     payment_receipt_note: row.payment_receipt_note || null,
+    payment_receipts: normalizePaymentReceipts(row.payment_receipts_json, {
+      url: row.payment_receipt_image_url || null,
+      uploaded_at: row.payment_receipt_uploaded_at || null,
+      note: row.payment_receipt_note || null,
+      payment_id: row.payment_id || null,
+    }),
     identity_document_type: row.identity_document_type || null,
     identity_document_number: row.identity_document_number || null,
     identity_document_image_url: row.resolved_identity_document_image_url || row.identity_document_image_url || null,
@@ -17852,6 +17881,13 @@ app.get('/api/contrats', requireAdminSession, async (req, res) => {
                LIMIT 1
              ) AS payment_receipt_note,
              (
+               SELECT d.payment_receipts_json
+               FROM reservation_demands d
+               WHERE d.contract_id = c.id
+               ORDER BY d.updated_at DESC
+               LIMIT 1
+             ) AS payment_receipts_json,
+             (
                SELECT d.status
                FROM reservation_demands d
                WHERE d.contract_id = c.id
@@ -17940,6 +17976,12 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
       payment_receipt_image_url: templateContext?.demand?.payment_receipt_image_url || null,
       payment_receipt_uploaded_at: templateContext?.demand?.payment_receipt_uploaded_at || null,
       payment_receipt_note: templateContext?.demand?.payment_receipt_note || null,
+      payment_receipts: normalizePaymentReceipts(templateContext?.demand?.payment_receipts_json, {
+        url: templateContext?.demand?.payment_receipt_image_url || null,
+        uploaded_at: templateContext?.demand?.payment_receipt_uploaded_at || null,
+        note: templateContext?.demand?.payment_receipt_note || null,
+        payment_id: templateContext?.demand?.payment_id || null,
+      }),
       assignment_autofill: assignmentAutofill,
       property_url: assignmentAutofill?.property_url || null,
       google_maps_url: assignmentAutofill?.google_maps_url || null,
@@ -18062,16 +18104,32 @@ app.post('/api/contrats/:id/upload-payment-receipt', requireAdminSession, reserv
       || ''
     ).trim();
     const resolvedPaymentId = providedPaymentRef || String(demand.payment_id || '').trim() || null;
+    const existingReceipts = normalizePaymentReceipts(demand.payment_receipts_json, {
+      url: demand.payment_receipt_image_url || null,
+      uploaded_at: demand.payment_receipt_uploaded_at || null,
+      note: demand.payment_receipt_note || null,
+      payment_id: demand.payment_id || null,
+    });
+    const nextReceipts = [
+      {
+        url: receiptUrl,
+        uploaded_at: now,
+        note: receiptNote,
+        payment_id: resolvedPaymentId,
+      },
+      ...existingReceipts,
+    ];
 
     await pool.query(
       `UPDATE reservation_demands
        SET payment_receipt_image_url = ?,
            payment_receipt_uploaded_at = ?,
            payment_receipt_note = ?,
+           payment_receipts_json = ?,
            payment_id = ?,
            updated_at = ?
        WHERE id = ?`,
-      [receiptUrl, now, receiptNote, resolvedPaymentId, now, demand.id]
+      [receiptUrl, now, receiptNote, JSON.stringify(nextReceipts), resolvedPaymentId, now, demand.id]
     );
     await trackBusinessAnalyticsEvent(req, 'payment_receipt_uploaded', {
       demandId: demand.id,
@@ -18106,14 +18164,22 @@ app.post('/api/contrats/:id/upload-payment-receipt', requireAdminSession, reserv
               ? AS reservation_demand_id,
               ? AS payment_receipt_image_url,
               ? AS payment_receipt_uploaded_at,
-              ? AS payment_receipt_note
+              ? AS payment_receipt_note,
+              ? AS payment_receipts_json
        FROM contrats c
        LEFT JOIN biens b ON c.bien_id = b.id
        LEFT JOIN locataires l ON c.locataire_id = l.id
        WHERE c.id = ?
        LIMIT 1`,
-      [demand.id, receiptUrl, now, receiptNote, contractId]
+      [demand.id, receiptUrl, now, receiptNote, JSON.stringify(nextReceipts), contractId]
     );
+
+    const updatedContract = updatedContractRows?.[0]
+      ? {
+          ...updatedContractRows[0],
+          payment_receipts: nextReceipts,
+        }
+      : null;
 
     res.json({
       ok: true,
@@ -18122,7 +18188,8 @@ app.post('/api/contrats/:id/upload-payment-receipt', requireAdminSession, reserv
       payment_receipt_image_url: receiptUrl,
       payment_receipt_uploaded_at: now,
       payment_receipt_note: receiptNote,
-      contract: updatedContractRows?.[0] || null,
+      payment_receipts: nextReceipts,
+      contract: updatedContract,
     });
   } catch (error) {
     console.error('Error uploading admin payment receipt for contract:', error);
@@ -18464,7 +18531,14 @@ app.get('/api/notifications', requireAdminSession, async (req, res) => {
        ORDER BY created_at DESC
        LIMIT 50`
     );
-    res.json(rows);
+    res.json((Array.isArray(rows) ? rows : []).map((row) => ({
+      ...row,
+      payment_receipts: normalizePaymentReceipts(row?.payment_receipts_json, {
+        url: row?.payment_receipt_image_url || null,
+        uploaded_at: row?.payment_receipt_uploaded_at || null,
+        note: row?.payment_receipt_note || null,
+      }),
+    })));
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch notifications' });
   }
@@ -22382,7 +22456,10 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
           client_note: rawBody?.client_note,
         };
 
-    const nextStatus = normalizeReservationDemandStatus(body.status || current.status);
+    const requestedStatus = body.status !== undefined
+      ? normalizeReservationDemandStatus(body.status || current.status)
+      : null;
+    const nextStatus = requestedStatus || normalizeReservationDemandStatus(current.status);
     if (nextStatus === 'client_procede_vers_paiement_en_cours' || String(current.status || '') === 'reponse_positive_attente_confirmation_client') {
       logMobileFlow('reservation_status_update_request', req, {
         demandId,
@@ -22442,7 +22519,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     }
     const isAmicaleDemand = String(current.payment_mode || '').trim() === 'amicale'
       || Boolean(String(current.pricing_amicale_id || '').trim());
-    if (requester?.role === 'admin' && isAmicaleDemand && ['voucher_en_cours', 'rejete_par_agence'].includes(nextStatus)) {
+    if (requester?.role === 'admin' && isAmicaleDemand && requestedStatus && ['voucher_en_cours', 'rejete_par_agence'].includes(nextStatus)) {
       const currentStatus = String(current.status || '');
       if (nextStatus === 'voucher_en_cours' && currentStatus !== 'attente_validation_par_agence') {
         return res.status(400).json({ error: 'La demande amicale doit etre en attente agence avant validation finale' });
@@ -26411,6 +26488,9 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'payment_receipt_note'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_receipt_note TEXT NULL AFTER payment_receipt_uploaded_at');
+  }
+  if (!(await columnExists('reservation_demands', 'payment_receipts_json'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN payment_receipts_json LONGTEXT NULL AFTER payment_receipt_note');
   }
   if (!(await columnExists('reservation_demands', 'identity_document_type'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN identity_document_type VARCHAR(30) NULL AFTER client_confirmation_clicked_at');

@@ -10,6 +10,13 @@ import { readSessionPageCache, writeSessionPageCache } from '../utils/sessionPag
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const CONTRACTS_CACHE_KEY = 'dwira_admin_contrats_cache_v1';
 
+type PaymentReceiptItem = {
+  url: string;
+  uploaded_at?: string | null;
+  note?: string | null;
+  payment_id?: string | null;
+};
+
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -45,6 +52,7 @@ type ContratApi = {
   payment_receipt_image_url?: string | null;
   payment_receipt_uploaded_at?: string | null;
   payment_receipt_note?: string | null;
+  payment_receipts?: PaymentReceiptItem[];
   montant_donne_proprietaire?: number | null;
   montant_total_proprietaire?: number | null;
   profit_net?: number | null;
@@ -478,6 +486,39 @@ function toAbsoluteAssetUrl(value: string): string {
   return `${apiOrigin}/${raw}`;
 }
 
+function normalizeContractReceipts(contrat: ContratApi): PaymentReceiptItem[] {
+  const list = Array.isArray(contrat.payment_receipts) ? contrat.payment_receipts : [];
+  const normalized = list
+    .map((entry) => ({
+      url: String(entry?.url || '').trim(),
+      uploaded_at: String(entry?.uploaded_at || '').trim() || null,
+      note: String(entry?.note || '').trim() || null,
+      payment_id: String(entry?.payment_id || '').trim() || null,
+    }))
+    .filter((entry) => entry.url);
+  if (normalized.length > 0) return normalized;
+  const fallbackUrl = String(contrat.payment_receipt_image_url || '').trim();
+  if (!fallbackUrl) return [];
+  return [{
+    url: fallbackUrl,
+    uploaded_at: String(contrat.payment_receipt_uploaded_at || '').trim() || null,
+    note: String(contrat.payment_receipt_note || '').trim() || null,
+    payment_id: null,
+  }];
+}
+
+function normalizeContractApi(raw: ContratApi): ContratApi {
+  const paymentReceipts = normalizeContractReceipts(raw);
+  const latestReceipt = paymentReceipts[0] || null;
+  return {
+    ...raw,
+    payment_receipts: paymentReceipts,
+    payment_receipt_image_url: latestReceipt?.url || raw.payment_receipt_image_url || null,
+    payment_receipt_uploaded_at: latestReceipt?.uploaded_at || raw.payment_receipt_uploaded_at || null,
+    payment_receipt_note: latestReceipt?.note || raw.payment_receipt_note || null,
+  };
+}
+
 export default function ContratsPage() {
   const initialCache = readSessionPageCache<ContractsPageCachePayload>(CONTRACTS_CACHE_KEY);
   const [contrats, setContrats] = useState<ContratApi[]>(initialCache?.contrats || []);
@@ -595,7 +636,7 @@ export default function ContratsPage() {
 
     if (contratsResult.status === 'fulfilled' && contratsResult.value.ok) {
       const contratsData = await contratsResult.value.json();
-      nextContrats = Array.isArray(contratsData) ? contratsData : [];
+      nextContrats = (Array.isArray(contratsData) ? contratsData : []).map((item) => normalizeContractApi(item as ContratApi));
       setContrats(nextContrats);
       hasAnyData = true;
     } else {
@@ -994,7 +1035,7 @@ export default function ContratsPage() {
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Upload recu impossible'));
       const data = await response.json().catch(() => null);
-      const updatedContract = data?.contract && typeof data.contract === 'object' ? data.contract as ContratApi : null;
+      const updatedContract = data?.contract && typeof data.contract === 'object' ? normalizeContractApi(data.contract as ContratApi) : null;
       if (updatedContract) {
         setContrats((current) => current.map((item) => (item.id === updatedContract.id ? { ...item, ...updatedContract } : item)));
         setTemplateVarsTargetContract((current) => (current?.id === updatedContract.id ? { ...current, ...updatedContract } : current));
@@ -1007,6 +1048,7 @@ export default function ContratsPage() {
                 payment_receipt_image_url: String(data?.payment_receipt_image_url || '').trim() || null,
                 payment_receipt_uploaded_at: String(data?.payment_receipt_uploaded_at || '').trim() || null,
                 payment_receipt_note: String(data?.payment_receipt_note || '').trim() || null,
+                payment_receipts: Array.isArray(data?.payment_receipts) ? data.payment_receipts : item.payment_receipts,
               }
             : item
         )));
@@ -2303,8 +2345,9 @@ export default function ContratsPage() {
           const cardDetails = getContractCardDetails(contrat, bien);
           const category = getContractCategory(contrat);
           const financialDraft = getFinancialDraft(contrat);
-          const receiptUrl = contrat.payment_receipt_image_url ? toAbsoluteAssetUrl(contrat.payment_receipt_image_url) : '';
-          const hasReceipt = Boolean(receiptUrl);
+          const receiptItems = normalizeContractReceipts(contrat);
+          const receiptUrl = receiptItems[0]?.url ? toAbsoluteAssetUrl(receiptItems[0].url) : '';
+          const hasReceipt = receiptItems.length > 0;
           return (
             <div
               key={contrat.id}
@@ -2510,22 +2553,49 @@ export default function ContratsPage() {
                   />
                 </label>
                 {hasReceipt ? (
-                  <a
-                    href={receiptUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-sky-300 text-sky-700 text-sm font-medium hover:bg-sky-50"
-                  >
-                    <Eye size={16} /> Voir recu
-                  </a>
+                  <div className="col-span-2 rounded-lg border border-sky-200 bg-sky-50/50 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-sky-800">Recus de paiement ({receiptItems.length})</p>
+                      <a
+                        href={receiptUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50"
+                      >
+                        <Eye size={16} /> Voir dernier recu
+                      </a>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {receiptItems.map((receipt, index) => {
+                        const absoluteUrl = toAbsoluteAssetUrl(receipt.url);
+                        return (
+                          <div key={`${contrat.id}-receipt-${index}-${receipt.url}`} className="flex items-center justify-between gap-3 rounded-lg border border-sky-100 bg-white px-3 py-2">
+                            <div className="min-w-0 text-xs text-slate-600">
+                              <p className="font-semibold text-slate-800">Recu {receiptItems.length - index}</p>
+                              <p>{receipt.uploaded_at ? `Ajoute le ${new Date(receipt.uploaded_at).toLocaleString('fr-FR')}` : 'Date non disponible'}</p>
+                              {receipt.note ? <p className="truncate">Note: {receipt.note}</p> : null}
+                            </div>
+                            <a
+                              href={absoluteUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-sky-300 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50"
+                            >
+                              <Eye size={16} /> Ouvrir
+                            </a>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ) : (
-                  <div className="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-dashed border-sky-200 text-sky-600 text-sm">
+                  <div className="col-span-2 inline-flex items-center justify-center px-3 py-2 rounded-lg border border-dashed border-sky-200 text-sky-600 text-sm">
                     Aucun recu
                   </div>
                 )}
                 <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-sky-200 text-sky-700 text-sm font-medium hover:bg-sky-50 cursor-pointer">
                   <Upload size={16} />
-                  {uploadingReceiptContratId === contrat.id ? 'Upload recu...' : (hasReceipt ? 'Remplacer recu' : 'Uploader recu')}
+                  {uploadingReceiptContratId === contrat.id ? 'Upload recu...' : (hasReceipt ? 'Ajouter recu' : 'Uploader recu')}
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
