@@ -1260,8 +1260,29 @@ export default function HotelReservationsPage() {
                     />
                   </div>
                   <p className="text-xs text-slate-500">
-                    Variables modifiables manuellement avant enregistrement ou avant remplacement du voucher PDF automatique.
+                    Variables internes admin uniquement, modifiables avant enregistrement ou avant remplacement du voucher PDF automatique.
                   </p>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Note admin interne</span>
+                    <textarea
+                      rows={3}
+                      value={row.admin_note || ""}
+                      onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, admin_note: event.target.value } : item))}
+                      placeholder="Visible uniquement pour l administration."
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      disabled={savingId === row.id}
+                    />
+                  </label>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void saveRow(row, row, "Note admin enregistree")}
+                      disabled={savingId === row.id}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                    >
+                      Enregistrer note
+                    </button>
+                  </div>
 
                   {row.voucher_url ? (
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">

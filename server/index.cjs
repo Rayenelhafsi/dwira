@@ -21139,6 +21139,7 @@ app.put('/api/contrats/:id', requireAdminSession, async (req, res) => {
       montant_donne_proprietaire,
       montant_total_proprietaire,
       profit_net,
+      admin_note,
       url_pdf,
       owner_url_pdf,
       statut,
@@ -21171,6 +21172,7 @@ app.put('/api/contrats/:id', requireAdminSession, async (req, res) => {
     if (montant_donne_proprietaire !== undefined) { fields.push('montant_donne_proprietaire = ?'); values.push(montant_donne_proprietaire); }
     if (montant_total_proprietaire !== undefined) { fields.push('montant_total_proprietaire = ?'); values.push(montant_total_proprietaire); }
     if (profit_net !== undefined) { fields.push('profit_net = ?'); values.push(profit_net); }
+    if (admin_note !== undefined) { fields.push('admin_note = ?'); values.push(String(admin_note || '').trim() || null); }
     if (url_pdf !== undefined) { fields.push('url_pdf = ?'); values.push(url_pdf); }
     if (owner_url_pdf !== undefined) { fields.push('owner_url_pdf = ?'); values.push(owner_url_pdf); }
     if (statut !== undefined) { fields.push('statut = ?'); values.push(statut); }
@@ -26519,6 +26521,9 @@ async function ensureContractsSchema() {
   }
   if (!(await columnExists('contrats', 'profit_net'))) {
     await pool.query('ALTER TABLE contrats ADD COLUMN profit_net DECIMAL(12,2) NULL AFTER montant_donne_proprietaire');
+  }
+  if (!(await columnExists('contrats', 'admin_note'))) {
+    await pool.query('ALTER TABLE contrats ADD COLUMN admin_note TEXT NULL AFTER profit_net');
   }
 }
 

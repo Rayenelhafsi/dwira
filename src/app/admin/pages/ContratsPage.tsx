@@ -48,6 +48,7 @@ type ContratApi = {
   montant_donne_proprietaire?: number | null;
   montant_total_proprietaire?: number | null;
   profit_net?: number | null;
+  admin_note?: string | null;
   reservation_demand_status?: string | null;
   reservation_payment_mode?: string | null;
   pricing_amicale_id?: string | null;
@@ -488,6 +489,7 @@ export default function ContratsPage() {
   const [error, setError] = useState<string | null>(null);
   const [uploadingContratId, setUploadingContratId] = useState<string | null>(null);
   const [uploadingReceiptContratId, setUploadingReceiptContratId] = useState<string | null>(null);
+  const [savingAdminNoteContratId, setSavingAdminNoteContratId] = useState<string | null>(null);
   const [regeneratingContratId, setRegeneratingContratId] = useState<string | null>(null);
   const [sendingContratId, setSendingContratId] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
@@ -1222,6 +1224,29 @@ export default function ContratsPage() {
       toast.error(error?.message || 'Sauvegarde montants impossible');
     } finally {
       setSavingFinancialContratId(null);
+    }
+  };
+
+  const handleSaveAdminNote = async (contrat: ContratApi) => {
+    setSavingAdminNoteContratId(contrat.id);
+    try {
+      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contrat.id)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          admin_note: String(contrat.admin_note || '').trim() || null,
+        }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Sauvegarde note impossible'));
+      const updated = await response.json();
+      setContrats((current) => current.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
+      setTemplateVarsTargetContract((current) => (current?.id === updated.id ? { ...current, ...updated } : current));
+      toast.success('Note admin du contrat enregistree');
+    } catch (error: any) {
+      toast.error(error?.message || 'Sauvegarde note impossible');
+    } finally {
+      setSavingAdminNoteContratId(null);
     }
   };
 
@@ -2199,7 +2224,7 @@ export default function ContratsPage() {
             </button>
           </div>
           <p className="text-xs text-sky-800">
-            Les valeurs existantes du contrat sont pre-remplies ici. L admin peut les modifier puis regenerer le PDF.
+            Variables internes admin uniquement. Elles servent a preparer ou corriger le voucher/contrat PDF depuis l administration.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {templateVarKeys.map((key) => (
@@ -2333,6 +2358,31 @@ export default function ContratsPage() {
                 <div className="flex items-center gap-2">
                   <AlertCircle size={14} className="text-gray-400 flex-shrink-0 sm:w-4 sm:h-4" />
                   <span>Montant recu: {cardDetails.montantRecu}</span>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-700">Note admin interne</span>
+                  <textarea
+                    rows={3}
+                    value={String(contrat.admin_note || '')}
+                    onChange={(event) => setContrats((current) => current.map((item) => (
+                      item.id === contrat.id ? { ...item, admin_note: event.target.value } : item
+                    )))}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                    placeholder="Visible uniquement pour l administration."
+                  />
+                </label>
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveAdminNote(contrat)}
+                    disabled={savingAdminNoteContratId === contrat.id}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-60"
+                  >
+                    {savingAdminNoteContratId === contrat.id ? 'Enregistrement...' : 'Enregistrer note'}
+                  </button>
                 </div>
               </div>
 

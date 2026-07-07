@@ -502,12 +502,24 @@ export default function AmicalesPage() {
     }
   };
 
-  const handleDemandAction = async (demand: AmicaleDemandRow, nextStatus: "voucher_en_cours" | "rejete_par_agence") => {
+  const handleDemandAction = async (demand: AmicaleDemandRow, nextStatus: "attente_validation_par_agence" | "voucher_en_cours" | "rejete_par_agence") => {
     setSavingId(demand.id);
     try {
       const isHotel = String(demand.source_kind || "").trim() === "hotel";
-      const response = isHotel
-        ? await fetch(
+      let response: Response;
+      if (isHotel) {
+        if (nextStatus === "attente_validation_par_agence") {
+          response = await fetch(`${API_URL}/hotel-reservation-demands/${encodeURIComponent(demand.id)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              status: "attente_validation_par_agence",
+              admin_note: String(demand.admin_note || "").trim() || "Demande amicale transmise a l agence pour validation finale.",
+            }),
+          });
+        } else {
+          response = await fetch(
             `${API_URL}/admin/hotel-reservation-demands/${encodeURIComponent(demand.id)}/${nextStatus === "voucher_en_cours" ? "validate" : "reject"}`,
             {
               method: "POST",
@@ -515,35 +527,77 @@ export default function AmicalesPage() {
               credentials: "include",
               body: JSON.stringify({
                 ...(nextStatus === "voucher_en_cours" ? buildHotelVoucherPatch(demand) : {}),
-                admin_note:
+                admin_note: String(demand.admin_note || "").trim() || (
                   nextStatus === "voucher_en_cours"
                     ? "Agence valide la demande amicale. Voucher genere automatiquement."
-                    : "Agence rejette la demande amicale",
+                    : "Agence rejette la demande amicale"
+                ),
               }),
             }
-          )
-        : await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              status: nextStatus,
-              actor_type: "admin",
-              actor_id: "admin",
-              history_note:
-                nextStatus === "voucher_en_cours"
+          );
+        }
+      } else {
+        response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            status: nextStatus,
+            actor_type: "admin",
+            actor_id: "admin",
+            admin_note: String(demand.admin_note || "").trim() || undefined,
+            history_note:
+              nextStatus === "attente_validation_par_agence"
+                ? "Demande amicale transmise a l agence pour validation finale"
+                : nextStatus === "voucher_en_cours"
                   ? "Agence valide la demande amicale et genere le voucher"
                   : "Agence rejette la demande amicale",
-            }),
-          });
+          }),
+        });
+      }
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         throw new Error(String(data?.error || "Mise a jour impossible"));
       }
-      toast.success(nextStatus === "voucher_en_cours" ? "Demande validee. Voucher genere automatiquement." : "Demande rejetee.");
+      toast.success(
+        nextStatus === "attente_validation_par_agence"
+          ? "Demande passee en attente agence."
+          : nextStatus === "voucher_en_cours"
+            ? "Demande validee. Voucher genere automatiquement."
+            : "Demande rejetee."
+      );
       await loadData();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Mise a jour impossible");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleSaveAdminNote = async (demand: AmicaleDemandRow) => {
+    setSavingId(demand.id);
+    try {
+      const isHotel = String(demand.source_kind || "").trim() === "hotel";
+      const response = await fetch(
+        `${API_URL}/${isHotel ? "hotel-reservation-demands" : "reservation-demands"}/${encodeURIComponent(demand.id)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            admin_note: String(demand.admin_note || "").trim() || null,
+            ...(isHotel ? {} : { actor_type: "admin", actor_id: "admin" }),
+          }),
+        }
+      );
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(String(data?.error || "Sauvegarde note impossible"));
+      }
+      toast.success("Note admin enregistree");
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sauvegarde note impossible");
     } finally {
       setSavingId(null);
     }
@@ -974,6 +1028,8 @@ export default function AmicalesPage() {
                 const financialDraft = getFinancialDraft(demand);
                 const roomLines = isHotelDemand ? getHotelDemandRoomLines(demand) : [];
                 const travellerLines = isHotelDemand ? getHotelDemandTravellerLines(demand) : { adultLines: [], childLines: [] };
+                const validationTarget = demand.status === "attente_validation_amicale" ? "attente_validation_par_agence" : "voucher_en_cours";
+                const validationLabel = validationTarget === "attente_validation_par_agence" ? "Passer a l agence" : "Valider";
                 return (
                   <article key={demand.id} className="rounded-xl border border-gray-200 bg-white p-4">
                     <div className="grid gap-3 lg:grid-cols-3">
@@ -1114,17 +1170,41 @@ export default function AmicalesPage() {
                             ) : null}
                           </div>
                         ) : null}
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-700">Note admin interne</span>
+                            <textarea
+                              rows={3}
+                              value={String(demand.admin_note || "")}
+                              onChange={(event) => setDemandRows((prev) => prev.map((item) => (
+                                item.id === demand.id ? { ...item, admin_note: event.target.value } : item
+                              )))}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                              placeholder="Visible uniquement pour l administration."
+                            />
+                          </label>
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              type="button"
+                              disabled={savingId === demand.id}
+                              onClick={() => void handleSaveAdminNote(demand)}
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-60"
+                            >
+                              {savingId === demand.id ? "Enregistrement..." : "Enregistrer note"}
+                            </button>
+                          </div>
+                        </div>
                         <div className="flex flex-wrap gap-2 pt-1">
                           {demandSectionTab === "actives" ? (
                             <>
                               <button
                                 type="button"
                                 disabled={savingId === demand.id}
-                                onClick={() => void handleDemandAction(demand, "voucher_en_cours")}
+                                onClick={() => void handleDemandAction(demand, validationTarget)}
                                 className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                               >
                                 <CheckCircle2 className="h-4 w-4" />
-                                Valider
+                                {validationLabel}
                               </button>
                               <button
                                 type="button"
