@@ -10,6 +10,7 @@ const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 type AdminAmicaleTab = "amicales" | "demandes";
 type DemandSectionTab = "actives" | "rejetees";
+type DemandSortMode = "arrival" | "recent";
 
 type AmicaleDemandRow = ReservationDemand & {
   amicale_name?: string | null;
@@ -85,6 +86,46 @@ function formatCurrency(value?: number | string | null) {
   const num = Number(value || 0);
   if (!Number.isFinite(num)) return "0 DT";
   return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(num)} DT`;
+}
+
+function parseSortDate(value?: string | null) {
+  if (!value) return Number.NaN;
+  return new Date(String(value).replace(" ", "T")).getTime();
+}
+
+function compareNearestArrivalDates(leftValue?: string | null, rightValue?: string | null, leftFallback?: string | null, rightFallback?: string | null) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const leftTime = parseSortDate(leftValue) || parseSortDate(leftFallback);
+  const rightTime = parseSortDate(rightValue) || parseSortDate(rightFallback);
+  const leftIsValid = Number.isFinite(leftTime);
+  const rightIsValid = Number.isFinite(rightTime);
+  if (!leftIsValid && !rightIsValid) return 0;
+  if (!leftIsValid) return 1;
+  if (!rightIsValid) return -1;
+  const leftFuture = leftTime >= today;
+  const rightFuture = rightTime >= today;
+  if (leftFuture && !rightFuture) return -1;
+  if (!leftFuture && rightFuture) return 1;
+  if (leftFuture && rightFuture) return leftTime - rightTime;
+  return rightTime - leftTime;
+}
+
+function sortAmicaleDemandRows(rows: AmicaleDemandRow[], mode: DemandSortMode) {
+  return [...rows].sort((left, right) => {
+    if (mode === "arrival") {
+      const arrivalCompare = compareNearestArrivalDates(
+        left.start_date,
+        right.start_date,
+        left.updated_at || left.created_at,
+        right.updated_at || right.created_at
+      );
+      if (arrivalCompare !== 0) return arrivalCompare;
+    }
+    const updatedGap = parseSortDate(right.updated_at || right.created_at) - parseSortDate(left.updated_at || left.created_at);
+    if (updatedGap !== 0) return updatedGap;
+    return String(right.id || "").localeCompare(String(left.id || ""));
+  });
 }
 
 function parseOptionalAmount(value: string): number | null {
@@ -267,6 +308,7 @@ export default function AmicalesPage() {
   const [logoUploading, setLogoUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminAmicaleTab>("amicales");
   const [demandSectionTab, setDemandSectionTab] = useState<DemandSectionTab>("actives");
+  const [demandSortMode, setDemandSortMode] = useState<DemandSortMode>("arrival");
   const [activeAmicaleFilter, setActiveAmicaleFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
@@ -277,8 +319,8 @@ export default function AmicalesPage() {
   const [expandedFinancials, setExpandedFinancials] = useState<Record<string, boolean>>({});
   const [savingFinancialDemandId, setSavingFinancialDemandId] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (options?: { background?: boolean }) => {
+    if (!options?.background) setLoading(true);
     try {
       const [amicalesResponse, demandsResponse, hotelDemandsResponse] = await Promise.all([
         fetchAmicalesAdmin(),
@@ -288,32 +330,34 @@ export default function AmicalesPage() {
       const demandJson = demandsResponse.ok ? await demandsResponse.json().catch(() => []) : [];
       const hotelDemandJson = hotelDemandsResponse.ok ? await hotelDemandsResponse.json().catch(() => []) : [];
       setAmicales(Array.isArray(amicalesResponse) ? amicalesResponse : []);
-      setDemandRows(
+      setDemandRows(sortAmicaleDemandRows(
         [
           ...(Array.isArray(demandJson) ? demandJson : []),
           ...(Array.isArray(hotelDemandJson) ? hotelDemandJson.map((row) => mapHotelDemandToAmicaleDemandRow(row as HotelReservationDemand)) : []),
         ]
-          .filter((row): row is AmicaleDemandRow => Boolean(row && isAmicaleDemand(row)))
-          .sort((a, b) => {
-            const da = new Date(String(a.updated_at || a.created_at || "")).getTime();
-            const db = new Date(String(b.updated_at || b.created_at || "")).getTime();
-            return db - da;
-          })
-      );
+          .filter((row): row is AmicaleDemandRow => Boolean(row && isAmicaleDemand(row))),
+        "recent"
+      ));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Chargement impossible");
     } finally {
-      setLoading(false);
+      if (!options?.background) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
     const intervalId = window.setInterval(() => {
-      void loadData();
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (activeTab !== "demandes") return;
+      if (savingId || uploadingVoucherId || savingFinancialDemandId || logoUploading) return;
+      void loadData({ background: true });
     }, 15000);
     return () => window.clearInterval(intervalId);
-  }, [loadData]);
+  }, [activeTab, loadData, logoUploading, savingFinancialDemandId, savingId, uploadingVoucherId]);
 
   useEffect(() => {
     setHotelMarkupById(
@@ -360,7 +404,7 @@ export default function AmicalesPage() {
 
   const filteredDemands = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
-    return scopedDemandRows.filter((row) => {
+    const filtered = scopedDemandRows.filter((row) => {
       const amicaleId = String(row.pricing_amicale_id || "").trim();
       if (activeAmicaleFilter !== "all" && amicaleId !== activeAmicaleFilter) return false;
       if (!needle) return true;
@@ -376,7 +420,8 @@ export default function AmicalesPage() {
       ].map((v) => String(v || "").toLowerCase());
       return bag.some((v) => v.includes(needle));
     });
-  }, [activeAmicaleFilter, scopedDemandRows, searchTerm]);
+    return sortAmicaleDemandRows(filtered, demandSortMode);
+  }, [activeAmicaleFilter, demandSortMode, scopedDemandRows, searchTerm]);
 
   const handleAdd = async () => {
     if (!name.trim() || !code.trim()) {
@@ -855,21 +900,39 @@ export default function AmicalesPage() {
           </div>
 
           <div className="flex flex-col gap-3">
-            <div className="inline-flex w-fit rounded-lg border border-gray-200 bg-white p-1">
-              <button
-                type="button"
-                onClick={() => setDemandSectionTab("actives")}
-                className={`rounded-md px-3 py-2 text-sm font-medium ${demandSectionTab === "actives" ? "bg-emerald-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
-              >
-                Demandes actives ({demandRows.length - amicaleCounts.rejectedCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setDemandSectionTab("rejetees")}
-                className={`rounded-md px-3 py-2 text-sm font-medium ${demandSectionTab === "rejetees" ? "bg-rose-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
-              >
-                Demandes rejetees ({amicaleCounts.rejectedCount})
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="inline-flex w-fit rounded-lg border border-gray-200 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setDemandSectionTab("actives")}
+                  className={`rounded-md px-3 py-2 text-sm font-medium ${demandSectionTab === "actives" ? "bg-emerald-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
+                >
+                  Demandes actives ({demandRows.length - amicaleCounts.rejectedCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDemandSectionTab("rejetees")}
+                  className={`rounded-md px-3 py-2 text-sm font-medium ${demandSectionTab === "rejetees" ? "bg-rose-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
+                >
+                  Demandes rejetees ({amicaleCounts.rejectedCount})
+                </button>
+              </div>
+              <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setDemandSortMode("arrival")}
+                  className={`rounded-md px-3 py-2 text-sm font-medium ${demandSortMode === "arrival" ? "bg-emerald-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
+                >
+                  Arrivee la plus proche
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDemandSortMode("recent")}
+                  className={`rounded-md px-3 py-2 text-sm font-medium ${demandSortMode === "recent" ? "bg-emerald-600 text-white" : "text-gray-700 hover:bg-gray-100"}`}
+                >
+                  Plus recentes
+                </button>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <button

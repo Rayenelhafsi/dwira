@@ -117,6 +117,7 @@ type HotelReservationDemandRow = {
 type AmicaleAssignmentRow = {
   id: string;
   demand_id: string;
+  contract_id?: string | null;
   source_kind: "property" | "hotel";
   status?: string | null;
   amicale_name?: string | null;
@@ -250,6 +251,7 @@ type PickerVariant = "contract" | "bien";
 
 type PickerOption = {
   id: string;
+  selectValue?: string;
   title: string;
   subtitle?: string;
   badge?: string;
@@ -261,6 +263,7 @@ type PickerOption = {
   note?: string;
   noteTone?: "emerald" | "sky" | "slate";
   highlight?: "default" | "amicale";
+  disabled?: boolean;
 };
 
 type DeleteTarget =
@@ -414,6 +417,7 @@ function mapHotelDemandToAmicaleAssignmentRow(row: HotelReservationDemandRow): A
   return {
     id: `hotel-demand-${row.id}`,
     demand_id: row.id,
+    contract_id: null,
     source_kind: "hotel",
     status: row.status || null,
     amicale_name: row.amicale_name || null,
@@ -437,6 +441,7 @@ function mapPropertyDemandToAmicaleAssignmentRow(row: ReservationDemandRow): Ami
   return {
     id: `property-demand-${row.id}`,
     demand_id: row.id,
+    contract_id: row.contract_id || null,
     source_kind: "property",
     status: row.status || null,
     amicale_name: row.amicale_name || null,
@@ -642,7 +647,8 @@ function SelectionDialog({
             ) : (
               <div className="space-y-2">
                 {options.map((option) => {
-                  const isSelected = option.id === selectedId;
+                  const effectiveValue = option.selectValue || option.id;
+                  const isSelected = effectiveValue === selectedId;
                   const isAmicale = option.highlight === "amicale";
                   const selectedClasses = isSelected
                     ? isAmicale
@@ -656,8 +662,13 @@ function SelectionDialog({
                     <button
                       key={option.id}
                       type="button"
-                      onClick={() => onSelect(option.id)}
-                      className={`flex w-full items-start gap-3 rounded-[24px] border px-3 py-3 text-left transition sm:rounded-3xl sm:px-4 sm:py-4 ${selectedClasses}`}
+                      onClick={() => {
+                        if (!option.disabled) onSelect(effectiveValue);
+                      }}
+                      disabled={option.disabled}
+                      className={`flex w-full items-start gap-3 rounded-[24px] border px-3 py-3 text-left transition sm:rounded-3xl sm:px-4 sm:py-4 ${selectedClasses} ${
+                        option.disabled ? "cursor-not-allowed opacity-75" : ""
+                      }`}
                     >
                       <span
                         className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
@@ -1092,7 +1103,10 @@ export default function SubAdminOperationsPanel({
 
   const contractPickerOptions = useMemo(() => {
     const needle = contractSearch.trim().toLowerCase();
-    return [...contracts]
+    const contractDateMap = new Map(
+      contracts.map((contract) => [String(contract.id || "").trim(), { start: contract.date_debut || null, fallback: contract.created_at || null }])
+    );
+    const baseOptions = [...contracts]
       .filter((contract) => {
         if (!needle) return true;
         return [
@@ -1149,7 +1163,80 @@ export default function SubAdminOperationsPanel({
           highlight: isAmicale ? "amicale" : "default",
         } satisfies PickerOption;
       });
-  }, [contractSearch, contracts]);
+
+    const knownContractIds = new Set(
+      contracts.map((contract) => String(contract.id || "").trim()).filter(Boolean)
+    );
+
+    const amicaleDemandOptions = amicaleDemands
+      .filter((demand) => {
+        const linkedContractId = String(demand.contract_id || "").trim();
+        if (linkedContractId && knownContractIds.has(linkedContractId)) return false;
+        if (!needle) return true;
+        return [
+          demand.demand_id,
+          demand.contract_id,
+          demand.bien_reference,
+          demand.bien_titre,
+          demand.client_name,
+          demand.amicale_name,
+          demand.start_date,
+          demand.end_date,
+          demand.source_kind,
+        ]
+          .map((value) => String(value || "").toLowerCase())
+          .some((value) => value.includes(needle));
+      })
+      .map((demand) => {
+        const linkedContractId = String(demand.contract_id || "").trim();
+        const hasLinkedContract = Boolean(linkedContractId);
+        const arrivalDate = demand.start_date ? formatDateOnly(demand.start_date) : "";
+        const departureDate = demand.end_date ? formatDateOnly(demand.end_date) : "";
+        const demandLabel = demand.source_kind === "hotel" ? "Demande hotel amicale" : "Demande bien amicale";
+        const titleParts = [String(demand.bien_reference || "").trim(), String(demand.bien_titre || "").trim()].filter(Boolean);
+        const note = hasLinkedContract
+          ? `Note terrain: amicale : ${String(demand.amicale_name || "Amicale").trim()}${departureDate ? ` | depart ${departureDate}` : ""}`
+          : demand.source_kind === "hotel"
+            ? "Demande hotel sans contrat lie: visible ici, non affectable depuis ce popup."
+            : "Demande adherant sans contrat lie: creer ou generer le contrat avant affectation.";
+
+        return {
+          id: demand.id,
+          selectValue: hasLinkedContract ? linkedContractId : undefined,
+          title: titleParts.length > 0 ? titleParts.join(" - ") : demand.demand_id,
+          subtitle: [
+            `Demande ${String(demand.demand_id || "").trim()}`,
+            String(demand.client_name || "").trim() ? `Client ${String(demand.client_name || "").trim()}` : "",
+          ]
+            .filter(Boolean)
+            .join(" | "),
+          badge: demand.start_date ? `Arrivee ${arrivalDate}` : undefined,
+          badgeTone: "sky",
+          metaBadges: [
+            { label: demandLabel, tone: "sky" },
+            demand.amicale_name ? { label: `Amicale ${String(demand.amicale_name).trim()}`, tone: "sky" } : null,
+            hasLinkedContract ? { label: `Contrat ${linkedContractId}`, tone: "emerald" } : { label: "Sans contrat", tone: "amber" },
+          ].filter(Boolean) as PickerOption["metaBadges"],
+          note,
+          noteTone: hasLinkedContract ? "sky" : "slate",
+          highlight: "amicale",
+          disabled: !hasLinkedContract,
+        } satisfies PickerOption;
+      });
+
+    return [...baseOptions, ...amicaleDemandOptions].sort((left, right) => {
+      const leftDemand = amicaleDemands.find((entry) => entry.id === left.id);
+      const rightDemand = amicaleDemands.find((entry) => entry.id === right.id);
+      const leftContract = contractDateMap.get(String(left.selectValue || left.id || "").trim());
+      const rightContract = contractDateMap.get(String(right.selectValue || right.id || "").trim());
+      return compareNearestArrivalDates(
+        leftDemand?.start_date || leftContract?.start || null,
+        rightDemand?.start_date || rightContract?.start || null,
+        leftDemand?.created_at || leftContract?.fallback || null,
+        rightDemand?.created_at || rightContract?.fallback || null
+      );
+    });
+  }, [amicaleDemands, contractSearch, contracts]);
 
   const bienPickerOptions = useMemo(() => {
     const needle = bienSearch.trim().toLowerCase();
@@ -1975,77 +2062,6 @@ export default function SubAdminOperationsPanel({
                   </PanelSurface>
                 </div>
               ) : null}
-              {!loading && amicaleDemands.length > 0 ? (
-                <div className="mt-5 space-y-4">
-                  <PanelSurface
-                    title="Demandes adherants"
-                    description="Demandes amicale ajoutees dans les affectations et triees par arrivee la plus proche."
-                    accent="sky"
-                  >
-                    <div className="space-y-3">
-                      {amicaleDemands.map((demand) => (
-                        <article key={demand.id} className="rounded-[24px] border border-slate-200 bg-white p-4 sm:rounded-[28px]">
-                          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h4 className="text-lg font-bold text-slate-950">
-                                  {demand.bien_reference || demand.demand_id} - {demand.bien_titre || "Demande adherant"}
-                                </h4>
-                                <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">
-                                  {demand.source_kind === "hotel" ? "Hotel" : "Bien"}
-                                </span>
-                              </div>
-
-                              <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                                <p>Amicale: {demand.amicale_name || "-"}</p>
-                                <p>Client: {demand.client_name || "-"} - {demand.client_phone || "-"}</p>
-                                <p>Arrivee: {formatDateOnly(demand.start_date)}</p>
-                                <p>Depart: {formatDateOnly(demand.end_date)}</p>
-                                <p>Montant total: {formatMoney(demand.total_amount)}</p>
-                                <p>Avance: {formatMoney(demand.amount_due_now)}</p>
-                              </div>
-                            </div>
-
-                            <div className="flex flex-wrap gap-2 xl:justify-end">
-                              {demand.voucher_url ? (
-                                <a
-                                  href={demand.voucher_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800"
-                                >
-                                  <FileText size={15} />
-                                  Voucher
-                                </a>
-                              ) : null}
-                              {demand.property_url ? (
-                                <a
-                                  href={demand.property_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
-                                >
-                                  <ExternalLink size={15} />
-                                  Ouvrir
-                                </a>
-                              ) : null}
-                              {demand.client_phone ? (
-                                <a
-                                  href={`tel:${demand.client_phone}`}
-                                  className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800"
-                                >
-                                  <Phone size={15} />
-                                  Appeler client
-                                </a>
-                              ) : null}
-                            </div>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </PanelSurface>
-                </div>
-              ) : null}
             </div>
           </div>
         ) : null}
@@ -2716,7 +2732,7 @@ export default function SubAdminOperationsPanel({
           if (!open) setPickerOpen(null);
         }}
         title="Choisir le contrat"
-        description="Contrats tries par arrivee la plus proche, avec distinction claire entre particulier et amicale."
+        description="Contrats et demandes adherants visibles dans une seule liste, tries par arrivee la plus proche."
         searchValue={contractSearch}
         onSearchChange={setContractSearch}
         options={contractPickerOptions}

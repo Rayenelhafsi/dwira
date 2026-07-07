@@ -15,6 +15,7 @@ const NOTIFICATIONS_CACHE_KEY = 'dwira_admin_notifications_cache_v1';
 const AGENCY_TIME_ZONE = 'Africa/Tunis';
 const AGENCY_UTC_OFFSET = '+01:00';
 const NOTIFICATIONS_TABLET_LAYOUT_MIN_WIDTH = 900;
+type DemandSortMode = 'arrival' | 'recent';
 
 type NotificationsCachePayload = {
   notifications: Notification[];
@@ -195,6 +196,46 @@ function resolveDisplayStatus(demand: ReservationDemand): ReservationDemandStatu
 
 function isAmicaleDemand(demand: ReservationDemand) {
   return String(demand.payment_mode || '').trim() === 'amicale' || Boolean(String(demand.pricing_amicale_id || '').trim());
+}
+
+function parseSortDate(value?: string | null) {
+  if (!value) return Number.NaN;
+  return new Date(String(value).replace(' ', 'T')).getTime();
+}
+
+function compareNearestArrivalDates(leftValue?: string | null, rightValue?: string | null, leftFallback?: string | null, rightFallback?: string | null) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const leftTime = parseSortDate(leftValue) || parseSortDate(leftFallback);
+  const rightTime = parseSortDate(rightValue) || parseSortDate(rightFallback);
+  const leftIsValid = Number.isFinite(leftTime);
+  const rightIsValid = Number.isFinite(rightTime);
+  if (!leftIsValid && !rightIsValid) return 0;
+  if (!leftIsValid) return 1;
+  if (!rightIsValid) return -1;
+  const leftFuture = leftTime >= today;
+  const rightFuture = rightTime >= today;
+  if (leftFuture && !rightFuture) return -1;
+  if (!leftFuture && rightFuture) return 1;
+  if (leftFuture && rightFuture) return leftTime - rightTime;
+  return rightTime - leftTime;
+}
+
+function sortReservationDemands(rows: ReservationDemand[], mode: DemandSortMode) {
+  return [...rows].sort((left, right) => {
+    if (mode === 'arrival') {
+      const arrivalCompare = compareNearestArrivalDates(
+        left.start_date,
+        right.start_date,
+        left.updated_at || left.created_at,
+        right.updated_at || right.created_at
+      );
+      if (arrivalCompare !== 0) return arrivalCompare;
+    }
+    const updatedGap = parseSortDate(right.updated_at || right.created_at) - parseSortDate(left.updated_at || left.created_at);
+    if (updatedGap !== 0) return updatedGap;
+    return String(right.id || '').localeCompare(String(left.id || ''));
+  });
 }
 
 const statusLabels: Record<ReservationDemandStatus, string> = {
@@ -890,6 +931,8 @@ export default function NotificationsPage() {
   const [adminAlertsUrgentOnly, setAdminAlertsUrgentOnly] = useState(false);
   const [demandTab, setDemandTab] = useState<'pending' | 'finished_success' | 'finished_cancelled'>('pending');
   const [cancelledSubTab, setCancelledSubTab] = useState<'client' | 'echeance'>('client');
+  const [demandSortMode, setDemandSortMode] = useState<DemandSortMode>('arrival');
+  const [systemSortMode, setSystemSortMode] = useState<DemandSortMode>('recent');
   const [selectedChatOwner, setSelectedChatOwner] = useState<{ id: string; name: string; demandId?: string } | null>(null);
   const [selectedCalendarOwner, setSelectedCalendarOwner] = useState<{ id: string; name: string } | null>(null);
   const [chatMessages, setChatMessages] = useState<Array<{ id: string; text: string; kind?: string; createdAt?: string }>>([]);
@@ -1077,12 +1120,12 @@ export default function NotificationsPage() {
     [demands]
   );
   const visibleDemands = useMemo(() => {
-    if (demandTab === 'finished_success') return finishedSuccessDemands;
+    if (demandTab === 'finished_success') return sortReservationDemands(finishedSuccessDemands, demandSortMode);
     if (demandTab === 'finished_cancelled') {
-      return cancelledSubTab === 'client' ? cancelledByClientDemands : cancelledByDeadlineDemands;
+      return sortReservationDemands(cancelledSubTab === 'client' ? cancelledByClientDemands : cancelledByDeadlineDemands, demandSortMode);
     }
-    return pendingDemands;
-  }, [demandTab, cancelledSubTab, pendingDemands, finishedSuccessDemands, cancelledByClientDemands, cancelledByDeadlineDemands]);
+    return sortReservationDemands(pendingDemands, demandSortMode);
+  }, [demandSortMode, demandTab, cancelledSubTab, pendingDemands, finishedSuccessDemands, cancelledByClientDemands, cancelledByDeadlineDemands]);
   const demandCounters = useMemo(() => {
     const awaitingOwner = pendingDemands.filter((d) => resolveDisplayStatus(d) === 'en_attente_reponse_proprietaire').length;
     const awaitingClient = pendingDemands.filter((d) => resolveDisplayStatus(d) === 'reponse_positive_attente_confirmation_client').length;
@@ -1290,11 +1333,20 @@ export default function NotificationsPage() {
     return filteredNotificationInsights
       .slice()
       .sort((left, right) => {
+        if (systemSortMode === 'arrival') {
+          const arrivalCompare = compareNearestArrivalDates(
+            left.demand?.start_date,
+            right.demand?.start_date,
+            left.notification.created_at,
+            right.notification.created_at
+          );
+          if (arrivalCompare !== 0) return arrivalCompare;
+        }
         const scoreGap = importanceScore[left.importance] - importanceScore[right.importance];
         if (scoreGap !== 0) return scoreGap;
         return String(right.notification.created_at || '').localeCompare(String(left.notification.created_at || ''));
       });
-  }, [filteredNotificationInsights]);
+  }, [filteredNotificationInsights, systemSortMode]);
 
   const adminAlertPreviewItems = useMemo(() => {
     const importanceScore: Record<NotificationImportance, number> = {
@@ -2990,6 +3042,22 @@ export default function NotificationsPage() {
           >
             Demandes finies annulees ({cancelledByClientDemands.length + cancelledByDeadlineDemands.length})
           </button>
+          <div className="ml-auto inline-flex rounded-lg border border-gray-200 bg-white p-1">
+            <button
+              type="button"
+              onClick={() => setDemandSortMode('arrival')}
+              className={`rounded-md px-3 py-2 text-sm font-medium ${demandSortMode === 'arrival' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+            >
+              Arrivee la plus proche
+            </button>
+            <button
+              type="button"
+              onClick={() => setDemandSortMode('recent')}
+              className={`rounded-md px-3 py-2 text-sm font-medium ${demandSortMode === 'recent' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+            >
+              Plus recentes
+            </button>
+          </div>
         </div>
         {demandTab === 'finished_cancelled' && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -4758,29 +4826,47 @@ export default function NotificationsPage() {
 
         <div className="mt-4 grid gap-3 xl:grid-cols-[1.4fr,1fr]">
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setSystemNotificationTab('active')}
-                className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                  systemNotificationTab === 'active'
-                    ? 'bg-emerald-600 text-white'
-                    : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Notifications actives ({unreadNotificationsCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setSystemNotificationTab('archive')}
-                className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                  systemNotificationTab === 'archive'
-                    ? 'bg-slate-900 text-white'
-                    : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Archive notifications ({archivedNotificationsCount})
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSystemNotificationTab('active')}
+                  className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                    systemNotificationTab === 'active'
+                      ? 'bg-emerald-600 text-white'
+                      : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  Notifications actives ({unreadNotificationsCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSystemNotificationTab('archive')}
+                  className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                    systemNotificationTab === 'archive'
+                      ? 'bg-slate-900 text-white'
+                      : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  Archive notifications ({archivedNotificationsCount})
+                </button>
+              </div>
+              <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setSystemSortMode('arrival')}
+                  className={`rounded-md px-3 py-2 text-sm font-medium ${systemSortMode === 'arrival' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                >
+                  Arrivee la plus proche
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSystemSortMode('recent')}
+                  className={`rounded-md px-3 py-2 text-sm font-medium ${systemSortMode === 'recent' ? 'bg-emerald-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                >
+                  Plus recentes
+                </button>
+              </div>
             </div>
             <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-gray-600">Categories</p>
             <div className="mt-3 flex flex-wrap gap-2">
