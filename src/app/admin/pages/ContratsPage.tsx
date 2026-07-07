@@ -49,6 +49,9 @@ type ContratApi = {
   montant_total_proprietaire?: number | null;
   profit_net?: number | null;
   reservation_demand_status?: string | null;
+  reservation_payment_mode?: string | null;
+  pricing_amicale_id?: string | null;
+  amicale_name?: string | null;
 };
 
 type BienApi = {
@@ -2269,18 +2272,31 @@ export default function ContratsPage() {
         {filteredAndSorted.map((contrat) => {
           const bien = bienById.get(contrat.bien_id);
           const origin = String(contrat.origine || 'automatique').toLowerCase() === 'manuel' ? 'manuel' : 'automatique';
+          const isAmicaleContract = String(contrat.reservation_payment_mode || '').trim().toLowerCase() === 'amicale'
+            || Boolean(String(contrat.pricing_amicale_id || '').trim())
+            || Boolean(String(contrat.amicale_name || '').trim());
           const cardDetails = getContractCardDetails(contrat, bien);
           const category = getContractCategory(contrat);
           const financialDraft = getFinancialDraft(contrat);
           const receiptUrl = contrat.payment_receipt_image_url ? toAbsoluteAssetUrl(contrat.payment_receipt_image_url) : '';
           const hasReceipt = Boolean(receiptUrl);
           return (
-            <div key={contrat.id} className="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+            <div
+              key={contrat.id}
+              className={`p-4 sm:p-6 rounded-lg shadow-sm border hover:shadow-md transition-shadow ${
+                isAmicaleContract
+                  ? 'bg-[linear-gradient(180deg,rgba(236,253,245,0.96),rgba(255,255,255,1))] border-emerald-300'
+                  : 'bg-white border-gray-100'
+              }`}
+            >
               <div className="flex justify-between items-start mb-3 sm:mb-4">
-                <div className="bg-emerald-100 p-2 rounded-lg text-emerald-600">
+                <div className={`${isAmicaleContract ? 'bg-emerald-200 text-emerald-700' : 'bg-emerald-100 text-emerald-600'} p-2 rounded-lg`}>
                   <FileText size={20} className="sm:w-6 sm:h-6" />
                 </div>
                 <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${isAmicaleContract ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                    {isAmicaleContract ? 'Demande adherant' : 'Particulier'}
+                  </span>
                   <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${origin === 'manuel' ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'}`}>
                     {origin}
                   </span>
@@ -2302,6 +2318,12 @@ export default function ContratsPage() {
               <h3 className="font-bold text-base sm:text-lg text-gray-900 mb-1 truncate">{cardDetails.title}</h3>
               <p className="text-xs sm:text-sm text-gray-500 mb-1 truncate">Locataire: {cardDetails.locataire}</p>
               <p className="text-xs sm:text-sm text-gray-500 mb-3 sm:mb-4 truncate">Proprietaire: {bien?.proprietaire_nom || 'Inconnu'} - Ref: {bien?.reference || '-'}</p>
+              {isAmicaleContract ? (
+                <div className="mb-3 inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                  <span>Nom amicale:</span>
+                  <span className="truncate">{contrat.amicale_name || 'Amicale'}</span>
+                </div>
+              ) : null}
 
               <div className="space-y-2 text-xs sm:text-sm text-gray-600 border-t pt-3 sm:pt-4">
                 <div className="flex items-center gap-2">

@@ -7121,6 +7121,9 @@ app.post('/api/hotel-reservation-demands/:id/upload-payment-receipt', requireAut
       'demande_recu_paiement',
       'recu_paiement_envoye',
       'nouvelle_demande',
+      'succes_paiement',
+      'voucher_en_cours',
+      'voucher_envoye',
     ]);
     if (!allowed.has(currentStatus)) {
       return res.status(400).json({ error: 'Le recu ne peut pas etre envoye a cette etape' });
@@ -14858,7 +14861,34 @@ async function buildResolvedContractTemplateVars(contractId) {
   const context = await loadContractTemplateContext(contractId);
   if (!context) return null;
 
-  const savedTemplateVars = sanitizeContractTemplateVars(safeParseJson(context.contract.template_vars_json, null));
+  const amicaleName = String(context?.demand?.amicale_name || '').trim();
+  const applyAmicaleTerrainNote = (vars) => {
+    if (!vars || typeof vars !== 'object') return {};
+    const next = { ...vars };
+    if (!amicaleName) return next;
+    const noteLabel = `amicale : ${amicaleName}`;
+    let matched = false;
+    for (const [key, rawValue] of Object.entries(next)) {
+      const normalizedKey = String(key || '').trim().toLowerCase();
+      if (!normalizedKey.includes('terrain') || !normalizedKey.includes('note')) continue;
+      const currentValue = String(rawValue || '').trim();
+      if (currentValue.toLowerCase().includes(noteLabel.toLowerCase())) {
+        matched = true;
+        continue;
+      }
+      next[key] = currentValue ? `${currentValue}\n${noteLabel}` : noteLabel;
+      matched = true;
+    }
+    if (!matched) {
+      next.note_terrain = noteLabel;
+      next.noteTerrain = noteLabel;
+    }
+    return next;
+  };
+
+  const savedTemplateVars = applyAmicaleTerrainNote(
+    sanitizeContractTemplateVars(safeParseJson(context.contract.template_vars_json, null))
+  );
   const defaultTemplateVars = await buildReservationClientContractTemplateVars({
     demand: context.contractDemandContext,
     bien: context.bienContext,
@@ -14873,12 +14903,13 @@ async function buildResolvedContractTemplateVars(contractId) {
     identityLastName: context.identityLastName || '-',
     cautionAmount: context.contract.caution,
   });
+  const defaultTemplateVarsWithAmicale = applyAmicaleTerrainNote(defaultTemplateVars);
 
   return {
     ...context,
     savedTemplateVars,
     resolvedTemplateVars: {
-      ...defaultTemplateVars,
+      ...defaultTemplateVarsWithAmicale,
       ...savedTemplateVars,
     },
   };
@@ -17718,6 +17749,7 @@ app.get('/api/contrats', requireAdminSession, async (req, res) => {
   try {
     await ensureContractsSchema();
     await ensureReservationDemandSchema();
+    const hasReservationAmicaleName = await columnExists('reservation_demands', 'amicale_name');
     const [rows] = await pool.query(`
       SELECT c.*, b.titre as bien_titre, b.reference as bien_reference, l.nom as locataire_nom,
              (
@@ -17754,7 +17786,29 @@ app.get('/api/contrats', requireAdminSession, async (req, res) => {
                WHERE d.contract_id = c.id
                ORDER BY d.updated_at DESC
                LIMIT 1
-             ) AS reservation_demand_status
+             ) AS reservation_demand_status,
+             (
+               SELECT d.payment_mode
+               FROM reservation_demands d
+               WHERE d.contract_id = c.id
+               ORDER BY d.updated_at DESC
+               LIMIT 1
+             ) AS reservation_payment_mode,
+             (
+               SELECT d.pricing_amicale_id
+               FROM reservation_demands d
+               WHERE d.contract_id = c.id
+               ORDER BY d.updated_at DESC
+               LIMIT 1
+             ) AS pricing_amicale_id,
+             (
+               SELECT COALESCE(NULLIF(a.name, ''), ${hasReservationAmicaleName ? "NULLIF(d.amicale_name, '')" : "NULL"})
+               FROM reservation_demands d
+               LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+               WHERE d.contract_id = c.id
+               ORDER BY d.updated_at DESC
+               LIMIT 1
+             ) AS amicale_name
       FROM contrats c 
       LEFT JOIN biens b ON c.bien_id = b.id 
       LEFT JOIN locataires l ON c.locataire_id = l.id
@@ -17809,6 +17863,9 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
       ...contract,
       resolved_template_vars: templateContext?.resolvedTemplateVars || null,
       reservation_demand_id: templateContext?.demand?.id || null,
+      reservation_payment_mode: templateContext?.demand?.payment_mode || null,
+      pricing_amicale_id: templateContext?.demand?.pricing_amicale_id || null,
+      amicale_name: templateContext?.demand?.amicale_name || null,
       payment_receipt_image_url: templateContext?.demand?.payment_receipt_image_url || null,
       payment_receipt_uploaded_at: templateContext?.demand?.payment_receipt_uploaded_at || null,
       payment_receipt_note: templateContext?.demand?.payment_receipt_note || null,

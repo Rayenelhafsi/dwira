@@ -198,6 +198,11 @@ type ContractOption = {
   bien_reference?: string;
   locataire_nom?: string;
   created_at?: string;
+  date_debut?: string | null;
+  date_fin?: string | null;
+  reservation_payment_mode?: string | null;
+  pricing_amicale_id?: string | null;
+  amicale_name?: string | null;
 };
 
 type ContractAutofill = {
@@ -248,6 +253,14 @@ type PickerOption = {
   title: string;
   subtitle?: string;
   badge?: string;
+  badgeTone?: "emerald" | "sky" | "slate";
+  metaBadges?: Array<{
+    label: string;
+    tone?: "emerald" | "sky" | "amber" | "slate";
+  }>;
+  note?: string;
+  noteTone?: "emerald" | "sky" | "slate";
+  highlight?: "default" | "amicale";
 };
 
 type DeleteTarget =
@@ -594,6 +607,13 @@ function SelectionDialog({
   onSelect: (id: string) => void;
   emptyLabel: string;
 }) {
+  const toneClasses = {
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    sky: "border-sky-200 bg-sky-50 text-sky-700",
+    amber: "border-amber-200 bg-amber-50 text-amber-700",
+    slate: "border-slate-200 bg-slate-50 text-slate-600",
+  } as const;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl rounded-[24px] border border-emerald-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.98))] p-0 shadow-[0_30px_80px_rgba(15,23,42,0.20)] sm:rounded-[30px]">
@@ -608,7 +628,7 @@ function SelectionDialog({
               <input
                 value={searchValue}
                 onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="Rechercher..."
+                placeholder="Rechercher par reference, client, contrat ou amicale..."
                 className="h-12 w-full rounded-2xl border border-emerald-100 bg-white pl-11 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100/80"
               />
             </div>
@@ -623,33 +643,69 @@ function SelectionDialog({
               <div className="space-y-2">
                 {options.map((option) => {
                   const isSelected = option.id === selectedId;
+                  const isAmicale = option.highlight === "amicale";
+                  const selectedClasses = isSelected
+                    ? isAmicale
+                      ? "border-sky-300 bg-sky-50 shadow-[0_12px_24px_rgba(14,165,233,0.12)]"
+                      : "border-emerald-300 bg-emerald-50 shadow-[0_12px_24px_rgba(16,185,129,0.10)]"
+                    : isAmicale
+                      ? "border-sky-200 bg-[linear-gradient(180deg,rgba(240,249,255,0.96),rgba(255,255,255,0.98))] hover:border-sky-300 hover:bg-sky-50/70"
+                      : "border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/40";
+                  const badgeTone = option.badgeTone || "emerald";
                   return (
                     <button
                       key={option.id}
                       type="button"
                       onClick={() => onSelect(option.id)}
-                      className={`flex w-full items-start gap-3 rounded-[24px] border px-3 py-3 text-left transition sm:rounded-3xl sm:px-4 sm:py-4 ${
-                        isSelected
-                          ? "border-emerald-300 bg-emerald-50 shadow-[0_12px_24px_rgba(16,185,129,0.10)]"
-                          : "border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/40"
-                      }`}
+                      className={`flex w-full items-start gap-3 rounded-[24px] border px-3 py-3 text-left transition sm:rounded-3xl sm:px-4 sm:py-4 ${selectedClasses}`}
                     >
                       <span
                         className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
-                          isSelected ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300 text-transparent"
+                          isSelected
+                            ? isAmicale
+                              ? "border-sky-500 bg-sky-500 text-white"
+                              : "border-emerald-500 bg-emerald-500 text-white"
+                            : "border-slate-300 text-transparent"
                         }`}
                       >
                         <Check size={14} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-slate-900">{option.title}</span>
-                        {option.subtitle ? <span className="mt-1 block text-sm text-slate-500">{option.subtitle}</span> : null}
-                      </span>
-                      {option.badge ? (
-                        <span className="shrink-0 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                          {option.badge}
+                        <span className="flex flex-wrap items-start gap-2">
+                          <span className="min-w-0 flex-1 text-sm font-semibold text-slate-900">{option.title}</span>
+                          {option.badge ? (
+                            <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${toneClasses[badgeTone]}`}>
+                              {option.badge}
+                            </span>
+                          ) : null}
                         </span>
-                      ) : null}
+                        {option.subtitle ? <span className="mt-1 block text-sm text-slate-500">{option.subtitle}</span> : null}
+                        {option.metaBadges?.length ? (
+                          <span className="mt-2 flex flex-wrap gap-1.5">
+                            {option.metaBadges.map((badge) => (
+                              <span
+                                key={`${option.id}-${badge.label}`}
+                                className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${toneClasses[badge.tone || "slate"]}`}
+                              >
+                                {badge.label}
+                              </span>
+                            ))}
+                          </span>
+                        ) : null}
+                        {option.note ? (
+                          <span
+                            className={`mt-2 block rounded-2xl border px-3 py-2 text-xs font-medium ${
+                              option.noteTone === "sky"
+                                ? "border-sky-200 bg-sky-50/80 text-sky-700"
+                                : option.noteTone === "emerald"
+                                  ? "border-emerald-200 bg-emerald-50/80 text-emerald-700"
+                                  : "border-slate-200 bg-slate-50 text-slate-600"
+                            }`}
+                          >
+                            {option.note}
+                          </span>
+                        ) : null}
+                      </span>
                     </button>
                   );
                 })}
@@ -1036,7 +1092,7 @@ export default function SubAdminOperationsPanel({
 
   const contractPickerOptions = useMemo(() => {
     const needle = contractSearch.trim().toLowerCase();
-    return contracts
+    return [...contracts]
       .filter((contract) => {
         if (!needle) return true;
         return [
@@ -1044,17 +1100,55 @@ export default function SubAdminOperationsPanel({
           contract.bien_reference,
           contract.bien_titre,
           contract.locataire_nom,
+          contract.amicale_name,
+          contract.reservation_payment_mode,
           contract.created_at,
+          contract.date_debut,
+          contract.date_fin,
         ]
           .map((value) => String(value || "").toLowerCase())
           .some((value) => value.includes(needle));
       })
-      .map((contract) => ({
-        id: contract.id,
-        title: String(contract.bien_titre || contract.id),
-        subtitle: [String(contract.id || "").trim(), String(contract.locataire_nom || "").trim()].filter(Boolean).join(" • "),
-        badge: contract.created_at ? formatDateTime(contract.created_at).slice(0, 10) : undefined,
-      }));
+      .sort((left, right) => {
+        const dateCompare = compareNearestArrivalDates(left.date_debut, right.date_debut, left.created_at, right.created_at);
+        if (dateCompare !== 0) return dateCompare;
+        return parseSortDate(right.created_at) - parseSortDate(left.created_at);
+      })
+      .map((contract) => {
+        const isAmicale =
+          String(contract.reservation_payment_mode || "").trim().toLowerCase() === "amicale"
+          || Boolean(String(contract.pricing_amicale_id || "").trim());
+        const contractLabel = String(contract.id || "").trim();
+        const arrivalDate = contract.date_debut ? formatDateOnly(contract.date_debut) : "";
+        const departureDate = contract.date_fin ? formatDateOnly(contract.date_fin) : "";
+        const titleParts = [String(contract.bien_titre || "").trim(), String(contract.bien_reference || "").trim()].filter(Boolean);
+        const metaBadges = [
+          { label: isAmicale ? "Contrat amicale" : "Contrat particulier", tone: isAmicale ? "sky" : "emerald" },
+          contract.bien_reference ? { label: `Ref ${String(contract.bien_reference).trim()}`, tone: "slate" } : null,
+          contract.amicale_name ? { label: `Amicale ${String(contract.amicale_name).trim()}`, tone: "sky" } : null,
+        ].filter(Boolean) as PickerOption["metaBadges"];
+
+        return {
+          id: contract.id,
+          title: titleParts.length > 0 ? titleParts.join(" - ") : contractLabel,
+          subtitle: [
+            contractLabel ? `Contrat ${contractLabel}` : "",
+            String(contract.locataire_nom || "").trim() ? `Client ${String(contract.locataire_nom || "").trim()}` : "",
+          ]
+            .filter(Boolean)
+            .join(" | "),
+          badge: contract.date_debut ? `Arrivee ${arrivalDate}` : contract.created_at ? formatDateOnly(contract.created_at) : undefined,
+          badgeTone: isAmicale ? "sky" : "emerald",
+          metaBadges,
+          note: isAmicale
+            ? `Note terrain: amicale : ${String(contract.amicale_name || "Amicale").trim()}${departureDate ? ` | depart ${departureDate}` : ""}`
+            : departureDate
+              ? `Depart prevu: ${departureDate}`
+              : undefined,
+          noteTone: isAmicale ? "sky" : "slate",
+          highlight: isAmicale ? "amicale" : "default",
+        } satisfies PickerOption;
+      });
   }, [contractSearch, contracts]);
 
   const bienPickerOptions = useMemo(() => {
@@ -2622,7 +2716,7 @@ export default function SubAdminOperationsPanel({
           if (!open) setPickerOpen(null);
         }}
         title="Choisir le contrat"
-        description="Selectionnez un contrat depuis une fenetre dediee, avec recherche et lecture confortable."
+        description="Contrats tries par arrivee la plus proche, avec distinction claire entre particulier et amicale."
         searchValue={contractSearch}
         onSearchChange={setContractSearch}
         options={contractPickerOptions}
