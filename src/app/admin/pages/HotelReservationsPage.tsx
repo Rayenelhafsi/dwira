@@ -11,6 +11,7 @@ import {
   deleteHotelReservationDemand,
   regenerateHotelVoucher,
   updateHotelReservationDemand,
+  uploadHotelPaymentReceipt,
   uploadHotelVoucherPdf,
   uploadHotelVoucherQr,
   type HotelCity,
@@ -212,6 +213,7 @@ export default function HotelReservationsPage() {
   });
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [uploadingReceiptId, setUploadingReceiptId] = useState<string | null>(null);
   const [uploadingQrId, setUploadingQrId] = useState<string | null>(null);
   const [uploadingVoucherId, setUploadingVoucherId] = useState<string | null>(null);
 
@@ -429,6 +431,20 @@ export default function HotelReservationsPage() {
       toast.error(error instanceof Error ? error.message : "Upload QR impossible");
     } finally {
       setUploadingQrId(null);
+    }
+  };
+
+  const handleReceiptUpload = async (row: HotelReservationDemand, file: File | null) => {
+    if (!file) return;
+    setUploadingReceiptId(row.id);
+    try {
+      const updated = await uploadHotelPaymentReceipt(row.id, file, row.payment_receipt_note || undefined);
+      setRows((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      toast.success("Recu de paiement charge");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload recu impossible");
+    } finally {
+      setUploadingReceiptId(null);
     }
   };
 
@@ -1298,6 +1314,29 @@ export default function HotelReservationsPage() {
                       ) : null}
                     </div>
                   )}
+
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">Recu paiement client</p>
+                        <p className="text-xs text-slate-500">Charge une image du recu de paiement pour cette reservation hotel.</p>
+                      </div>
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+                        {uploadingReceiptId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <Upload size={16} />}
+                        {row.payment_receipt_image_url ? "Remplacer recu" : "Upload recu"}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg,image/webp"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] || null;
+                            void handleReceiptUpload(row, file);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
 
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">

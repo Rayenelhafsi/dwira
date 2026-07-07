@@ -71,6 +71,70 @@ type AssignmentRow = {
   updated_at?: string | null;
 };
 
+type ReservationDemandRow = {
+  id: string;
+  status?: string | null;
+  contract_id?: string | null;
+  pricing_amicale_id?: string | null;
+  amicale_name?: string | null;
+  bien_id?: string | null;
+  bien_reference?: string | null;
+  bien_titre?: string | null;
+  client_name?: string | null;
+  client_phone?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  total_amount?: number | string | null;
+  amount_due_now?: number | string | null;
+  voucher_url?: string | null;
+  voucher_generated_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type HotelReservationDemandRow = {
+  id: string;
+  status?: string | null;
+  pricing_amicale_id?: string | null;
+  amicale_name?: string | null;
+  hotel_id?: string | null;
+  hotel_name?: string | null;
+  client_name?: string | null;
+  client_phone?: string | null;
+  check_in?: string | null;
+  check_out?: string | null;
+  total_price?: number | string | null;
+  amount_due_now?: number | string | null;
+  voucher_url?: string | null;
+  voucher_generated_at?: string | null;
+  adults?: number | string | null;
+  child_ages?: unknown;
+  hotel_context?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type AmicaleAssignmentRow = {
+  id: string;
+  demand_id: string;
+  source_kind: "property" | "hotel";
+  status?: string | null;
+  amicale_name?: string | null;
+  bien_reference?: string | null;
+  bien_titre?: string | null;
+  property_url?: string | null;
+  client_name?: string | null;
+  client_phone?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  total_amount?: number | null;
+  amount_due_now?: number | null;
+  voucher_url?: string | null;
+  voucher_generated_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 type TaskRow = {
   id: string;
   subadmin_admin_id: string;
@@ -308,6 +372,98 @@ function normalizeAssignmentStatus(value?: string | null) {
   if (normalized === "done") return "done" as const;
   if (normalized === "in_progress") return "in_progress" as const;
   return "active" as const;
+}
+
+function normalizeDemandStatus(value?: string | null) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isRejectedAmicaleDemandStatus(value?: string | null) {
+  return ["rejete_par_amicale", "rejete_par_agence", "demande_rejetee_admin"].includes(normalizeDemandStatus(value));
+}
+
+function isAmicaleDemandRow(row: ReservationDemandRow | HotelReservationDemandRow) {
+  return String((row as { payment_mode?: string | null }).payment_mode || "").trim() === "amicale"
+    || Boolean(String(row.pricing_amicale_id || "").trim());
+}
+
+function resolveDemandPropertyUrl(row: { source_kind: "property" | "hotel"; bien_id?: string | null; bien_reference?: string | null }) {
+  if (row.source_kind === "hotel") {
+    const token = String(row.bien_id || "").trim();
+    return token ? `/hotels/${encodeURIComponent(token)}` : null;
+  }
+  const token = String(row.bien_reference || row.bien_id || "").trim();
+  return token ? `/properties/${encodeURIComponent(token)}` : null;
+}
+
+function mapHotelDemandToAmicaleAssignmentRow(row: HotelReservationDemandRow): AmicaleAssignmentRow {
+  const hotelId = String(row.hotel_id || "").trim();
+  return {
+    id: `hotel-demand-${row.id}`,
+    demand_id: row.id,
+    source_kind: "hotel",
+    status: row.status || null,
+    amicale_name: row.amicale_name || null,
+    bien_reference: hotelId ? `HOTEL-${hotelId}` : row.id,
+    bien_titre: row.hotel_name || null,
+    property_url: resolveDemandPropertyUrl({ source_kind: "hotel", bien_id: hotelId }),
+    client_name: row.client_name || null,
+    client_phone: row.client_phone || null,
+    start_date: row.check_in || null,
+    end_date: row.check_out || null,
+    total_amount: Number.isFinite(Number(row.total_price)) ? Number(row.total_price) : null,
+    amount_due_now: Number.isFinite(Number(row.amount_due_now)) ? Number(row.amount_due_now) : null,
+    voucher_url: row.voucher_url || null,
+    voucher_generated_at: row.voucher_generated_at || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
+function mapPropertyDemandToAmicaleAssignmentRow(row: ReservationDemandRow): AmicaleAssignmentRow {
+  return {
+    id: `property-demand-${row.id}`,
+    demand_id: row.id,
+    source_kind: "property",
+    status: row.status || null,
+    amicale_name: row.amicale_name || null,
+    bien_reference: row.bien_reference || null,
+    bien_titre: row.bien_titre || null,
+    property_url: resolveDemandPropertyUrl({ source_kind: "property", bien_id: row.bien_id, bien_reference: row.bien_reference }),
+    client_name: row.client_name || null,
+    client_phone: row.client_phone || null,
+    start_date: row.start_date || null,
+    end_date: row.end_date || null,
+    total_amount: Number.isFinite(Number(row.total_amount)) ? Number(row.total_amount) : null,
+    amount_due_now: Number.isFinite(Number(row.amount_due_now)) ? Number(row.amount_due_now) : null,
+    voucher_url: row.voucher_url || null,
+    voucher_generated_at: row.voucher_generated_at || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
+function parseSortDate(value?: string | null) {
+  if (!value) return Number.NaN;
+  return new Date(String(value).replace(" ", "T")).getTime();
+}
+
+function compareNearestArrivalDates(leftValue?: string | null, rightValue?: string | null, leftFallback?: string | null, rightFallback?: string | null) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const leftTime = parseSortDate(leftValue) || parseSortDate(leftFallback);
+  const rightTime = parseSortDate(rightValue) || parseSortDate(rightFallback);
+  const leftIsValid = Number.isFinite(leftTime);
+  const rightIsValid = Number.isFinite(rightTime);
+  if (!leftIsValid && !rightIsValid) return 0;
+  if (!leftIsValid) return 1;
+  if (!rightIsValid) return -1;
+  const leftFuture = leftTime >= today;
+  const rightFuture = rightTime >= today;
+  if (leftFuture && !rightFuture) return -1;
+  if (!leftFuture && rightFuture) return 1;
+  if (leftFuture && rightFuture) return leftTime - rightTime;
+  return rightTime - leftTime;
 }
 
 function getAssignmentStatusMeta(status?: string | null) {
@@ -636,6 +792,7 @@ export default function SubAdminOperationsPanel({
   const [activeTab, setActiveTab] = useState<PanelTab>("assignments");
   const [selectedSubadminId, setSelectedSubadminId] = useState("");
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
+  const [amicaleDemands, setAmicaleDemands] = useState<AmicaleAssignmentRow[]>([]);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [charges, setCharges] = useState<ChargeRow[]>([]);
   const [technicians, setTechnicians] = useState<TechnicianRow[]>([]);
@@ -714,12 +871,14 @@ export default function SubAdminOperationsPanel({
         return Array.isArray(rows) ? (rows as T[]) : [];
       };
 
-      const [assignmentsResult, tasksResult, chargesResult, techniciansResult, technicianAssignmentsResult] = await Promise.allSettled([
+      const [assignmentsResult, tasksResult, chargesResult, techniciansResult, technicianAssignmentsResult, reservationDemandsResult, hotelDemandsResult] = await Promise.allSettled([
         loadCollection<AssignmentRow>(`/subadmin/contracts${suffix}`, "Impossible de charger les affectations"),
         loadCollection<TaskRow>(`/subadmin/tasks${suffix}`, "Impossible de charger les taches"),
         loadCollection<ChargeRow>(`/subadmin/charges${suffix}`, "Impossible de charger les charges"),
         loadCollection<TechnicianRow>(`/subadmin/technicians${suffix}`, "Impossible de charger les techniciens"),
         loadCollection<TechnicianAssignmentRow>(`/subadmin/technician-assignments${suffix}`, "Impossible de charger les affectations technicien"),
+        loadCollection<ReservationDemandRow>("/reservation-demands", "Impossible de charger les demandes adherants"),
+        loadCollection<HotelReservationDemandRow>("/hotel-reservation-demands", "Impossible de charger les demandes adherants"),
       ]);
 
       const errors: string[] = [];
@@ -738,6 +897,28 @@ export default function SubAdminOperationsPanel({
 
       if (technicianAssignmentsResult.status === "fulfilled") setTechnicianAssignments(technicianAssignmentsResult.value);
       else errors.push(technicianAssignmentsResult.reason instanceof Error ? technicianAssignmentsResult.reason.message : "Impossible de charger les affectations technicien");
+
+      if (reservationDemandsResult.status === "fulfilled" || hotelDemandsResult.status === "fulfilled") {
+        const propertyRows = reservationDemandsResult.status === "fulfilled" ? reservationDemandsResult.value : [];
+        const hotelRows = hotelDemandsResult.status === "fulfilled" ? hotelDemandsResult.value : [];
+        const assignedContractIds = new Set(
+          (assignmentsResult.status === "fulfilled" ? assignmentsResult.value : [])
+            .map((assignment) => String(assignment.contract_id || "").trim())
+            .filter(Boolean)
+        );
+        const merged = [
+          ...propertyRows
+            .filter((row) => row
+              && isAmicaleDemandRow(row)
+              && !isRejectedAmicaleDemandStatus(row.status)
+              && !assignedContractIds.has(String(row.contract_id || "").trim()))
+            .map(mapPropertyDemandToAmicaleAssignmentRow),
+          ...hotelRows.filter((row) => row && isAmicaleDemandRow(row) && !isRejectedAmicaleDemandStatus(row.status)).map(mapHotelDemandToAmicaleAssignmentRow),
+        ].sort((left, right) => compareNearestArrivalDates(left.start_date, right.start_date, left.created_at, right.created_at));
+        setAmicaleDemands(merged);
+      } else {
+        errors.push("Impossible de charger les demandes adherants");
+      }
 
       if (errors.length > 0) {
         toast.error(errors[0]);
@@ -808,11 +989,27 @@ export default function SubAdminOperationsPanel({
     [technicianAssignments]
   );
   const activeAssignments = useMemo(
-    () => assignments.filter((assignment) => normalizeAssignmentStatus(assignment.status) !== "done"),
+    () =>
+      [...assignments]
+        .filter((assignment) => normalizeAssignmentStatus(assignment.status) !== "done")
+        .sort((left, right) => {
+          const dateCompare = compareNearestArrivalDates(
+            left.contract_start_date,
+            right.contract_start_date,
+            left.created_at || left.updated_at,
+            right.created_at || right.updated_at
+          );
+          if (dateCompare !== 0) return dateCompare;
+          if (left.urgent !== right.urgent) return left.urgent ? -1 : 1;
+          return parseSortDate(right.updated_at) - parseSortDate(left.updated_at);
+        }),
     [assignments]
   );
   const assignmentHistory = useMemo(
-    () => assignments.filter((assignment) => normalizeAssignmentStatus(assignment.status) === "done"),
+    () =>
+      [...assignments]
+        .filter((assignment) => normalizeAssignmentStatus(assignment.status) === "done")
+        .sort((left, right) => parseSortDate(right.completed_at || right.updated_at) - parseSortDate(left.completed_at || left.updated_at)),
     [assignments]
   );
   const inProgressAssignments = useMemo(
@@ -1467,6 +1664,7 @@ export default function SubAdminOperationsPanel({
                 <MetricCard label="Affectations actives" value={String(activeAssignments.length)} tone="emerald" />
                 <MetricCard label="Affectations en cours" value={String(inProgressAssignments.length)} tone="sky" />
                 <MetricCard label="Affectations terminees" value={String(assignmentHistory.length)} tone="default" />
+                <MetricCard label="Demandes adherants" value={String(amicaleDemands.length)} tone="sky" />
                 <MetricCard label="Taches ouvertes" value={String(openTasks.length)} tone="amber" />
                 <MetricCard label="Charges remontees" value={String(charges.length)} tone="sky" />
               </div>
@@ -1676,6 +1874,77 @@ export default function SubAdminOperationsPanel({
                               <Trash2 size={15} />
                               Supprimer
                             </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </PanelSurface>
+                </div>
+              ) : null}
+              {!loading && amicaleDemands.length > 0 ? (
+                <div className="mt-5 space-y-4">
+                  <PanelSurface
+                    title="Demandes adherants"
+                    description="Demandes amicale ajoutees dans les affectations et triees par arrivee la plus proche."
+                    accent="sky"
+                  >
+                    <div className="space-y-3">
+                      {amicaleDemands.map((demand) => (
+                        <article key={demand.id} className="rounded-[24px] border border-slate-200 bg-white p-4 sm:rounded-[28px]">
+                          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="text-lg font-bold text-slate-950">
+                                  {demand.bien_reference || demand.demand_id} - {demand.bien_titre || "Demande adherant"}
+                                </h4>
+                                <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">
+                                  {demand.source_kind === "hotel" ? "Hotel" : "Bien"}
+                                </span>
+                              </div>
+
+                              <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                                <p>Amicale: {demand.amicale_name || "-"}</p>
+                                <p>Client: {demand.client_name || "-"} - {demand.client_phone || "-"}</p>
+                                <p>Arrivee: {formatDateOnly(demand.start_date)}</p>
+                                <p>Depart: {formatDateOnly(demand.end_date)}</p>
+                                <p>Montant total: {formatMoney(demand.total_amount)}</p>
+                                <p>Avance: {formatMoney(demand.amount_due_now)}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 xl:justify-end">
+                              {demand.voucher_url ? (
+                                <a
+                                  href={demand.voucher_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800"
+                                >
+                                  <FileText size={15} />
+                                  Voucher
+                                </a>
+                              ) : null}
+                              {demand.property_url ? (
+                                <a
+                                  href={demand.property_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                                >
+                                  <ExternalLink size={15} />
+                                  Ouvrir
+                                </a>
+                              ) : null}
+                              {demand.client_phone ? (
+                                <a
+                                  href={`tel:${demand.client_phone}`}
+                                  className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800"
+                                >
+                                  <Phone size={15} />
+                                  Appeler client
+                                </a>
+                              ) : null}
+                            </div>
                           </div>
                         </article>
                       ))}

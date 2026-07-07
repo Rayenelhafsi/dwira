@@ -517,6 +517,20 @@ export async function uploadHotelVoucherQr(demandId: string, file: File) {
   return readApiResponse<HotelReservationDemand>(response);
 }
 
+export async function uploadHotelPaymentReceipt(demandId: string, file: File, note?: string | null) {
+  const formData = new FormData();
+  formData.append("receipt", file);
+  if (String(note || "").trim()) {
+    formData.append("payment_receipt_note", String(note || "").trim());
+  }
+  const response = await fetch(buildApiUrl(`/hotel-reservation-demands/${encodeURIComponent(demandId)}/upload-payment-receipt`), {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  return readApiResponse<HotelReservationDemand>(response);
+}
+
 export async function uploadHotelVoucherPdf(demandId: string, file: File) {
   const formData = new FormData();
   formData.append("voucher", file);

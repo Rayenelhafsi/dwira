@@ -30283,7 +30283,36 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
         };
       })
     );
-    res.json(payload);
+    const today = (() => {
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    })();
+    const parseAssignmentDate = (value) => {
+      if (!value) return Number.NaN;
+      return new Date(String(value).replace(' ', 'T')).getTime();
+    };
+    const sortedPayload = [...payload].sort((left, right) => {
+      const leftTime = Number.isFinite(parseAssignmentDate(left.contract_start_date))
+        ? parseAssignmentDate(left.contract_start_date)
+        : parseAssignmentDate(left.created_at || left.updated_at);
+      const rightTime = Number.isFinite(parseAssignmentDate(right.contract_start_date))
+        ? parseAssignmentDate(right.contract_start_date)
+        : parseAssignmentDate(right.created_at || right.updated_at);
+      const leftValid = Number.isFinite(leftTime);
+      const rightValid = Number.isFinite(rightTime);
+      if (!leftValid && !rightValid) return 0;
+      if (!leftValid) return 1;
+      if (!rightValid) return -1;
+      const leftFuture = leftTime >= today;
+      const rightFuture = rightTime >= today;
+      if (leftFuture && !rightFuture) return -1;
+      if (!leftFuture && rightFuture) return 1;
+      if (leftFuture && rightFuture) return leftTime - rightTime;
+      if (leftTime !== rightTime) return rightTime - leftTime;
+      if (Number(left.urgent || 0) !== Number(right.urgent || 0)) return Number(right.urgent || 0) - Number(left.urgent || 0);
+      return parseAssignmentDate(right.updated_at) - parseAssignmentDate(left.updated_at);
+    });
+    res.json(sortedPayload);
   } catch (error) {
     console.error('Error fetching subadmin contract assignments:', error);
     res.status(500).json({ error: 'Impossible de charger les affectations sous-admin' });
