@@ -162,6 +162,13 @@ function readFirebaseServiceAccount() {
 
 function safeParseJson(value, fallbackValue = null) {
   if (value === null || value === undefined || value === '') return fallbackValue;
+  if (Buffer.isBuffer(value)) {
+    try {
+      return JSON.parse(value.toString('utf8'));
+    } catch {
+      return fallbackValue;
+    }
+  }
   if (typeof value === 'object') return value;
   try {
     return JSON.parse(String(value));
@@ -171,6 +178,9 @@ function safeParseJson(value, fallbackValue = null) {
 }
 
 function normalizePaymentReceipts(value, fallbackReceipt = null) {
+  if (Buffer.isBuffer(value)) {
+    value = value.toString('utf8');
+  }
   const parsed = safeParseJson(value, []);
   const list = Array.isArray(parsed) ? parsed : [];
   const normalized = list
@@ -18174,10 +18184,25 @@ app.post('/api/contrats/:id/upload-payment-receipt', requireAdminSession, reserv
       [demand.id, receiptUrl, now, receiptNote, JSON.stringify(nextReceipts), contractId]
     );
 
+    const [refreshedDemandRows] = await pool.query(
+      `SELECT *
+       FROM reservation_demands
+       WHERE id = ?
+       LIMIT 1`,
+      [demand.id]
+    );
+    const refreshedDemand = refreshedDemandRows?.[0] || null;
+    const persistedReceipts = normalizePaymentReceipts(refreshedDemand?.payment_receipts_json, {
+      url: refreshedDemand?.payment_receipt_image_url || receiptUrl,
+      uploaded_at: refreshedDemand?.payment_receipt_uploaded_at || now,
+      note: refreshedDemand?.payment_receipt_note || receiptNote,
+      payment_id: refreshedDemand?.payment_id || resolvedPaymentId,
+    });
+
     const updatedContract = updatedContractRows?.[0]
       ? {
           ...updatedContractRows[0],
-          payment_receipts: nextReceipts,
+          payment_receipts: persistedReceipts,
         }
       : null;
 
@@ -18188,7 +18213,7 @@ app.post('/api/contrats/:id/upload-payment-receipt', requireAdminSession, reserv
       payment_receipt_image_url: receiptUrl,
       payment_receipt_uploaded_at: now,
       payment_receipt_note: receiptNote,
-      payment_receipts: nextReceipts,
+      payment_receipts: persistedReceipts,
       contract: updatedContract,
     });
   } catch (error) {
