@@ -8,7 +8,7 @@ import { getServiceDisplayPrice, splitServicesByTarification } from '../../utils
 import { readSessionPageCache, writeSessionPageCache } from '../utils/sessionPageCache';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
-const CONTRACTS_CACHE_KEY = 'dwira_admin_contrats_cache_v1';
+const CONTRACTS_CACHE_KEY = 'dwira_admin_contrats_cache_v2';
 
 type PaymentReceiptItem = {
   url: string;
@@ -1053,6 +1053,7 @@ export default function ContratsPage() {
             : item
         )));
       }
+      await fetchData({ background: true });
       toast.success('Recu de paiement uploade');
     } catch (error: any) {
       toast.error(error?.message || 'Upload recu impossible');
