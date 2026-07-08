@@ -115,6 +115,12 @@ export default function LoginPage() {
     return true;
   };
 
+  const redirectAfterClientAuth = () => {
+    if (redirectToPendingReservation()) return true;
+    navigate('/', { replace: true });
+    return true;
+  };
+
   const redirectToTargetOrClosePopup = (targetPath: string) => {
     const target = normalizeReturnToPath(targetPath);
     if (!target) return false;
@@ -171,7 +177,11 @@ export default function LoginPage() {
       });
       return;
     }
-    navigate(user.role === 'admin' ? '/admin' : '/', { replace: true });
+    if (user.role === 'admin') {
+      navigate('/admin', { replace: true });
+      return;
+    }
+    redirectAfterClientAuth();
   }, [user, authLoading, isProcessingSocialToken, navigate]);
 
   useEffect(() => {
@@ -222,7 +232,7 @@ export default function LoginPage() {
         loginUser(socialUser);
         if (socialUser.profileCompleted) {
           toast.success('Connexion reussie');
-          navigate('/', { replace: true });
+          redirectAfterClientAuth();
         } else {
           const fallbackNames = splitHumanName(socialUser.name);
           setProfileForm({
@@ -313,8 +323,11 @@ export default function LoginPage() {
         return;
       }
       toast.success('Connexion Passkey reussie');
-      if (redirectToPendingReservation()) return;
-      navigate(passkeyUser.role === 'admin' ? '/admin' : '/', { replace: true });
+      if (passkeyUser.role === 'admin') {
+        navigate('/admin', { replace: true });
+        return;
+      }
+      redirectAfterClientAuth();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Connexion Passkey echouee');
     } finally {
@@ -360,8 +373,11 @@ export default function LoginPage() {
       toast.success('Compte Passkey cree et connecte');
       setPasskeyRegisterEmail('');
       setPasskeyRegisterName('');
-      if (redirectToPendingReservation()) return;
-      navigate('/', { replace: true });
+      if (passkeyUser.role === 'admin') {
+        navigate('/admin', { replace: true });
+        return;
+      }
+      redirectAfterClientAuth();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Creation Passkey echouee');
     } finally {
@@ -436,9 +452,7 @@ export default function LoginPage() {
         return `/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`;
       })();
       if (targetFromDraft && redirectToTargetOrClosePopup(targetFromDraft)) return;
-      if (!redirectToPendingReservation()) {
-        navigate('/', { replace: true });
-      }
+      redirectAfterClientAuth();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Impossible de sauvegarder le profil client');
     } finally {
