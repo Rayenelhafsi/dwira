@@ -2592,18 +2592,17 @@ export default function NotificationsPage() {
 
   const generateContractForDemand = async (demand: ReservationDemand) => {
     const contractId = String(demand.contract_id || '').trim();
-    if (!contractId) {
-      toast.error('Aucun contrat associe a cette demande');
-      return;
-    }
     setGeneratingContractDemandId(demand.id);
     try {
-      const response = await fetch(`${API_URL}/contrats/${encodeURIComponent(contractId)}/regenerate-template-pdf`, {
+      const endpoint = contractId
+        ? `${API_URL}/contrats/${encodeURIComponent(contractId)}/regenerate-template-pdf`
+        : `${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/generate-contract-admin`;
+      const response = await fetch(endpoint, {
         method: 'POST',
         credentials: 'include',
       });
       if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Generation contrat impossible'));
-      toast.success('Contrat regenere');
+      toast.success(contractId ? 'Contrat regenere' : 'Contrat genere');
       await fetchData({ background: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Generation contrat impossible');
@@ -3316,7 +3315,7 @@ export default function NotificationsPage() {
                       <button
                         type="button"
                         onClick={() => void generateContractForDemand(demand)}
-                        disabled={generatingContractDemandId === demand.id || !String(demand.contract_id || '').trim()}
+                        disabled={generatingContractDemandId === demand.id}
                         className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                       >
                         {generatingContractDemandId === demand.id ? 'Generation...' : 'Generer contrat'}

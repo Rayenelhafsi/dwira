@@ -18253,6 +18253,147 @@ app.post('/api/contrats/:id/send-to-client', requireAdminSession, async (req, re
   }
 });
 
+app.post('/api/reservation-demands/:id/generate-contract-admin', requireAdminSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    await ensureContractsSchema();
+    const demandId = String(req.params.id || '').trim();
+    if (!demandId) {
+      return res.status(400).json({ error: 'Demande introuvable' });
+    }
+
+    const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [demandId]);
+    const current = demandRows[0] || null;
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+
+    const [bienRows] = await pool.query(
+      `SELECT b.id, b.reference, b.titre, b.type, b.prix_nuitee, b.avance, b.caution, b.proprietaire_id, p.nom AS proprietaire_nom, p.email AS proprietaire_email
+       FROM biens b
+       LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+       WHERE b.id = ?
+       LIMIT 1`,
+      [current.bien_id]
+    );
+    const bien = bienRows[0] || null;
+    if (!bien) return res.status(404).json({ error: 'Bien introuvable' });
+
+    const now = getAgencySqlDateTime();
+    const fullName = normalizePersonName(current.client_name || '');
+    const nameParts = fullName.split(/\s+/).filter(Boolean);
+    const fallbackLastName = normalizePersonName(current.identity_last_name) || nameParts[0] || 'Client';
+    const fallbackFirstName = normalizePersonName(current.identity_first_name) || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'Client');
+    const identityDocumentType = normalizeIdentityDocumentType(current.identity_document_type || 'cin_tn', 'cin_tn');
+    const identityDocumentNumber = normalizeIdentityNumber(current.identity_document_number) || '-';
+    const contractId = String(current.contract_id || `c${Date.now()}`);
+    const nights = computeNights(current.start_date, current.end_date);
+    const totalAmount = Number.isFinite(Number(current.total_amount)) && Number(current.total_amount) > 0
+      ? Number(current.total_amount)
+      : (Number(bien.prix_nuitee || 0) * nights);
+    const paymentMode = normalizePaymentMode(current.payment_mode, 'avance');
+    const amountDueNow = Number.isFinite(Number(current.amount_due_now)) && Number(current.amount_due_now) >= 0
+      ? Number(current.amount_due_now)
+      : (paymentMode === 'totalite' ? totalAmount : Math.min(totalAmount, Number(bien.avance || 0)));
+
+    const locataireId = await upsertLocataireFromReservationProfile({
+      userId: current.client_user_id,
+      name: fullName || `${fallbackLastName} ${fallbackFirstName}`.trim(),
+      email: current.client_email,
+      telephone: current.client_phone,
+      cin: identityDocumentType === 'cin_tn' ? identityDocumentNumber : '',
+    });
+    if (!locataireId) {
+      return res.status(500).json({ error: 'Impossible de creer ou retrouver le locataire' });
+    }
+
+    const [contractUrl, ownerContractUrl] = await Promise.all([
+      generateReservationClientContractPdf({
+        demand: current,
+        bien,
+        contractId,
+        contractCreatedAt: now,
+        totalAmount,
+        amountDueNow,
+        paymentMode,
+        identityNumber: identityDocumentNumber,
+        identityDocumentType,
+        identityFirstName: fallbackFirstName,
+        identityLastName: fallbackLastName,
+      }),
+      generateReservationOwnerContractHtml({
+        demand: current,
+        bien,
+        owner: { nom: bien.proprietaire_nom, email: bien.proprietaire_email },
+        contractId,
+        contractCreatedAt: now,
+        totalAmount,
+        amountDueNow,
+        paymentMode,
+      }),
+    ]);
+
+    if (String(current.contract_id || '').trim()) {
+      await pool.query(
+        `UPDATE contrats
+         SET bien_id = ?, locataire_id = ?, date_debut = ?, date_fin = ?, montant_recu = ?, url_pdf = ?, owner_url_pdf = ?, origine = 'automatique', statut = ?
+         WHERE id = ?`,
+        [current.bien_id, locataireId, current.start_date, current.end_date, amountDueNow, contractUrl, ownerContractUrl, 'actif', contractId]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [contractId, current.bien_id, locataireId, current.start_date, current.end_date, amountDueNow, contractUrl, ownerContractUrl, 'automatique', 'actif', now]
+      );
+    }
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET contract_id = ?,
+           total_amount = ?,
+           amount_due_now = ?,
+           identity_document_type = COALESCE(NULLIF(identity_document_type, ''), ?),
+           identity_document_number = COALESCE(NULLIF(identity_document_number, ''), ?),
+           identity_first_name = COALESCE(NULLIF(identity_first_name, ''), ?),
+           identity_last_name = COALESCE(NULLIF(identity_last_name, ''), ?),
+           contract_generated_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [
+        contractId,
+        totalAmount,
+        amountDueNow,
+        identityDocumentType,
+        identityDocumentNumber === '-' ? null : identityDocumentNumber,
+        fallbackFirstName,
+        fallbackLastName,
+        now,
+        now,
+        demandId,
+      ]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      String(current.status || 'contrat_realise').trim() || 'contrat_realise',
+      'admin',
+      String(req.authUser?.id || 'admin'),
+      `Contrat ${contractId} genere par administrateur`,
+      now
+    );
+    await notifyChatbotReservationDemandChange(demandId);
+
+    res.json({
+      demand_id: demandId,
+      contract_id: contractId,
+      contract_url: contractUrl,
+      owner_contract_url: ownerContractUrl,
+    });
+  } catch (error) {
+    console.error('Error generating admin contract from reservation demand:', error);
+    res.status(500).json({ error: 'Generation contrat admin impossible' });
+  }
+});
+
 app.post('/api/contrats', requireAdminSession, async (req, res) => {
   try {
     await ensureContractsSchema();
