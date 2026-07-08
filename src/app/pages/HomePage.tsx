@@ -3953,6 +3953,13 @@ export default function HomePage({
       if (type === "DWIRA_AUTH_SUCCESS") {
         clearAuthPendingLogin();
         setIsAwaitingLogin(false);
+        return;
+      }
+      if (type === "DWIRA_AUTH_PENDING_PROFILE") {
+        clearAuthPendingLogin();
+        setIsAwaitingLogin(false);
+        setShowLoginPrompt(true);
+        setLoginPromptStep("profile_setup");
       }
     };
     window.addEventListener("message", onAuthMessage);

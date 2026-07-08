@@ -864,6 +864,13 @@ export default function HotelDetailsPage() {
         setIsAwaitingLogin(false);
         setShowLoginPrompt(false);
         window.location.assign(returnTo);
+        return;
+      }
+      if (type === "DWIRA_AUTH_PENDING_PROFILE") {
+        clearAuthPendingLogin();
+        setIsAwaitingLogin(false);
+        setShowLoginPrompt(true);
+        setLoginPromptStep("profile_setup");
       }
     };
     window.addEventListener("message", onAuthMessage);

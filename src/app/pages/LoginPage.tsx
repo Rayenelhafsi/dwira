@@ -162,6 +162,9 @@ export default function LoginPage() {
   useEffect(() => {
     if (authLoading || !user || isProcessingSocialToken) return;
     if (user.role === 'user' && !user.profileCompleted) {
+      if (notifyOpenerAndClose({ type: 'DWIRA_AUTH_PENDING_PROFILE' })) {
+        return;
+      }
       const fallbackNames = splitHumanName(user.name);
       setProfileForm({
         firstName: user.firstName || fallbackNames.firstName,
@@ -234,6 +237,9 @@ export default function LoginPage() {
           toast.success('Connexion reussie');
           redirectAfterClientAuth();
         } else {
+          if (notifyOpenerAndClose({ type: 'DWIRA_AUTH_PENDING_PROFILE' })) {
+            return;
+          }
           const fallbackNames = splitHumanName(socialUser.name);
           setProfileForm({
             firstName: socialUser.firstName || fallbackNames.firstName,
