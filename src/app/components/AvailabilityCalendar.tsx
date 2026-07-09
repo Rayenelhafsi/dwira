@@ -33,6 +33,7 @@ interface AvailabilityCalendarProps {
   selectedEnd: Date | null;
   allowedRange?: { start: string; end: string } | null;
   allowedRanges?: Array<{ start: string; end: string }>;
+  highlightedRanges?: Array<{ start: string; end: string }>;
   showAdminBlockedStatus?: boolean;
 }
 
@@ -43,6 +44,7 @@ export default function AvailabilityCalendar({
   selectedEnd,
   allowedRange = null,
   allowedRanges = [],
+  highlightedRanges = [],
   showAdminBlockedStatus = false,
 }: AvailabilityCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -62,6 +64,7 @@ export default function AvailabilityCalendar({
       : []),
     ...allowedRanges.filter((range) => isValidDateOnly(range.start) && isValidDateOnly(range.end)),
   ];
+  const normalizedHighlightedRanges = highlightedRanges.filter((range) => isValidDateOnly(range.start) && isValidDateOnly(range.end));
 
   const isOutsideAllowedRange = (date: Date) => {
     if (normalizedAllowedRanges.length === 0) return false;
@@ -73,6 +76,7 @@ export default function AvailabilityCalendar({
   const blockedDayClass = showAdminBlockedStatus ? "bg-gray-900" : "bg-red-500";
   const isAllowedRangeStart = (key: string) => normalizedAllowedRanges.some((range) => key === range.start);
   const isAllowedRangeEnd = (key: string) => normalizedAllowedRanges.some((range) => key === range.end);
+  const isHighlightedRangeDay = (key: string) => normalizedHighlightedRanges.some((range) => key >= range.start && key <= range.end);
 
   const getBlockingStatusForDay = (day: Date): "blocked" | "booked" | null => {
     const key = toDayKey(day);
@@ -184,6 +188,7 @@ export default function AvailabilityCalendar({
     const isCurrentMonth = isSameMonth(date, currentMonth);
     const dateStatus = getDateStatus(date);
     const isSelected = isDateSelected(date);
+    const isFlashPreviewDay = !flashLocked && isHighlightedRangeDay(toDayKey(date)) && dateStatus === "available";
 
     let className = "w-full aspect-square flex items-center justify-center text-sm rounded-lg cursor-pointer transition-all relative overflow-hidden ";
 
@@ -213,6 +218,8 @@ export default function AvailabilityCalendar({
       className += splitEnabled
         ? "bg-transparent text-gray-900 font-bold border border-emerald-100 "
         : "bg-emerald-600 text-white font-bold ";
+    } else if (isFlashPreviewDay) {
+      className += "border border-amber-200 bg-[linear-gradient(135deg,#fff7ed_0%,#fff1f2_100%)] text-red-700 shadow-[0_0_0_1px_rgba(251,191,36,0.18),0_10px_24px_rgba(248,113,113,0.12)] hover:scale-[1.04] hover:shadow-[0_0_0_1px_rgba(251,191,36,0.26),0_14px_30px_rgba(248,113,113,0.18)] ";
     } else {
       className += flashLocked
         ? "bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 "
@@ -311,6 +318,14 @@ export default function AvailabilityCalendar({
     return null;
   };
 
+  const shouldRenderFlashPreviewStars = (date: Date) =>
+    !flashLocked
+    && isSameMonth(date, currentMonth)
+    && !isBefore(date, today)
+    && isHighlightedRangeDay(toDayKey(date))
+    && getDateStatus(date) === "available"
+    && !isDateSelected(date);
+
   const getDayLabelClassName = (date: Date, splitEnabled: boolean) => {
     const isStart = !!selectedStart && isSameDay(date, selectedStart);
     const isEnd = !!selectedEnd && isSameDay(date, selectedEnd);
@@ -384,6 +399,12 @@ export default function AvailabilityCalendar({
                   <span className={`pointer-events-none absolute inset-0 z-[1] rounded-lg ${bookedHatchClass}`} />
                 )}
                 <div className={`relative z-10 flex h-full w-full flex-col items-center justify-center ${splitVisual.enabled ? "text-gray-900" : ""}`}>
+                  {shouldRenderFlashPreviewStars(day) ? (
+                    <>
+                      <span className="pointer-events-none absolute left-1.5 top-1 z-[11] text-[10px] leading-none text-amber-500 drop-shadow-[0_2px_4px_rgba(251,191,36,0.45)]">★</span>
+                      <span className="pointer-events-none absolute right-1.5 top-2 z-[11] text-[8px] leading-none text-rose-400 drop-shadow-[0_2px_4px_rgba(251,113,133,0.38)]">✦</span>
+                    </>
+                  ) : null}
                   <span className={splitVisual.enabled ? "rounded-full bg-white/90 px-1.5 text-[13px] font-semibold text-gray-900" : ""}>
                     {format(day, "d")}
                   </span>
@@ -400,6 +421,14 @@ export default function AvailabilityCalendar({
           <div className="w-4 h-4 bg-emerald-600 rounded"></div>
           <span className="text-gray-600">Periode vente flash</span>
         </div>
+        {normalizedHighlightedRanges.length > 0 && !flashLocked ? (
+          <div className="flex items-center gap-2">
+            <div className="relative h-4 w-4 rounded border border-amber-200 bg-[linear-gradient(135deg,#fff7ed_0%,#fff1f2_100%)]">
+              <span className="absolute -right-1 -top-1 text-[8px] leading-none text-amber-500">★</span>
+            </div>
+            <span className="text-gray-600">Vente flash disponible</span>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-green-100 rounded border border-green-200"></div>
           <span className="text-gray-600">Disponible</span>

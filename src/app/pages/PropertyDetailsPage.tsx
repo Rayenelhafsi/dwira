@@ -916,6 +916,17 @@ export default function PropertyDetailsPage() {
     if (propertyOffers.length > 0) return propertyOffers;
     return lockedFlashOffer ? [lockedFlashOffer] : [];
   }, [flashOfferEnabled, lockedFlashOffer, property]);
+  const previewFlashRanges = useMemo(() => (
+    getPropertyFlashOffers(property)
+      .map((offer) => {
+        const start = offer.start < todayDateKey ? todayDateKey : offer.start;
+        if (start > offer.end) return null;
+        return { offer, start, end: offer.end };
+      })
+      .filter((item): item is { offer: PropertyFlashOffer; start: string; end: string } => Boolean(item))
+  ), [property, todayDateKey]);
+  const primaryPreviewFlashRange = previewFlashRanges[0] || null;
+  const primaryPreviewFlashOffer = primaryPreviewFlashRange?.offer || null;
   const effectiveLockedFlashRanges = useMemo(() => (
     availableLockedFlashOffers
       .map((offer) => {
@@ -1621,6 +1632,14 @@ out body 40;
     ? (activeLockedFlashOffer.mode === "fixed_amount" && Number(activeLockedFlashOffer.fixedNightlyAmount || 0) > 0
         ? Math.round(Number(activeLockedFlashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
         : getFlashNightlyAmount(displayedWeeklyPrice, activeLockedFlashOffer))
+    : displayedWeeklyPrice;
+  const previewFlashNightlyPrice = primaryPreviewFlashOffer
+    ? getFlashNightlyAmount(displayedNightlyPrice, primaryPreviewFlashOffer)
+    : displayedNightlyPrice;
+  const previewFlashWeeklyPrice = primaryPreviewFlashOffer
+    ? (primaryPreviewFlashOffer.mode === "fixed_amount" && Number(primaryPreviewFlashOffer.fixedNightlyAmount || 0) > 0
+        ? Math.round(Number(primaryPreviewFlashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
+        : getFlashNightlyAmount(displayedWeeklyPrice, primaryPreviewFlashOffer))
     : displayedWeeklyPrice;
   const hasCleaningFee = !isSaleProperty
     && (seasonalConfig?.fraisMenageDisponible !== false)
@@ -4745,6 +4764,22 @@ out body 40;
                     ))}
                   </div>
                 </div>
+              ) : primaryPreviewFlashOffer ? (
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,#fffdf5,#fff7ed_48%,#fff1f2)] px-4 py-3 text-sm text-amber-900 shadow-[0_14px_32px_rgba(251,191,36,0.12)]">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-amber-500 shadow-sm">
+                      <Star size={16} className="fill-current" />
+                    </span>
+                    <div>
+                      <p className="font-semibold">{String(primaryPreviewFlashOffer.title || "Vente flash")}</p>
+                      <p className="mt-1">
+                        Du {format(new Date(`${primaryPreviewFlashRange?.start || primaryPreviewFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au {format(new Date(`${primaryPreviewFlashRange?.end || primaryPreviewFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}
+                        {" "}avec {primaryPreviewFlashOffer.mode === "fixed_amount" ? `${formatTnd(primaryPreviewFlashOffer.fixedNightlyAmount || 0)} TND / nuit` : `-${primaryPreviewFlashOffer.discountPercent}%`}
+                        {" "}et minimum {Math.max(1, Number(primaryPreviewFlashOffer.minimumNights || 1))} nuit(s).
+                      </p>
+                    </div>
+                  </div>
+                </div>
               ) : null}
               <AvailabilityCalendar
                 unavailableDates={effectiveUnavailableDates || []}
@@ -4752,6 +4787,7 @@ out body 40;
                 selectedStart={selectedStart}
                 selectedEnd={selectedEnd}
                 allowedRanges={effectiveLockedFlashRanges.map((item) => ({ start: item.start, end: item.end }))}
+                highlightedRanges={!activeLockedFlashOffer ? previewFlashRanges.map((item) => ({ start: item.start, end: item.end })) : []}
               />
             </div>
           </div>
@@ -4778,6 +4814,39 @@ out body 40;
                   <span className="font-medium text-gray-900">{formatRating(property.rating)}</span>
                 </div>
               </div>
+
+              {!activeLockedFlashOffer && primaryPreviewFlashOffer ? (
+                <div className="mb-4 overflow-hidden rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,#fffdf5,#fff7ed_45%,#fff1f2)] text-sm shadow-[0_14px_32px_rgba(251,191,36,0.10)]">
+                  <div className="flex items-center gap-2 border-b border-amber-200/70 px-4 py-3">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-red-600 shadow-sm">
+                      <Star size={13} className="fill-current" />
+                      Vente flash
+                    </span>
+                    <span className="text-xs font-medium text-amber-800">
+                      {String(primaryPreviewFlashOffer.title || "Promotion active")}
+                    </span>
+                  </div>
+                  <div className="space-y-3 px-4 py-3 text-amber-950">
+                    <p className="text-xs leading-5 text-amber-800">
+                      Periode du {format(new Date(`${primaryPreviewFlashRange?.start || primaryPreviewFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} au {format(new Date(`${primaryPreviewFlashRange?.end || primaryPreviewFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}.
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl bg-white/80 px-3 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">Nuitee flash</p>
+                        <p className="mt-1 text-xs text-slate-400 line-through">{formatTnd(displayedNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</p>
+                        <p className="text-lg font-bold text-red-600">{formatTnd(previewFlashNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</p>
+                      </div>
+                      {property.priceContext !== 'sale' && displayedWeeklyPrice > 0 ? (
+                        <div className="rounded-xl bg-white/80 px-3 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">Semaine flash</p>
+                          <p className="mt-1 text-xs text-slate-400 line-through">{formatTnd(displayedWeeklyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</p>
+                          <p className="text-lg font-bold text-red-600">{formatTnd(previewFlashWeeklyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {activeLockedFlashOffer ? (
                 <div className="mb-4 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] px-4 py-3 text-sm text-red-700">
@@ -5342,6 +5411,7 @@ out body 40;
               selectedStart={selectedStart}
               selectedEnd={selectedEnd}
               allowedRanges={effectiveLockedFlashRanges.map((item) => ({ start: item.start, end: item.end }))}
+              highlightedRanges={!activeLockedFlashOffer ? previewFlashRanges.map((item) => ({ start: item.start, end: item.end })) : []}
             />
           </div>
         </DialogContent>
