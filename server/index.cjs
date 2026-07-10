@@ -18700,6 +18700,8 @@ app.put('/api/contrats/:id/template-vars', requireAdminSession, async (req, res)
       connection.release();
     }
 
+    await notifyTechnicianAssignmentsForContractUpdate(req, contractId);
+
     res.json({
       ok: true,
       contract_id: contractId,
@@ -25973,6 +25975,9 @@ async function ensureSubadminOperationsSchema() {
       id VARCHAR(100) PRIMARY KEY,
       technician_id VARCHAR(100) NOT NULL,
       bien_id VARCHAR(100) NOT NULL,
+      contract_id VARCHAR(100) NULL,
+      reservation_demand_id VARCHAR(100) NULL,
+      assignment_event_type VARCHAR(20) NULL,
       note TEXT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'active',
       assigned_by_admin_id VARCHAR(100) NULL,
@@ -26110,6 +26115,15 @@ async function ensureSubadminOperationsSchema() {
   }
   if (!(await columnExists('technician_property_assignments', 'note'))) {
     await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN note TEXT NULL AFTER bien_id");
+  }
+  if (!(await columnExists('technician_property_assignments', 'contract_id'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN contract_id VARCHAR(100) NULL AFTER bien_id");
+  }
+  if (!(await columnExists('technician_property_assignments', 'reservation_demand_id'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN reservation_demand_id VARCHAR(100) NULL AFTER contract_id");
+  }
+  if (!(await columnExists('technician_property_assignments', 'assignment_event_type'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN assignment_event_type VARCHAR(20) NULL AFTER reservation_demand_id");
   }
   if (!(await columnExists('technician_property_assignments', 'status'))) {
     await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active' AFTER note");
@@ -26956,6 +26970,71 @@ async function pushToTechnicianDevice(technicianId, payload) {
   }
 }
 
+async function notifyTechnicianAssignmentsForContractUpdate(req, contractId) {
+  const normalizedContractId = String(contractId || '').trim();
+  if (!normalizedContractId) return;
+
+  const [assignmentRows] = await pool.query(
+    `SELECT a.id, a.technician_id, a.assignment_event_type, b.reference AS bien_reference, b.titre AS bien_titre
+     FROM technician_property_assignments a
+     INNER JOIN biens b ON b.id = a.bien_id
+     WHERE a.contract_id = ?
+       AND a.completed_at IS NULL
+       AND LOWER(TRIM(COALESCE(a.status, 'active'))) NOT IN ('done', 'completed', 'complete', 'closed', 'finished', 'termine', 'terminee')`,
+    [normalizedContractId]
+  );
+  if (!Array.isArray(assignmentRows) || assignmentRows.length === 0) return;
+
+  let assignmentAutofill = null;
+  try {
+    const templateContext = await buildResolvedContractTemplateVars(normalizedContractId);
+    assignmentAutofill = templateContext ? buildContractAssignmentAutofill(req, templateContext) : null;
+  } catch (error) {
+    console.warn('[technician/contract-update] autofill refresh failed', {
+      contractId: normalizedContractId,
+      message: error?.message || String(error || 'unknown error'),
+    });
+  }
+
+  const bienReference = String(
+    assignmentAutofill?.bien_reference
+    || assignmentRows?.[0]?.bien_reference
+    || ''
+  ).trim() || normalizedContractId;
+  const bienTitle = String(
+    assignmentAutofill?.bien_titre
+    || assignmentRows?.[0]?.bien_titre
+    || ''
+  ).trim();
+  const arrivalTime = String(assignmentAutofill?.arrival_time || '').trim();
+  const departureTime = String(assignmentAutofill?.departure_time || '').trim();
+
+  await Promise.allSettled(
+    assignmentRows.map((row) => {
+      const eventType = String(row.assignment_event_type || '').trim().toLowerCase() === 'depart'
+        ? 'depart'
+        : 'arrivee';
+      const relevantTime = eventType === 'depart' ? departureTime : arrivalTime;
+      const label = eventType === 'depart' ? 'checkout' : 'checkin';
+      const title = `Mise a jour affectation ${bienReference}`;
+      const body = relevantTime
+        ? `${bienReference}${bienTitle ? ` - ${bienTitle}` : ''}, ${label} ${relevantTime}`
+        : `${bienReference}${bienTitle ? ` - ${bienTitle}` : ''}, details ${label} modifies`;
+      return pushToTechnicianDevice(String(row.technician_id || '').trim(), {
+        title,
+        body,
+        data: {
+          kind: 'technician_assignment',
+          assignmentId: String(row.id || '').trim(),
+          contractId: normalizedContractId,
+          bienReference,
+          eventType,
+        },
+      });
+    })
+  );
+}
+
 async function fetchTechnicianAssignmentsPayload(req, {
   technicianId = null,
   subadminId = null,
@@ -26998,10 +27077,20 @@ async function fetchTechnicianAssignmentsPayload(req, {
            b.reference AS bien_reference,
            b.titre AS bien_titre,
            b.location_saisonniere_config_json,
-           ${hasZoneMapsUrl ? 'z.google_maps_url' : 'NULL'} AS google_maps_url
+           ${hasZoneMapsUrl ? 'z.google_maps_url' : 'NULL'} AS google_maps_url,
+           DATE_FORMAT(c.date_debut, '%Y-%m-%d') AS contract_start_date,
+           DATE_FORMAT(c.date_fin, '%Y-%m-%d') AS contract_end_date,
+           d.client_name,
+           d.client_phone,
+           d.start_date AS demand_start_date,
+           d.end_date AS demand_end_date,
+           d.arrival_time,
+           d.departure_time
     FROM technician_property_assignments a
     INNER JOIN subadmin_technicians t ON t.id = a.technician_id
     INNER JOIN biens b ON b.id = a.bien_id
+    LEFT JOIN contrats c ON c.id = a.contract_id
+    LEFT JOIN reservation_demands d ON d.id = a.reservation_demand_id
     LEFT JOIN zones z ON z.id = b.zone_id
     ${whereSql}
     ORDER BY CASE
@@ -27041,7 +27130,7 @@ async function fetchTechnicianAssignmentsPayload(req, {
       galleryByBienId.set(bienId, current);
     }
   }
-  return (rows || []).map((row) => {
+  return await Promise.all((rows || []).map(async (row) => {
     const assignmentStatus = String(row.status || '').trim().toLowerCase();
     const normalizedAssignmentStatus = row.completed_at || ['done', 'completed', 'complete', 'closed', 'finished', 'termine', 'terminee'].includes(assignmentStatus)
       ? 'done'
@@ -27049,6 +27138,28 @@ async function fetchTechnicianAssignmentsPayload(req, {
     const technicianName = `${String(row.first_name || '').trim()} ${String(row.last_name || '').trim()}`.trim();
     const gallery = galleryByBienId.get(String(row.bien_id || '').trim()) || [];
     const propertyMapsUrl = extractPropertyMapsUrl(row.location_saisonniere_config_json);
+    const contractId = String(row.contract_id || '').trim();
+    const reservationDemandId = String(row.reservation_demand_id || '').trim();
+    let assignmentAutofill = null;
+    if (contractId) {
+      try {
+        const templateContext = await buildResolvedContractTemplateVars(contractId);
+        assignmentAutofill = templateContext ? buildContractAssignmentAutofill(req, templateContext) : null;
+      } catch (error) {
+        console.warn('[technician/assignments] autofill fallback triggered', {
+          assignmentId: String(row.id || '').trim() || null,
+          contractId,
+          message: error?.message || String(error || 'unknown error'),
+        });
+      }
+    }
+    const contractStartDate = assignmentAutofill?.contract_start_date || row.contract_start_date || row.demand_start_date || null;
+    const contractEndDate = assignmentAutofill?.contract_end_date || row.contract_end_date || row.demand_end_date || null;
+    const arrivalTime = assignmentAutofill?.arrival_time || row.arrival_time || null;
+    const departureTime = assignmentAutofill?.departure_time || row.departure_time || null;
+    const assignmentEventType = String(row.assignment_event_type || '').trim().toLowerCase() === 'depart'
+      ? 'depart'
+      : 'arrivee';
     return {
       id: row.id,
       technician_id: row.technician_id,
@@ -27057,10 +27168,23 @@ async function fetchTechnicianAssignmentsPayload(req, {
       specialty: row.specialty || null,
       subadmin_admin_id: row.subadmin_admin_id || null,
       bien_id: row.bien_id,
-      bien_reference: row.bien_reference || null,
-      bien_titre: row.bien_titre || null,
-      property_url: buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
-      google_maps_url: propertyMapsUrl || normalizeMapsOpenUrl(row.google_maps_url) || null,
+      contract_id: contractId || null,
+      reservation_demand_id: reservationDemandId || null,
+      assignment_event_type: assignmentEventType,
+      bien_reference: assignmentAutofill?.bien_reference || row.bien_reference || null,
+      bien_titre: assignmentAutofill?.bien_titre || row.bien_titre || null,
+      property_url: assignmentAutofill?.property_url || buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
+      google_maps_url: assignmentAutofill?.google_maps_url || propertyMapsUrl || normalizeMapsOpenUrl(row.google_maps_url) || null,
+      client_name: assignmentAutofill?.client_name || row.client_name || null,
+      client_phone: assignmentAutofill?.client_phone || row.client_phone || null,
+      contract_start_date: contractStartDate,
+      contract_end_date: contractEndDate,
+      checkin_date: assignmentEventType === 'arrivee' ? contractStartDate : null,
+      checkout_date: assignmentEventType === 'depart' ? contractEndDate : null,
+      arrival_time: assignmentEventType === 'arrivee' ? arrivalTime : null,
+      departure_time: assignmentEventType === 'depart' ? departureTime : null,
+      checkin_time_hint: assignmentEventType === 'arrivee' ? arrivalTime : null,
+      checkout_time_hint: assignmentEventType === 'depart' ? departureTime : null,
       note: row.note || null,
       status: normalizedAssignmentStatus,
       completed_at: row.completed_at || null,
@@ -27069,7 +27193,7 @@ async function fetchTechnicianAssignmentsPayload(req, {
       gallery,
       gallery_urls: gallery.map((item) => item.url).filter(Boolean),
     };
-  });
+  }));
 }
 
 async function pushToAdminDevices(adminId, payload) {
@@ -32722,6 +32846,9 @@ app.post('/api/subadmin/technician-assignments', requireAdminSession, async (req
     await ensureSubadminOperationsSchema();
     const technicianId = String(req.body?.technician_id || '').trim();
     const bienId = String(req.body?.bien_id || '').trim();
+    const requestedContractId = String(req.body?.contract_id || '').trim();
+    const requestedReservationDemandId = String(req.body?.reservation_demand_id || '').trim();
+    const requestedEventType = String(req.body?.assignment_event_type || '').trim().toLowerCase();
     const note = String(req.body?.note || '').trim() || null;
     if (!technicianId || !bienId) {
       return res.status(400).json({ error: 'technician_id et bien_id requis' });
@@ -32734,13 +32861,47 @@ app.post('/api/subadmin/technician-assignments', requireAdminSession, async (req
     if (!bienRows?.[0]) {
       return res.status(404).json({ error: 'Bien introuvable' });
     }
+    let contractId = null;
+    let reservationDemandId = null;
+    if (requestedContractId) {
+      const [contractRows] = await pool.query(
+        'SELECT id, bien_id FROM contrats WHERE id = ? LIMIT 1',
+        [requestedContractId]
+      );
+      const contract = contractRows?.[0] || null;
+      if (!contract) {
+        return res.status(404).json({ error: 'Contrat introuvable pour cette affectation technicien' });
+      }
+      if (String(contract.bien_id || '').trim() !== bienId) {
+        return res.status(400).json({ error: 'Le contrat choisi ne correspond pas au bien selectionne' });
+      }
+      contractId = String(contract.id || '').trim();
+    }
+    if (requestedReservationDemandId) {
+      const [demandRows] = await pool.query(
+        'SELECT id, bien_id, contract_id FROM reservation_demands WHERE id = ? LIMIT 1',
+        [requestedReservationDemandId]
+      );
+      const demand = demandRows?.[0] || null;
+      if (!demand) {
+        return res.status(404).json({ error: 'Demande introuvable pour cette affectation technicien' });
+      }
+      if (String(demand.bien_id || '').trim() !== bienId) {
+        return res.status(400).json({ error: 'La demande choisie ne correspond pas au bien selectionne' });
+      }
+      reservationDemandId = String(demand.id || '').trim();
+      if (!contractId && String(demand.contract_id || '').trim()) {
+        contractId = String(demand.contract_id || '').trim();
+      }
+    }
+    const assignmentEventType = requestedEventType === 'depart' ? 'depart' : 'arrivee';
     const assignmentId = `tpa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const now = getAgencySqlDateTime();
     await pool.query(
       `INSERT INTO technician_property_assignments
-       (id, technician_id, bien_id, note, status, assigned_by_admin_id, completed_at, completed_by_user_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)`,
-      [assignmentId, technicianId, bienId, note, String(req.authUser?.id || '').trim() || null, now, now]
+       (id, technician_id, bien_id, contract_id, reservation_demand_id, assignment_event_type, note, status, assigned_by_admin_id, completed_at, completed_by_user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)`,
+      [assignmentId, technicianId, bienId, contractId, reservationDemandId, assignmentEventType, note, String(req.authUser?.id || '').trim() || null, now, now]
     );
     const pushResult = await pushToTechnicianDevice(technicianId, {
       title: 'Nouvelle affectation technicien',

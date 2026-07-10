@@ -395,12 +395,38 @@ function resolveContractTemplateVars(contrat: Pick<ContratApi, 'template_vars_js
   return {};
 }
 
+function formatContractAmount(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount)) return '0 TND';
+  return `${Math.round(amount * 100) / 100} TND`;
+}
+
+function getContractDisplayStayRange(contrat: ContratApi) {
+  const templateVars = resolveContractTemplateVars(contrat);
+  const start = new Date(contrat.date_debut);
+  const end = new Date(contrat.date_fin);
+  const fallbackStart = Number.isNaN(start.getTime()) ? '--/--/----' : start.toLocaleDateString();
+  const fallbackEnd = Number.isNaN(end.getTime()) ? '--/--/----' : end.toLocaleDateString();
+  const startDay = String(templateVars.jj1 || '').trim();
+  const startMonth = String(templateVars.mm1 || '').trim();
+  const endDay = String(templateVars.jj2 || '').trim();
+  const endMonth = String(templateVars.mm2 || '').trim();
+  const startYear = Number.isNaN(start.getTime()) ? '' : String(start.getFullYear());
+  const endYear = Number.isNaN(end.getTime()) ? '' : String(end.getFullYear());
+  const padded = (value: string) => value.padStart(2, '0');
+  const hasStartOverride = startDay && startMonth && startYear;
+  const hasEndOverride = endDay && endMonth && endYear;
+  return {
+    arrivalDate: hasStartOverride ? `${padded(startDay)}/${padded(startMonth)}/${startYear}` : fallbackStart,
+    departureDate: hasEndOverride ? `${padded(endDay)}/${padded(endMonth)}/${endYear}` : fallbackEnd,
+  };
+}
+
 function getContractCardDetails(contrat: ContratApi, bien?: BienApi | null) {
   const origin = String(contrat.origine || 'automatique').toLowerCase() === 'manuel' ? 'manuel' : 'automatique';
-  const templateVars = parseTemplateVars(contrat.template_vars_json);
+  const templateVars = resolveContractTemplateVars(contrat);
   const manualTitle = String(templateVars.typeLogement || '').trim();
   const manualLocataire = String(templateVars.fullName || '').trim();
-  const manualAcompte = String(templateVars.acompteReservation || '').trim();
 
   return {
     title: origin === 'manuel'
@@ -409,9 +435,7 @@ function getContractCardDetails(contrat: ContratApi, bien?: BienApi | null) {
     locataire: origin === 'manuel'
       ? (manualLocataire || contrat.locataire_nom || 'Inconnu')
       : (contrat.locataire_nom || 'Inconnu'),
-    montantRecu: origin === 'manuel'
-      ? (manualAcompte || `${Number(contrat.montant_recu || 0)} DT`)
-      : `${Number(contrat.montant_recu || 0)} DT`,
+    montantRecu: formatContractAmount(contrat.montant_recu),
   };
 }
 
@@ -535,7 +559,7 @@ export default function ContratsPage() {
   const [sendingContratId, setSendingContratId] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<ContractCategoryFilter>('all');
-  const [financialDrafts, setFinancialDrafts] = useState<Record<string, { ownerAmount: string; ownerTotal: string; netProfit: string }>>({});
+  const [financialDrafts, setFinancialDrafts] = useState<Record<string, { receivedAmount: string; ownerAmount: string; ownerTotal: string; netProfit: string }>>({});
   const [expandedFinancials, setExpandedFinancials] = useState<Record<string, boolean>>({});
   const [savingFinancialContratId, setSavingFinancialContratId] = useState<string | null>(null);
   const [reopeningContratId, setReopeningContratId] = useState<string | null>(null);
@@ -1217,6 +1241,9 @@ export default function ContratsPage() {
     if (existing) return existing;
     const ownerAmountValue = contrat.montant_donne_proprietaire ?? null;
     return {
+      receivedAmount: contrat.montant_recu === null || contrat.montant_recu === undefined
+        ? ''
+        : String(Math.round(Number(contrat.montant_recu) * 100) / 100),
       ownerAmount: ownerAmountValue === null || ownerAmountValue === undefined ? '' : String(ownerAmountValue),
       ownerTotal: contrat.montant_total_proprietaire === null || contrat.montant_total_proprietaire === undefined
         ? ''
@@ -1227,13 +1254,14 @@ export default function ContratsPage() {
     };
   };
 
-  const handleFinancialDraftChange = (contrat: ContratApi, patch: Partial<{ ownerAmount: string; ownerTotal: string; netProfit: string }>) => {
+  const handleFinancialDraftChange = (contrat: ContratApi, patch: Partial<{ receivedAmount: string; ownerAmount: string; ownerTotal: string; netProfit: string }>) => {
     const current = getFinancialDraft(contrat);
     const next = { ...current, ...patch };
-    if (patch.ownerAmount !== undefined && patch.netProfit === undefined) {
-      const parsedOwnerAmount = Number(String(patch.ownerAmount || '').replace(',', '.'));
-      if (Number.isFinite(parsedOwnerAmount)) {
-        next.netProfit = String(Math.round((Number(contrat.montant_recu || 0) - parsedOwnerAmount) * 100) / 100);
+    if ((patch.receivedAmount !== undefined || patch.ownerAmount !== undefined) && patch.netProfit === undefined) {
+      const parsedReceivedAmount = Number(String(next.receivedAmount || '').replace(',', '.'));
+      const parsedOwnerAmount = Number(String(next.ownerAmount || '').replace(',', '.'));
+      if (Number.isFinite(parsedReceivedAmount) && Number.isFinite(parsedOwnerAmount)) {
+        next.netProfit = String(Math.round((parsedReceivedAmount - parsedOwnerAmount) * 100) / 100);
       }
     }
     setFinancialDrafts((prev) => ({ ...prev, [contrat.id]: next }));
@@ -1241,10 +1269,11 @@ export default function ContratsPage() {
 
   const handleSaveFinancials = async (contrat: ContratApi) => {
     const draft = getFinancialDraft(contrat);
+    const receivedAmount = draft.receivedAmount === '' ? null : Number(String(draft.receivedAmount).replace(',', '.'));
     const ownerAmount = draft.ownerAmount === '' ? null : Number(String(draft.ownerAmount).replace(',', '.'));
     const ownerTotal = draft.ownerTotal === '' ? null : Number(String(draft.ownerTotal).replace(',', '.'));
     const netProfit = draft.netProfit === '' ? null : Number(String(draft.netProfit).replace(',', '.'));
-    if ((ownerAmount !== null && !Number.isFinite(ownerAmount)) || (ownerTotal !== null && !Number.isFinite(ownerTotal)) || (netProfit !== null && !Number.isFinite(netProfit))) {
+    if ((receivedAmount !== null && !Number.isFinite(receivedAmount)) || (ownerAmount !== null && !Number.isFinite(ownerAmount)) || (ownerTotal !== null && !Number.isFinite(ownerTotal)) || (netProfit !== null && !Number.isFinite(netProfit))) {
       toast.error('Montants invalides');
       return;
     }
@@ -1255,6 +1284,7 @@ export default function ContratsPage() {
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          montant_recu: receivedAmount,
           montant_donne_proprietaire: ownerAmount,
           montant_total_proprietaire: ownerTotal,
           profit_net: netProfit,
@@ -2345,6 +2375,7 @@ export default function ContratsPage() {
             || Boolean(String(contrat.pricing_amicale_id || '').trim())
             || Boolean(String(contrat.amicale_name || '').trim());
           const cardDetails = getContractCardDetails(contrat, bien);
+          const stayRange = getContractDisplayStayRange(contrat);
           const category = getContractCategory(contrat);
           const financialDraft = getFinancialDraft(contrat);
           const receiptItems = normalizeContractReceipts(contrat);
@@ -2398,7 +2429,7 @@ export default function ContratsPage() {
               <div className="space-y-2 text-xs sm:text-sm text-gray-600 border-t pt-3 sm:pt-4">
                 <div className="flex items-center gap-2">
                   <Calendar size={14} className="text-gray-400 flex-shrink-0 sm:w-4 sm:h-4" />
-                  <span className="truncate">Du {new Date(contrat.date_debut).toLocaleDateString()} au {new Date(contrat.date_fin).toLocaleDateString()}</span>
+                  <span className="truncate">Du {stayRange.arrivalDate} au {stayRange.departureDate}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <AlertCircle size={14} className="text-gray-400 flex-shrink-0 sm:w-4 sm:h-4" />
@@ -2445,7 +2476,18 @@ export default function ContratsPage() {
                 </button>
                 {expandedFinancials[contrat.id] ? (
                   <div className="mt-3 grid grid-cols-1 gap-3">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">Montant recu</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={financialDraft.receivedAmount}
+                          onChange={(event) => handleFinancialDraftChange(contrat, { receivedAmount: event.target.value })}
+                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
                       <label className="block">
                         <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">Montant donne au proprietaire</span>
                         <input

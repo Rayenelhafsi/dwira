@@ -182,10 +182,18 @@ type TechnicianAssignmentRow = {
   specialty?: string | null;
   subadmin_admin_id?: string | null;
   bien_id: string;
+  contract_id?: string | null;
+  reservation_demand_id?: string | null;
+  assignment_event_type?: "arrivee" | "depart" | null;
   bien_reference?: string | null;
   bien_titre?: string | null;
   property_url?: string | null;
   google_maps_url?: string | null;
+  client_name?: string | null;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
+  arrival_time?: string | null;
+  departure_time?: string | null;
   note?: string | null;
   status: "active" | "done";
   completed_at?: string | null;
@@ -197,6 +205,7 @@ type TechnicianAssignmentRow = {
 type ContractOption = {
   id: string;
   bien_id?: string | null;
+  reservation_demand_id?: string | null;
   bien_titre?: string;
   bien_reference?: string;
   locataire_nom?: string;
@@ -254,6 +263,10 @@ type PickerVariant = "contract" | "bien";
 type PickerOption = {
   id: string;
   selectValue?: string;
+  sourceBienId?: string;
+  contractId?: string;
+  reservationDemandId?: string;
+  assignmentEventType?: "arrivee" | "depart";
   title: string;
   subtitle?: string;
   badge?: string;
@@ -271,6 +284,8 @@ type PickerOption = {
 };
 
 const RESERVATION_DEMAND_PICKER_PREFIX = "reservation-demand:";
+const TECHNICIAN_CONTRACT_PICKER_PREFIX = "technician-contract:";
+const TECHNICIAN_DEMAND_PICKER_PREFIX = "technician-demand:";
 
 type DeleteTarget =
   | {
@@ -324,6 +339,10 @@ const initialTechnicianDraft = {
 const initialTechnicianAssignmentDraft = {
   technicianId: "",
   bienId: "",
+  selectionId: "",
+  contractId: "",
+  reservationDemandId: "",
+  assignmentEventType: "",
   note: "",
 };
 
@@ -1343,17 +1362,21 @@ export default function SubAdminOperationsPanel({
     [assignmentDraft.contractId, contractPickerOptions]
   );
 
-  const bienPickerOptions = useMemo(() => {
+  const technicianBienPickerOptions = useMemo(() => {
     const needle = bienSearch.trim().toLowerCase();
     const bienScheduleMap = new Map<string, Array<{
       sortDate?: string | null;
       sortFallback?: string | null;
+      selectValue?: string;
+      assignmentEventType?: "arrivee" | "depart";
       badge?: string;
       badgeTone?: PickerOption["badgeTone"];
       metaBadges?: PickerOption["metaBadges"];
       note?: string;
       noteTone?: PickerOption["noteTone"];
       highlight?: PickerOption["highlight"];
+      contractId?: string | null;
+      reservationDemandId?: string | null;
     }>>();
 
     const pushBienSchedule = (
@@ -1361,12 +1384,16 @@ export default function SubAdminOperationsPanel({
       entry: {
         sortDate?: string | null;
         sortFallback?: string | null;
+        selectValue?: string;
+        assignmentEventType?: "arrivee" | "depart";
         badge?: string;
         badgeTone?: PickerOption["badgeTone"];
         metaBadges?: PickerOption["metaBadges"];
         note?: string;
         noteTone?: PickerOption["noteTone"];
         highlight?: PickerOption["highlight"];
+        contractId?: string | null;
+        reservationDemandId?: string | null;
       }
     ) => {
       const normalizedBienId = String(bienId || "").trim();
@@ -1390,6 +1417,8 @@ export default function SubAdminOperationsPanel({
 
       if (contract.date_debut) {
         pushBienSchedule(bienId, {
+          selectValue: `${TECHNICIAN_CONTRACT_PICKER_PREFIX}${String(contract.id || "").trim()}`,
+          assignmentEventType: "arrivee",
           sortDate: contract.date_debut,
           sortFallback: contract.created_at || null,
           badge: `Arrivee ${formatDateOnly(contract.date_debut)}`,
@@ -1398,11 +1427,15 @@ export default function SubAdminOperationsPanel({
           note: contract.locataire_nom ? `Client ${String(contract.locataire_nom).trim()}` : undefined,
           noteTone: isAmicale ? "sky" : "emerald",
           highlight: isAmicale ? "amicale" : "default",
+          contractId: contract.id,
+          reservationDemandId: contract.reservation_demand_id || null,
         });
       }
 
       if (contract.date_fin) {
         pushBienSchedule(bienId, {
+          selectValue: `${TECHNICIAN_CONTRACT_PICKER_PREFIX}${String(contract.id || "").trim()}`,
+          assignmentEventType: "depart",
           sortDate: contract.date_fin,
           sortFallback: contract.created_at || null,
           badge: `Depart ${formatDateOnly(contract.date_fin)}`,
@@ -1411,11 +1444,14 @@ export default function SubAdminOperationsPanel({
           note: contract.locataire_nom ? `Client ${String(contract.locataire_nom).trim()}` : undefined,
           noteTone: isAmicale ? "sky" : "emerald",
           highlight: isAmicale ? "amicale" : "default",
+          contractId: contract.id,
+          reservationDemandId: contract.reservation_demand_id || null,
         });
       }
 
       if (!contract.date_debut && !contract.date_fin) {
         pushBienSchedule(bienId, {
+          selectValue: `${TECHNICIAN_CONTRACT_PICKER_PREFIX}${String(contract.id || "").trim()}`,
           sortFallback: contract.created_at || null,
           badge: contract.created_at ? formatDateOnly(contract.created_at) : undefined,
           badgeTone: isAmicale ? "sky" : "emerald",
@@ -1423,6 +1459,8 @@ export default function SubAdminOperationsPanel({
           note: contract.locataire_nom ? `Client ${String(contract.locataire_nom).trim()}` : undefined,
           noteTone: isAmicale ? "sky" : "emerald",
           highlight: isAmicale ? "amicale" : "default",
+          contractId: contract.id,
+          reservationDemandId: contract.reservation_demand_id || null,
         });
       }
     });
@@ -1439,6 +1477,8 @@ export default function SubAdminOperationsPanel({
 
       if (demand.start_date) {
         pushBienSchedule(normalizedBienId, {
+          selectValue: `${TECHNICIAN_DEMAND_PICKER_PREFIX}${String(demand.demand_id || demand.id || "").trim()}`,
+          assignmentEventType: "arrivee",
           sortDate: demand.start_date,
           sortFallback: demand.created_at || null,
           badge: `Arrivee ${formatDateOnly(demand.start_date)}`,
@@ -1447,11 +1487,15 @@ export default function SubAdminOperationsPanel({
           note: demand.client_name ? `Client ${String(demand.client_name).trim()}` : undefined,
           noteTone: "sky",
           highlight: "amicale",
+          contractId: demand.contract_id || null,
+          reservationDemandId: demand.demand_id,
         });
       }
 
       if (demand.end_date) {
         pushBienSchedule(normalizedBienId, {
+          selectValue: `${TECHNICIAN_DEMAND_PICKER_PREFIX}${String(demand.demand_id || demand.id || "").trim()}`,
+          assignmentEventType: "depart",
           sortDate: demand.end_date,
           sortFallback: demand.created_at || null,
           badge: `Depart ${formatDateOnly(demand.end_date)}`,
@@ -1460,6 +1504,8 @@ export default function SubAdminOperationsPanel({
           note: demand.client_name ? `Client ${String(demand.client_name).trim()}` : undefined,
           noteTone: "sky",
           highlight: "amicale",
+          contractId: demand.contract_id || null,
+          reservationDemandId: demand.demand_id,
         });
       }
     });
@@ -1479,6 +1525,11 @@ export default function SubAdminOperationsPanel({
         const primaryCandidate = sortedCandidates[0] || null;
         return {
           id: bien.id,
+          selectValue: primaryCandidate?.selectValue || String(bien.id || "").trim(),
+          sourceBienId: String(bien.id || "").trim(),
+          contractId: primaryCandidate?.contractId || null,
+          reservationDemandId: primaryCandidate?.reservationDemandId || null,
+          assignmentEventType: primaryCandidate?.assignmentEventType,
           title: String(bien.titre || bien.reference || bien.id),
           subtitle: String(buildBienLabel(bien)),
           badge: primaryCandidate?.badge || String(bien.reference || "").trim() || undefined,
@@ -1497,6 +1548,23 @@ export default function SubAdminOperationsPanel({
         return comparePickerOptionLabels(left, right);
       });
   }, [amicaleDemands, bienSearch, biens, contracts]);
+  const selectedTechnicianAssignmentPickerOption = useMemo(
+    () =>
+      technicianBienPickerOptions.find(
+        (entry) =>
+          String(entry.selectValue || entry.id || "").trim()
+          === String(technicianAssignmentDraft.selectionId || "").trim()
+      ) || null,
+    [technicianAssignmentDraft.selectionId, technicianBienPickerOptions]
+  );
+  const bienPickerOptions = useMemo(
+    () =>
+      technicianBienPickerOptions.map((entry) => ({
+        ...entry,
+        selectValue: String(entry.sourceBienId || entry.id || "").trim(),
+      })),
+    [technicianBienPickerOptions]
+  );
 
   const saveAssignment = async () => {
     if (!assignmentDraft.subadminId || !assignmentDraft.contractId) {
@@ -1731,6 +1799,9 @@ export default function SubAdminOperationsPanel({
         body: JSON.stringify({
           technician_id: technicianAssignmentDraft.technicianId,
           bien_id: technicianAssignmentDraft.bienId,
+          contract_id: technicianAssignmentDraft.contractId || null,
+          reservation_demand_id: technicianAssignmentDraft.reservationDemandId || null,
+          assignment_event_type: technicianAssignmentDraft.assignmentEventType || null,
           note: technicianAssignmentDraft.note,
         }),
       });
@@ -2698,10 +2769,25 @@ export default function SubAdminOperationsPanel({
                   </div>
                   <SelectionButton
                     label="Bien"
-                    value={selectedTechnicianAssignmentBien ? buildBienLabel(selectedTechnicianAssignmentBien) : ""}
+                    value={
+                      selectedTechnicianAssignmentPickerOption
+                        ? String(selectedTechnicianAssignmentPickerOption.subtitle || selectedTechnicianAssignmentPickerOption.title || "")
+                        : selectedTechnicianAssignmentBien
+                          ? buildBienLabel(selectedTechnicianAssignmentBien)
+                          : ""
+                    }
                     placeholder="Choisir le bien dans un popup"
                     onOpen={() => setPickerOpen("bien")}
-                    onClear={() => setTechnicianAssignmentDraft((prev) => ({ ...prev, bienId: "" }))}
+                    onClear={() =>
+                      setTechnicianAssignmentDraft((prev) => ({
+                        ...prev,
+                        bienId: "",
+                        selectionId: "",
+                        contractId: "",
+                        reservationDemandId: "",
+                        assignmentEventType: "",
+                      }))
+                    }
                     accent="emerald"
                   />
                   <textarea
@@ -3019,11 +3105,21 @@ export default function SubAdminOperationsPanel({
         description="Selectionnez un bien avec une presentation propre, sans liste deroulante casseuse de layout."
         searchValue={bienSearch}
         onSearchChange={setBienSearch}
-        options={bienPickerOptions}
-        selectedId={activeTab === "technicians" ? technicianAssignmentDraft.bienId : taskDraft.bienId}
+        options={activeTab === "technicians" ? technicianBienPickerOptions : bienPickerOptions}
+        selectedId={activeTab === "technicians" ? technicianAssignmentDraft.selectionId : taskDraft.bienId}
         onSelect={(id) => {
           if (activeTab === "technicians") {
-            setTechnicianAssignmentDraft((prev) => ({ ...prev, bienId: id }));
+            const option = technicianBienPickerOptions.find(
+              (entry) => String(entry.selectValue || entry.id || "").trim() === String(id || "").trim()
+            ) || null;
+            setTechnicianAssignmentDraft((prev) => ({
+              ...prev,
+              bienId: String(option?.sourceBienId || "").trim(),
+              selectionId: String(option?.selectValue || id || "").trim(),
+              contractId: String(option?.contractId || "").trim(),
+              reservationDemandId: String(option?.reservationDemandId || "").trim(),
+              assignmentEventType: String(option?.assignmentEventType || "").trim(),
+            }));
           } else {
             setTaskDraft((prev) => ({ ...prev, bienId: id }));
           }
