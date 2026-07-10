@@ -121,6 +121,7 @@ type AmicaleAssignmentRow = {
   source_kind: "property" | "hotel";
   status?: string | null;
   amicale_name?: string | null;
+  bien_id?: string | null;
   bien_reference?: string | null;
   bien_titre?: string | null;
   property_url?: string | null;
@@ -195,6 +196,7 @@ type TechnicianAssignmentRow = {
 
 type ContractOption = {
   id: string;
+  bien_id?: string | null;
   bien_titre?: string;
   bien_reference?: string;
   locataire_nom?: string;
@@ -425,6 +427,7 @@ function mapHotelDemandToAmicaleAssignmentRow(row: HotelReservationDemandRow): A
     source_kind: "hotel",
     status: row.status || null,
     amicale_name: row.amicale_name || null,
+    bien_id: hotelId || null,
     bien_reference: hotelId ? `HOTEL-${hotelId}` : row.id,
     bien_titre: row.hotel_name || null,
     property_url: resolveDemandPropertyUrl({ source_kind: "hotel", bien_id: hotelId }),
@@ -449,6 +452,7 @@ function mapPropertyDemandToAmicaleAssignmentRow(row: ReservationDemandRow): Ami
     source_kind: "property",
     status: row.status || null,
     amicale_name: row.amicale_name || null,
+    bien_id: row.bien_id || null,
     bien_reference: row.bien_reference || null,
     bien_titre: row.bien_titre || null,
     property_url: resolveDemandPropertyUrl({ source_kind: "property", bien_id: row.bien_id, bien_reference: row.bien_reference }),
@@ -522,6 +526,10 @@ function buildBienLabel(bien: BienOption) {
   const title = String(bien.titre || "").trim();
   if (reference && title) return `${reference} - ${title}`;
   return reference || title || bien.id;
+}
+
+function comparePickerOptionLabels(left: PickerOption, right: PickerOption) {
+  return left.title.localeCompare(right.title, "fr", { sensitivity: "base" });
 }
 
 function getTechnicianSpecialtyMeta(specialty?: string | null) {
@@ -1337,6 +1345,125 @@ export default function SubAdminOperationsPanel({
 
   const bienPickerOptions = useMemo(() => {
     const needle = bienSearch.trim().toLowerCase();
+    const bienScheduleMap = new Map<string, Array<{
+      sortDate?: string | null;
+      sortFallback?: string | null;
+      badge?: string;
+      badgeTone?: PickerOption["badgeTone"];
+      metaBadges?: PickerOption["metaBadges"];
+      note?: string;
+      noteTone?: PickerOption["noteTone"];
+      highlight?: PickerOption["highlight"];
+    }>>();
+
+    const pushBienSchedule = (
+      bienId: string,
+      entry: {
+        sortDate?: string | null;
+        sortFallback?: string | null;
+        badge?: string;
+        badgeTone?: PickerOption["badgeTone"];
+        metaBadges?: PickerOption["metaBadges"];
+        note?: string;
+        noteTone?: PickerOption["noteTone"];
+        highlight?: PickerOption["highlight"];
+      }
+    ) => {
+      const normalizedBienId = String(bienId || "").trim();
+      if (!normalizedBienId) return;
+      const current = bienScheduleMap.get(normalizedBienId) || [];
+      current.push(entry);
+      bienScheduleMap.set(normalizedBienId, current);
+    };
+
+    contracts.forEach((contract) => {
+      const bienId = String(contract.bien_id || "").trim();
+      if (!bienId) return;
+      const isAmicale =
+        String(contract.reservation_payment_mode || "").trim().toLowerCase() === "amicale"
+        || Boolean(String(contract.pricing_amicale_id || "").trim());
+      const commonMetaBadges = [
+        { label: isAmicale ? "Contrat amicale" : "Contrat particulier", tone: isAmicale ? "sky" : "emerald" },
+        contract.bien_reference ? { label: `Ref ${String(contract.bien_reference).trim()}`, tone: "slate" } : null,
+        contract.amicale_name ? { label: `Amicale ${String(contract.amicale_name).trim()}`, tone: "sky" } : null,
+      ].filter(Boolean) as PickerOption["metaBadges"];
+
+      if (contract.date_debut) {
+        pushBienSchedule(bienId, {
+          sortDate: contract.date_debut,
+          sortFallback: contract.created_at || null,
+          badge: `Arrivee ${formatDateOnly(contract.date_debut)}`,
+          badgeTone: isAmicale ? "sky" : "emerald",
+          metaBadges: [...commonMetaBadges, { label: "Arrivee", tone: "emerald" }],
+          note: contract.locataire_nom ? `Client ${String(contract.locataire_nom).trim()}` : undefined,
+          noteTone: isAmicale ? "sky" : "emerald",
+          highlight: isAmicale ? "amicale" : "default",
+        });
+      }
+
+      if (contract.date_fin) {
+        pushBienSchedule(bienId, {
+          sortDate: contract.date_fin,
+          sortFallback: contract.created_at || null,
+          badge: `Depart ${formatDateOnly(contract.date_fin)}`,
+          badgeTone: isAmicale ? "sky" : "emerald",
+          metaBadges: [...commonMetaBadges, { label: "Depart", tone: "amber" }],
+          note: contract.locataire_nom ? `Client ${String(contract.locataire_nom).trim()}` : undefined,
+          noteTone: isAmicale ? "sky" : "emerald",
+          highlight: isAmicale ? "amicale" : "default",
+        });
+      }
+
+      if (!contract.date_debut && !contract.date_fin) {
+        pushBienSchedule(bienId, {
+          sortFallback: contract.created_at || null,
+          badge: contract.created_at ? formatDateOnly(contract.created_at) : undefined,
+          badgeTone: isAmicale ? "sky" : "emerald",
+          metaBadges: commonMetaBadges,
+          note: contract.locataire_nom ? `Client ${String(contract.locataire_nom).trim()}` : undefined,
+          noteTone: isAmicale ? "sky" : "emerald",
+          highlight: isAmicale ? "amicale" : "default",
+        });
+      }
+    });
+
+    amicaleDemands.forEach((demand) => {
+      if (demand.source_kind !== "property") return;
+      const normalizedBienId = String(demand.bien_id || "").trim();
+      if (!normalizedBienId) return;
+      const commonMetaBadges = [
+        { label: "Demande amicale", tone: "sky" },
+        demand.amicale_name ? { label: `Amicale ${String(demand.amicale_name).trim()}`, tone: "sky" } : null,
+        demand.bien_reference ? { label: `Ref ${String(demand.bien_reference).trim()}`, tone: "slate" } : null,
+      ].filter(Boolean) as PickerOption["metaBadges"];
+
+      if (demand.start_date) {
+        pushBienSchedule(normalizedBienId, {
+          sortDate: demand.start_date,
+          sortFallback: demand.created_at || null,
+          badge: `Arrivee ${formatDateOnly(demand.start_date)}`,
+          badgeTone: "sky",
+          metaBadges: [...commonMetaBadges, { label: "Arrivee", tone: "emerald" }],
+          note: demand.client_name ? `Client ${String(demand.client_name).trim()}` : undefined,
+          noteTone: "sky",
+          highlight: "amicale",
+        });
+      }
+
+      if (demand.end_date) {
+        pushBienSchedule(normalizedBienId, {
+          sortDate: demand.end_date,
+          sortFallback: demand.created_at || null,
+          badge: `Depart ${formatDateOnly(demand.end_date)}`,
+          badgeTone: "sky",
+          metaBadges: [...commonMetaBadges, { label: "Depart", tone: "amber" }],
+          note: demand.client_name ? `Client ${String(demand.client_name).trim()}` : undefined,
+          noteTone: "sky",
+          highlight: "amicale",
+        });
+      }
+    });
+
     return biens
       .filter((bien) => {
         if (!needle) return true;
@@ -1344,13 +1471,32 @@ export default function SubAdminOperationsPanel({
           .map((value) => String(value || "").toLowerCase())
           .some((value) => value.includes(needle));
       })
-      .map((bien) => ({
-        id: bien.id,
-        title: String(bien.titre || bien.reference || bien.id),
-        subtitle: String(buildBienLabel(bien)),
-        badge: String(bien.reference || "").trim() || undefined,
-      }));
-  }, [bienSearch, biens]);
+      .map((bien) => {
+        const candidates = bienScheduleMap.get(String(bien.id || "").trim()) || [];
+        const sortedCandidates = [...candidates].sort((left, right) =>
+          compareNearestArrivalDates(left.sortDate || null, right.sortDate || null, left.sortFallback || null, right.sortFallback || null)
+        );
+        const primaryCandidate = sortedCandidates[0] || null;
+        return {
+          id: bien.id,
+          title: String(bien.titre || bien.reference || bien.id),
+          subtitle: String(buildBienLabel(bien)),
+          badge: primaryCandidate?.badge || String(bien.reference || "").trim() || undefined,
+          badgeTone: primaryCandidate?.badgeTone || "emerald",
+          sortDate: primaryCandidate?.sortDate || null,
+          sortFallback: primaryCandidate?.sortFallback || null,
+          metaBadges: primaryCandidate?.metaBadges,
+          note: primaryCandidate?.note,
+          noteTone: primaryCandidate?.noteTone,
+          highlight: primaryCandidate?.highlight,
+        } satisfies PickerOption;
+      })
+      .sort((left, right) => {
+        const dateCompare = compareNearestArrivalDates(left.sortDate || null, right.sortDate || null, left.sortFallback || null, right.sortFallback || null);
+        if (dateCompare !== 0) return dateCompare;
+        return comparePickerOptionLabels(left, right);
+      });
+  }, [amicaleDemands, bienSearch, biens, contracts]);
 
   const saveAssignment = async () => {
     if (!assignmentDraft.subadminId || !assignmentDraft.contractId) {
