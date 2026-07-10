@@ -611,14 +611,12 @@ export default function AmicalesPage() {
   const missingGrossSetupLabels = useMemo(() => {
     const labels: string[] = [];
     if (!amicaleGrossDraft.amicaleId) labels.push("amicale");
-    if (!amicaleGrossDraft.bienId) labels.push("bien");
     if (!amicaleGrossDraft.arrivalDate) labels.push("arrivee");
     if (!amicaleGrossDraft.departureDate) labels.push("depart");
     return labels;
   }, [
     amicaleGrossDraft.amicaleId,
     amicaleGrossDraft.arrivalDate,
-    amicaleGrossDraft.bienId,
     amicaleGrossDraft.departureDate,
   ]);
 
@@ -961,23 +959,25 @@ export default function AmicalesPage() {
       }
     }
 
-    const createResponse = await fetch(`${API_URL}/unavailable-dates`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        bien_id: entry.bienId,
-        start_date: entry.arrivalDate,
-        end_date: entry.departureDate,
-        status: "blocked",
-        color: AMICALE_GROSS_UNAVAILABLE_COLOR,
-        sync_source: AMICALE_GROSS_SYNC_SOURCE,
-        sync_uid: syncUid,
-      }),
-    });
-    if (!createResponse.ok) {
-      const data = await createResponse.json().catch(() => null);
-      throw new Error(String(data?.error || "Impossible d enregistrer l indisponibilite amicale en gros"));
+    if (String(entry.bienId || "").trim()) {
+      const createResponse = await fetch(`${API_URL}/unavailable-dates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          bien_id: entry.bienId,
+          start_date: entry.arrivalDate,
+          end_date: entry.departureDate,
+          status: "blocked",
+          color: AMICALE_GROSS_UNAVAILABLE_COLOR,
+          sync_source: AMICALE_GROSS_SYNC_SOURCE,
+          sync_uid: syncUid,
+        }),
+      });
+      if (!createResponse.ok) {
+        const data = await createResponse.json().catch(() => null);
+        throw new Error(String(data?.error || "Impossible d enregistrer l indisponibilite amicale en gros"));
+      }
     }
   }, [deleteUnavailableDateById, fetchUnavailableDatesForBien]);
 
@@ -1005,9 +1005,11 @@ export default function AmicalesPage() {
     const benefitAmount = parseOptionalAmount(amicaleGrossDraft.benefitAmount);
     const note = String(amicaleGrossDraft.note || "").trim();
     const amicale = amicales.find((item) => String(item.id || "").trim() === selectedAmicaleId) || null;
-    const bien = biens.find((item) => String(item.id || "").trim() === selectedBienId) || null;
-    if (!amicale || !bien || !arrivalDate || !departureDate) {
-      toast.error("Selectionnez l amicale, le bien et les dates.");
+    const bien = selectedBienId
+      ? (biens.find((item) => String(item.id || "").trim() === selectedBienId) || null)
+      : null;
+    if (!amicale || !arrivalDate || !departureDate) {
+      toast.error("Selectionnez l amicale et les dates.");
       return;
     }
     if (parseSortDate(arrivalDate) > parseSortDate(departureDate)) {
@@ -1033,8 +1035,8 @@ export default function AmicalesPage() {
       amicaleId: selectedAmicaleId,
       amicaleName: String(amicale.name || "").trim(),
       bienId: selectedBienId,
-      bienReference: String(bien.reference || "").trim(),
-      bienTitle: String(bien.titre || "").trim(),
+      bienReference: String(bien?.reference || "").trim(),
+      bienTitle: String(bien?.titre || "").trim(),
       arrivalDate,
       departureDate,
       ownerAdvanceAmount,
@@ -1465,8 +1467,8 @@ export default function AmicalesPage() {
                 <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">Selection du bien</p>
-                      <p className="mt-1 text-xs text-slate-500">Recherche par reference, titre ou nom proprietaire.</p>
+                      <p className="text-sm font-semibold text-slate-900">Selection du bien optionnelle</p>
+                      <p className="mt-1 text-xs text-slate-500">Recherche par reference, titre ou nom proprietaire. Laissez vide si la reservation concerne un bien hors site.</p>
                     </div>
                     <div className="relative w-full sm:max-w-sm">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -1477,6 +1479,16 @@ export default function AmicalesPage() {
                         className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
                       />
                     </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setAmicaleGrossDraft((prev) => ({ ...prev, bienId: "" }))}
+                      className="rounded-xl border border-dashed border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-emerald-300 hover:text-emerald-700"
+                    >
+                      Aucun bien du site
+                    </button>
                   </div>
 
                   <div className="mt-4 grid max-h-[540px] grid-cols-1 gap-3 overflow-auto pr-1 md:grid-cols-2">
@@ -1533,7 +1545,7 @@ export default function AmicalesPage() {
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Selection active</p>
                       <p className="mt-1 text-base font-semibold text-slate-900">{selectedGrossAmicale?.name || "Aucune amicale selectionnee"}</p>
                       <p className="mt-1 text-sm text-slate-500">
-                        {selectedGrossBien ? `${selectedGrossBien.reference} - ${selectedGrossBien.titre}` : "Choisissez un bien dans la grille a gauche."}
+                        {selectedGrossBien ? `${selectedGrossBien.reference} - ${selectedGrossBien.titre}` : "Aucun bien du site selectionne. Vous pouvez continuer avec une saisie hors catalogue."}
                       </p>
                     </div>
                     {selectedGrossBien ? (
@@ -1634,15 +1646,17 @@ export default function AmicalesPage() {
             </div>
 
             <div className="mt-5 rounded-[28px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-5">
-              <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">Variables manuelles</p>
-                  <p className="mt-1 text-xs text-slate-500">Tous les champs ci-dessous sont saisis manuellement par l administration.</p>
+                <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Variables manuelles</p>
+                    <p className="mt-1 text-xs text-slate-500">Tous les champs ci-dessous sont saisis manuellement par l administration.</p>
+                  </div>
+                  <div className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                  {selectedGrossBien
+                    ? `${selectedGrossBien.reference} | ${formatDateOnly(amicaleGrossDraft.arrivalDate)} -> ${formatDateOnly(amicaleGrossDraft.departureDate)}`
+                    : `Hors catalogue | ${formatDateOnly(amicaleGrossDraft.arrivalDate)} -> ${formatDateOnly(amicaleGrossDraft.departureDate)}`}
+                  </div>
                 </div>
-                <div className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700">
-                  {selectedGrossBien ? `${selectedGrossBien.reference} | ${formatDateOnly(amicaleGrossDraft.arrivalDate)} -> ${formatDateOnly(amicaleGrossDraft.departureDate)}` : "-"}
-                </div>
-              </div>
 
               {missingGrossSetupLabels.length > 0 ? (
                 <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -1729,10 +1743,10 @@ export default function AmicalesPage() {
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white">{entry.amicaleName || "Amicale"}</span>
-                          <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{entry.bienReference || "-"}</span>
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{entry.bienReference || "Hors catalogue"}</span>
                         </div>
                         <div>
-                          <p className="text-base font-semibold text-gray-900">{entry.bienTitle || "Bien sans titre"}</p>
+                          <p className="text-base font-semibold text-gray-900">{entry.bienTitle || "Reservation sans bien du site"}</p>
                           <p className="text-sm text-gray-500">{formatDateOnly(entry.arrivalDate)} au {formatDateOnly(entry.departureDate)}</p>
                         </div>
                         <div className="grid gap-2 sm:grid-cols-3">

@@ -26825,7 +26825,10 @@ function buildContractAssignmentAutofill(req, templateContext) {
       String(demand.arrival_time || '').trim()
       || String(resolvedTemplateVars?.heureArrivee || '').trim()
       || null,
-    departure_time: String(resolvedTemplateVars?.heureDepart || '').trim() || null,
+    departure_time:
+      String(demand.departure_time || '').trim()
+      || String(resolvedTemplateVars?.heureDepart || '').trim()
+      || null,
     payment_reference:
       String(demand.payment_id || '').trim()
       || String(resolvedTemplateVars?.idPaiement || '').trim()
@@ -32921,6 +32924,112 @@ app.post('/api/subadmin/technician-assignments', requireAdminSession, async (req
   } catch (error) {
     console.error('Error creating technician assignment:', error);
     res.status(500).json({ error: 'Creation affectation technicien impossible' });
+  }
+});
+
+app.put('/api/subadmin/technician-assignments/:id', requireAdminSession, async (req, res) => {
+  try {
+    if (isSubadminAccount(req.authUser || null)) {
+      return res.status(403).json({ error: 'Modification reservee a l administration principale' });
+    }
+    await ensureSubadminOperationsSchema();
+    const assignmentId = String(req.params?.id || '').trim();
+    const technicianId = String(req.body?.technician_id || '').trim();
+    const bienId = String(req.body?.bien_id || '').trim();
+    const requestedContractId = String(req.body?.contract_id || '').trim();
+    const requestedReservationDemandId = String(req.body?.reservation_demand_id || '').trim();
+    const requestedEventType = String(req.body?.assignment_event_type || '').trim().toLowerCase();
+    const note = String(req.body?.note || '').trim() || null;
+    if (!assignmentId || !technicianId || !bienId) {
+      return res.status(400).json({ error: 'id, technician_id et bien_id requis' });
+    }
+    const [currentRows] = await pool.query(
+      'SELECT id, technician_id, status, completed_at FROM technician_property_assignments WHERE id = ? LIMIT 1',
+      [assignmentId]
+    );
+    if (!currentRows?.[0]) {
+      return res.status(404).json({ error: 'Affectation technicien introuvable' });
+    }
+    const technician = await fetchTechnicianAccountById(technicianId);
+    if (!technician || !Number(technician.mobile_access_enabled || 0)) {
+      return res.status(404).json({ error: 'Technicien introuvable ou sans acces application' });
+    }
+    const [bienRows] = await pool.query('SELECT id FROM biens WHERE id = ? LIMIT 1', [bienId]);
+    if (!bienRows?.[0]) {
+      return res.status(404).json({ error: 'Bien introuvable' });
+    }
+    let contractId = null;
+    let reservationDemandId = null;
+    if (requestedContractId) {
+      const [contractRows] = await pool.query(
+        'SELECT id, bien_id FROM contrats WHERE id = ? LIMIT 1',
+        [requestedContractId]
+      );
+      const contract = contractRows?.[0] || null;
+      if (!contract) {
+        return res.status(404).json({ error: 'Contrat introuvable pour cette affectation technicien' });
+      }
+      if (String(contract.bien_id || '').trim() !== bienId) {
+        return res.status(400).json({ error: 'Le contrat choisi ne correspond pas au bien selectionne' });
+      }
+      contractId = String(contract.id || '').trim();
+    }
+    if (requestedReservationDemandId) {
+      const [demandRows] = await pool.query(
+        'SELECT id, bien_id, contract_id FROM reservation_demands WHERE id = ? LIMIT 1',
+        [requestedReservationDemandId]
+      );
+      const demand = demandRows?.[0] || null;
+      if (!demand) {
+        return res.status(404).json({ error: 'Demande introuvable pour cette affectation technicien' });
+      }
+      if (String(demand.bien_id || '').trim() !== bienId) {
+        return res.status(400).json({ error: 'La demande choisie ne correspond pas au bien selectionne' });
+      }
+      reservationDemandId = String(demand.id || '').trim();
+      if (!contractId && String(demand.contract_id || '').trim()) {
+        contractId = String(demand.contract_id || '').trim();
+      }
+    }
+    const assignmentEventType = requestedEventType === 'depart' ? 'depart' : 'arrivee';
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE technician_property_assignments
+       SET technician_id = ?,
+           bien_id = ?,
+           contract_id = ?,
+           reservation_demand_id = ?,
+           assignment_event_type = ?,
+           note = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [technicianId, bienId, contractId, reservationDemandId, assignmentEventType, note, now, assignmentId]
+    );
+    const payload = await fetchTechnicianAssignmentsPayload(req, {
+      technicianId,
+      status: null,
+    });
+    const updated = payload.find((item) => String(item.id || '').trim() === assignmentId) || { id: assignmentId };
+    const bienReference = String(updated?.bien_reference || bienId).trim();
+    const relevantTime = assignmentEventType === 'depart'
+      ? String(updated?.departure_time || updated?.checkout_time_hint || '').trim()
+      : String(updated?.arrival_time || updated?.checkin_time_hint || '').trim();
+    const pushResult = await pushToTechnicianDevice(technicianId, {
+      title: `Affectation mise a jour ${bienReference}`,
+      body: relevantTime
+        ? `${bienReference}, ${assignmentEventType === 'depart' ? 'checkout' : 'checkin'} ${relevantTime}`
+        : `${bienReference}, affectation technicien mise a jour`,
+      data: {
+        kind: 'technician_assignment',
+        assignmentId,
+        bienId,
+        eventType: assignmentEventType,
+      },
+    });
+    res.json({ ...updated, push: pushResult });
+  } catch (error) {
+    console.error('Error updating technician assignment:', error);
+    res.status(500).json({ error: 'Modification affectation technicien impossible' });
   }
 });
 

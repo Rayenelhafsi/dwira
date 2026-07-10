@@ -337,6 +337,7 @@ const initialTechnicianDraft = {
 };
 
 const initialTechnicianAssignmentDraft = {
+  id: "",
   technicianId: "",
   bienId: "",
   selectionId: "",
@@ -1792,8 +1793,12 @@ export default function SubAdminOperationsPanel({
     }
     setSaving(true);
     try {
-      const response = await fetch(buildApiUrl("/subadmin/technician-assignments"), {
-        method: "POST",
+      const response = await fetch(buildApiUrl(
+        technicianAssignmentDraft.id
+          ? `/subadmin/technician-assignments/${encodeURIComponent(technicianAssignmentDraft.id)}`
+          : "/subadmin/technician-assignments"
+      ), {
+        method: technicianAssignmentDraft.id ? "PUT" : "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1805,9 +1810,9 @@ export default function SubAdminOperationsPanel({
           note: technicianAssignmentDraft.note,
         }),
       });
-      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Creation affectation technicien impossible"));
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, technicianAssignmentDraft.id ? "Modification affectation technicien impossible" : "Creation affectation technicien impossible"));
       const payload = (await response.json().catch(() => null)) as { push?: PushDispatchResult } | null;
-      toast.success("Bien affecte au technicien.");
+      toast.success(technicianAssignmentDraft.id ? "Affectation technicien mise a jour." : "Bien affecte au technicien.");
       showPushDeliveryWarning(payload?.push, "Affectation technicien");
       setTechnicianAssignmentDraft((prev) => ({
         ...initialTechnicianAssignmentDraft,
@@ -1815,7 +1820,7 @@ export default function SubAdminOperationsPanel({
       }));
       await loadData();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Creation affectation technicien impossible");
+      toast.error(error instanceof Error ? error.message : (technicianAssignmentDraft.id ? "Modification affectation technicien impossible" : "Creation affectation technicien impossible"));
     } finally {
       setSaving(false);
     }
@@ -2803,8 +2808,22 @@ export default function SubAdminOperationsPanel({
                     disabled={saving}
                     className="w-full rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-[0_16px_30px_rgba(16,185,129,0.22)] transition hover:bg-emerald-700 disabled:opacity-60 sm:w-auto"
                   >
-                    Affecter le bien
+                    {technicianAssignmentDraft.id ? "Enregistrer modification" : "Affecter le bien"}
                   </button>
+                  {technicianAssignmentDraft.id ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTechnicianAssignmentDraft((prev) => ({
+                          ...initialTechnicianAssignmentDraft,
+                          technicianId: prev.technicianId,
+                        }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 sm:w-auto"
+                    >
+                      Annuler modification
+                    </button>
+                  ) : null}
                 </div>
               </PanelSurface>
 
@@ -2918,6 +2937,29 @@ export default function SubAdminOperationsPanel({
                           </div>
                         ) : null}
                         <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTechnicianAssignmentDraft({
+                                id: assignment.id,
+                                technicianId: assignment.technician_id,
+                                bienId: assignment.bien_id,
+                                selectionId: assignment.reservation_demand_id
+                                  ? `${TECHNICIAN_DEMAND_PICKER_PREFIX}${assignment.reservation_demand_id}`
+                                  : assignment.contract_id
+                                    ? `${TECHNICIAN_CONTRACT_PICKER_PREFIX}${assignment.contract_id}`
+                                    : assignment.bien_id,
+                                contractId: assignment.contract_id || "",
+                                reservationDemandId: assignment.reservation_demand_id || "",
+                                assignmentEventType: assignment.assignment_event_type || "",
+                                note: assignment.note || "",
+                              })
+                            }
+                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                          >
+                            <Wrench size={15} />
+                            Modifier
+                          </button>
                           {assignment.property_url ? (
                             <a href={assignment.property_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
                               <ExternalLink size={15} />
