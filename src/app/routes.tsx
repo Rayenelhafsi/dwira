@@ -7,7 +7,6 @@ import { AdminLayout } from "./admin/AdminLayout";
 import { PUBLIC_COMING_SOON } from "./config/publicAvailability";
 import { MAINTENANCE_ACCESS_PATH } from "./config/maintenance";
 import { useAuth } from "./context/AuthContext";
-import PacksComingSoonPage from "./pages/PacksComingSoonPage";
 
 const CHUNK_RELOAD_KEY = "dwira_chunk_reload_once";
 const CHUNK_RELOAD_PARAM = "__chunk_reload";
@@ -112,7 +111,7 @@ function AdminAwarePacksPageGate() {
     );
   }
 
-  return <PacksComingSoonPage />;
+  return <div className="p-10 text-center text-sm text-gray-500">Chargement...</div>;
 }
 
 function AdminAwarePackDetailsGate() {
@@ -130,7 +129,7 @@ function AdminAwarePackDetailsGate() {
     );
   }
 
-  return <PacksComingSoonPage />;
+  return <div className="p-10 text-center text-sm text-gray-500">Chargement...</div>;
 }
 
 export const router = createBrowserRouter([
@@ -152,6 +151,7 @@ export const router = createBrowserRouter([
       ...packsRoutes,
       { path: "properties/:slug", lazy: lazyPage(() => import("./pages/PropertyDetailsPage")) },
       { path: "reservation/confirmation/:slug", lazy: lazyPage(() => import("./pages/ReservationConfirmationPage")) },
+      { path: "reservation/packs/confirmation/:packId", lazy: lazyPage(() => import("./pages/PackReservationConfirmationPage")) },
       { path: "mes-reservations", lazy: lazyPage(() => import("./pages/MyReservationsPage")) },
       { path: "mes-reservations/:id/coordonnees", lazy: lazyPage(() => import("./pages/ContractIdentityPage")) },
       { path: "mes-reservations/:id/paiement", lazy: lazyPage(() => import("./pages/ReservationPaymentPage")) },

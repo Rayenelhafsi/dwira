@@ -7692,7 +7692,7 @@ const upload = multer({
   storage: storage,
   limits: { fileSize: MEDIA_UPLOAD_MAX_BYTES },
   fileFilter: (req, file, cb) => {
-    const imageTypes = /jpeg|jpg|png|gif|webp|heic|heif/;
+    const imageTypes = /jpeg|jpg|png|gif|webp|heic|heif|svg/;
     const videoTypes = /mp4|webm|mov|m4v|quicktime/;
     const ext = path.extname(file.originalname).toLowerCase();
     const normalizedExt = ext.replace('.', '');
@@ -12043,12 +12043,15 @@ async function ensureHomeFilterOptionImagesSchema() {
 }
 
 async function ensurePropertyPacksSchema() {
+  await ensurePropertyPackTabsSchema();
   await pool.query(`
     CREATE TABLE IF NOT EXISTS property_packs (
       id VARCHAR(120) NOT NULL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       description TEXT NULL,
       bien_ids_json LONGTEXT NOT NULL,
+      client_tab_id VARCHAR(120) NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
       highlight_bullets_json LONGTEXT NULL,
       gallery_images_json LONGTEXT NULL,
       created_at DATETIME NOT NULL,
@@ -12056,10 +12059,43 @@ async function ensurePropertyPacksSchema() {
     )
   `);
   try {
+    await pool.query('ALTER TABLE property_packs ADD COLUMN client_tab_id VARCHAR(120) NULL AFTER bien_ids_json');
+  } catch {}
+  try {
+    await pool.query('ALTER TABLE property_packs ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER client_tab_id');
+  } catch {}
+  try {
     await pool.query('ALTER TABLE property_packs ADD COLUMN highlight_bullets_json LONGTEXT NULL AFTER bien_ids_json');
   } catch {}
   try {
     await pool.query('ALTER TABLE property_packs ADD COLUMN gallery_images_json LONGTEXT NULL AFTER highlight_bullets_json');
+  } catch {}
+}
+
+async function ensurePropertyPackTabsSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS property_pack_tabs (
+      id VARCHAR(120) NOT NULL PRIMARY KEY,
+      label VARCHAR(120) NOT NULL,
+      icon_key VARCHAR(40) NOT NULL,
+      custom_icon_url VARCHAR(512) NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL
+    )
+  `);
+  try {
+    await pool.query('ALTER TABLE property_pack_tabs ADD COLUMN icon_key VARCHAR(40) NOT NULL DEFAULT "sparkles" AFTER label');
+  } catch {}
+  try {
+    await pool.query('ALTER TABLE property_pack_tabs ADD COLUMN custom_icon_url VARCHAR(512) NULL AFTER icon_key');
+  } catch {}
+  try {
+    await pool.query('ALTER TABLE property_pack_tabs ADD COLUMN sort_order INT NOT NULL DEFAULT 0 AFTER custom_icon_url');
+  } catch {}
+  try {
+    await pool.query('ALTER TABLE property_pack_tabs ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER sort_order');
   } catch {}
 }
 
@@ -12079,6 +12115,12 @@ function normalizePropertyPackBienIds(rawValue) {
   return Array.from(new Set(values.map((item) => String(item || '').trim()).filter(Boolean)));
 }
 
+function normalizePropertyPackTabCustomIconUrl(rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) return null;
+  return value.slice(0, 512);
+}
+
 function normalizeStringArray(rawValue) {
   const values = Array.isArray(rawValue)
     ? rawValue
@@ -12095,12 +12137,48 @@ function normalizeStringArray(rawValue) {
   return Array.from(new Set(values.map((item) => String(item || '').trim()).filter(Boolean)));
 }
 
+function normalizePropertyPackTabIconKey(rawValue) {
+  const normalized = String(rawValue || '').trim().toLowerCase();
+  const allowed = new Set(['home', 'heart', 'crown', 'map', 'briefcase', 'sparkles']);
+  return allowed.has(normalized) ? normalized : 'sparkles';
+}
+
+function mapPropertyPackTabRow(row) {
+  return {
+    id: String(row.id || '').trim(),
+    label: String(row.label || '').trim(),
+    iconKey: normalizePropertyPackTabIconKey(row.icon_key),
+    customIconUrl: String(row.custom_icon_url || '').trim() || null,
+    sortOrder: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : 0,
+    isActive: Number(row.is_active || 0) === 1,
+    createdAt: row.created_at ? toPublicIsoDateTime(row.created_at) : null,
+    updatedAt: row.updated_at ? toPublicIsoDateTime(row.updated_at) : null,
+  };
+}
+
 function mapPropertyPackRow(row) {
+  const clientTabId = String(row.client_tab_id || '').trim() || null;
+  const clientTab =
+    clientTabId && row.client_tab_label
+      ? mapPropertyPackTabRow({
+          id: clientTabId,
+          label: row.client_tab_label,
+          icon_key: row.client_tab_icon_key,
+          custom_icon_url: row.client_tab_custom_icon_url,
+          sort_order: row.client_tab_sort_order,
+          is_active: row.client_tab_is_active,
+          created_at: row.client_tab_created_at,
+          updated_at: row.client_tab_updated_at,
+        })
+      : null;
   return {
     id: String(row.id || '').trim(),
     name: String(row.name || '').trim(),
     description: String(row.description || '').trim() || null,
     bienIds: normalizePropertyPackBienIds(row.bien_ids_json),
+    clientTabId,
+    isActive: Number(row.is_active || 0) === 1,
+    clientTab,
     highlightBullets: normalizeStringArray(row.highlight_bullets_json),
     galleryImages: normalizeStringArray(row.gallery_images_json),
     createdAt: row.created_at ? toPublicIsoDateTime(row.created_at) : null,
@@ -12108,12 +12186,40 @@ function mapPropertyPackRow(row) {
   };
 }
 
+async function listPropertyPackTabs() {
+  await ensurePropertyPackTabsSchema();
+  const [rows] = await pool.query(
+    `SELECT id, label, icon_key, custom_icon_url, sort_order, is_active, created_at, updated_at
+     FROM property_pack_tabs
+     ORDER BY sort_order ASC, label ASC`
+  );
+  return (rows || []).map(mapPropertyPackTabRow);
+}
+
 async function listPropertyPacks() {
   await ensurePropertyPacksSchema();
   const [rows] = await pool.query(
-    `SELECT id, name, description, bien_ids_json, highlight_bullets_json, gallery_images_json, created_at, updated_at
-     FROM property_packs
-     ORDER BY updated_at DESC, created_at DESC`
+    `SELECT
+       p.id,
+       p.name,
+       p.description,
+       p.bien_ids_json,
+       p.client_tab_id,
+       p.is_active,
+       p.highlight_bullets_json,
+       p.gallery_images_json,
+       p.created_at,
+       p.updated_at,
+       t.label AS client_tab_label,
+       t.icon_key AS client_tab_icon_key,
+       t.custom_icon_url AS client_tab_custom_icon_url,
+       t.sort_order AS client_tab_sort_order,
+       t.is_active AS client_tab_is_active,
+       t.created_at AS client_tab_created_at,
+       t.updated_at AS client_tab_updated_at
+     FROM property_packs p
+     LEFT JOIN property_pack_tabs t ON t.id = p.client_tab_id
+     ORDER BY p.updated_at DESC, p.created_at DESC`
   );
   return (rows || []).map(mapPropertyPackRow);
 }
@@ -13242,6 +13348,13 @@ function formatReservationDemandRow(row) {
   if (!row) return null;
   return {
     ...row,
+    reservation_group_id: row.reservation_group_id || null,
+    reservation_group_role: row.reservation_group_role || null,
+    reservation_group_parent_demand_id: row.reservation_group_parent_demand_id || null,
+    reservation_group_sequence: row.reservation_group_sequence === null || row.reservation_group_sequence === undefined ? null : Number(row.reservation_group_sequence),
+    reservation_group_label: row.reservation_group_label || null,
+    reservation_group_refs: parseJsonArray(row.reservation_group_refs_json),
+    reservation_group_item_bien_ids: parseJsonArray(row.reservation_group_item_bien_ids_json),
     request_type: row.request_type === 'visite' ? 'visite' : 'reservation',
     payment_mode: normalizePaymentMode(row.payment_mode, 'avance'),
     partner_agency_id: row.partner_agency_id || null,
@@ -13584,6 +13697,94 @@ function parseSqlDateParts(value) {
   if (!sql) return { dd: '', mm: '', yyyy: '', iso: '' };
   const [yyyy, mm, dd] = sql.split('-');
   return { dd: dd || '', mm: mm || '', yyyy: yyyy || '', iso: sql };
+}
+
+function buildSqlDateFromDayMonthYear(dayValue, monthValue, yearValue) {
+  const day = Number.parseInt(String(dayValue || '').trim(), 10);
+  const month = Number.parseInt(String(monthValue || '').trim(), 10);
+  const year = Number.parseInt(String(yearValue || '').trim(), 10);
+  if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return '';
+  if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > 3000) return '';
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    candidate.getUTCFullYear() !== year
+    || candidate.getUTCMonth() !== month - 1
+    || candidate.getUTCDate() !== day
+  ) {
+    return '';
+  }
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function resolveContractTemplateVarDateSync({ templateVars, currentStartDate, currentEndDate }) {
+  const vars = templateVars && typeof templateVars === 'object' ? templateVars : {};
+  const hasRawValue = (key) => Object.prototype.hasOwnProperty.call(vars, key) && String(vars[key] ?? '').trim() !== '';
+  const startDayProvided = hasRawValue('jj1');
+  const startMonthProvided = hasRawValue('mm1');
+  const endDayProvided = hasRawValue('jj2');
+  const endMonthProvided = hasRawValue('mm2');
+
+  if (startDayProvided !== startMonthProvided) {
+    throw new Error('Les variables de date d arrivee doivent contenir le jour et le mois');
+  }
+  if (endDayProvided !== endMonthProvided) {
+    throw new Error('Les variables de date de depart doivent contenir le jour et le mois');
+  }
+
+  const currentStartParts = parseSqlDateParts(currentStartDate);
+  const currentEndParts = parseSqlDateParts(currentEndDate);
+  const startYear = Number.parseInt(currentStartParts.yyyy || '0', 10) || null;
+  const endYear = Number.parseInt(currentEndParts.yyyy || '0', 10) || null;
+  const candidateYears = (...values) => Array.from(new Set(
+    values
+      .map((value) => Number.parseInt(String(value || ''), 10))
+      .filter((value) => Number.isInteger(value) && value >= 1900 && value <= 3000)
+  ));
+  const pickDate = (dayValue, monthValue, years) => {
+    for (const year of years) {
+      const sql = buildSqlDateFromDayMonthYear(dayValue, monthValue, year);
+      if (sql) return sql;
+    }
+    return '';
+  };
+
+  let nextStartDate = currentStartDate || '';
+  let nextEndDate = currentEndDate || '';
+
+  if (startDayProvided && startMonthProvided) {
+    nextStartDate = pickDate(vars.jj1, vars.mm1, candidateYears(startYear, endYear, startYear && startYear + 1, endYear && endYear + 1));
+    if (!nextStartDate) {
+      throw new Error('La date d arrivee du contrat est invalide');
+    }
+  }
+
+  if (endDayProvided && endMonthProvided) {
+    nextEndDate = pickDate(vars.jj2, vars.mm2, candidateYears(endYear, startYear, startYear && startYear + 1, endYear && endYear + 1));
+    if (!nextEndDate) {
+      throw new Error('La date de depart du contrat est invalide');
+    }
+  }
+
+  if (nextStartDate && nextEndDate && nextEndDate < nextStartDate && endDayProvided && endMonthProvided) {
+    const adjustedEndDate = pickDate(vars.jj2, vars.mm2, candidateYears(
+      Number.parseInt(parseSqlDateParts(nextStartDate).yyyy || '0', 10) + 1,
+      endYear && endYear + 1,
+      startYear && startYear + 1
+    ));
+    if (adjustedEndDate && adjustedEndDate >= nextStartDate) {
+      nextEndDate = adjustedEndDate;
+    }
+  }
+
+  if (nextStartDate && nextEndDate && nextEndDate < nextStartDate) {
+    throw new Error('La date de depart du contrat doit etre apres la date d arrivee');
+  }
+
+  return {
+    startDate: nextStartDate || null,
+    endDate: nextEndDate || null,
+    hasDateOverride: (startDayProvided && startMonthProvided) || (endDayProvided && endMonthProvided),
+  };
 }
 
 function parseSqlDateTimeParts(value) {
@@ -14592,6 +14793,40 @@ async function buildReservationClientContractTemplateVars({
   identityLastName,
   cautionAmount,
 }) {
+  const groupBienIds = parseJsonArray(demand?.reservation_group_item_bien_ids_json || demand?.reservation_group_item_bien_ids);
+  let groupItems = [];
+  if (Array.isArray(groupBienIds) && groupBienIds.length > 1) {
+    const normalizedIds = Array.from(new Set(groupBienIds.map((value) => String(value || '').trim()).filter(Boolean)));
+    if (normalizedIds.length > 1) {
+      const placeholders = normalizedIds.map(() => '?').join(',');
+      try {
+        const [groupRows] = await pool.query(
+          `SELECT
+             b.id,
+             b.reference,
+             b.titre,
+             b.type,
+             b.configuration,
+             b.ville,
+             b.adresse,
+             b.location_saisonniere_config_json,
+             z.nom AS zone_nom,
+             z.quartier AS zone_quartier,
+             z.gouvernerat AS zone_gouvernerat,
+             z.region AS zone_region,
+             z.pays AS zone_pays
+           FROM biens b
+           LEFT JOIN zones z ON z.id = b.zone_id
+           WHERE b.id IN (${placeholders})`,
+          normalizedIds
+        );
+        const rowsById = new Map((groupRows || []).map((row) => [String(row.id || '').trim(), row]));
+        groupItems = normalizedIds.map((id) => rowsById.get(id)).filter(Boolean);
+      } catch (_) {
+        groupItems = [];
+      }
+    }
+  }
   const adultGuests = Math.max(1, Number(demand.adult_guests || demand.guests || 1));
   const childGuests = Math.max(0, Number(demand.child_guests || 0));
   const totalGuests = Math.max(1, Number(demand.guests || (adultGuests + childGuests) || 1));
@@ -14638,23 +14873,45 @@ async function buildReservationClientContractTemplateVars({
       || seasonalConfig?.departure_time
       || '11:00'
   ).trim();
-  const typeLogement = String(bien?.configuration || bien?.type || '');
-  const adresseParts = [
-    String(bien?.zone_nom || '').trim(),
-    String(bien?.zone_quartier || '').trim(),
-    String(bien?.zone_gouvernerat || '').trim(),
-    String(bien?.zone_region || '').trim(),
-    String(bien?.zone_pays || '').trim(),
-  ].filter(Boolean);
+  const isGroupReservation = groupItems.length > 1;
+  const typeLogement = isGroupReservation
+    ? `Groupe de biens (${groupItems.length} logements)`
+    : String(bien?.configuration || bien?.type || '');
+  const adresseParts = isGroupReservation
+    ? Array.from(new Set(groupItems.flatMap((item) => [
+        String(item?.zone_nom || '').trim(),
+        String(item?.zone_quartier || '').trim(),
+        String(item?.zone_gouvernerat || '').trim(),
+        String(item?.zone_region || '').trim(),
+        String(item?.zone_pays || '').trim(),
+        String(item?.ville || '').trim(),
+        String(item?.adresse || '').trim(),
+      ].filter(Boolean)))).slice(0, 4)
+    : [
+        String(bien?.zone_nom || '').trim(),
+        String(bien?.zone_quartier || '').trim(),
+        String(bien?.zone_gouvernerat || '').trim(),
+        String(bien?.zone_region || '').trim(),
+        String(bien?.zone_pays || '').trim(),
+      ].filter(Boolean);
   const adresseBien = (adresseParts.join(', ')
+    || (isGroupReservation
+      ? String(demand?.reservation_group_label || '').trim()
+      : '')
     || String(bien?.ville || '').trim()
     || String(bien?.adresse || '').trim()
     || String(bien?.titre || demand?.bien_titre || '').trim());
-  const equipementsTitre = [
-    String(bien?.reference || '').trim() ? `Ref ${String(bien.reference).trim()}` : '',
-    String(bien?.titre || demand?.bien_titre || '').trim(),
-    String(bien?.type || '').trim(),
-  ].filter(Boolean).join(', ');
+  const groupLabel = String(demand?.reservation_group_label || '').trim();
+  const groupRefs = parseJsonArray(demand?.reservation_group_refs_json || demand?.reservation_group_refs)
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  const equipementsTitre = isGroupReservation
+    ? (groupLabel || `References: ${groupRefs.join(', ')}`)
+    : [
+        String(bien?.reference || '').trim() ? `Ref ${String(bien.reference).trim()}` : '',
+        String(bien?.titre || demand?.bien_titre || '').trim(),
+        String(bien?.type || '').trim(),
+      ].filter(Boolean).join(', ');
   const contractTypeLogementValue = equipementsTitre || typeLogement || '-';
   const rawCaracteristiques = (() => {
     if (Array.isArray(bien?.caracteristiques)) return bien.caracteristiques;
@@ -14705,7 +14962,16 @@ async function buildReservationClientContractTemplateVars({
   } catch (_) {
     // Ignore malformed caracteristique_valeurs payloads.
   }
-  const equipementsBienValue = Array.from(
+  const equipementsBienValue = isGroupReservation
+    ? groupItems
+      .map((item) => [
+        String(item?.reference || '').trim() || 'Ref inconnue',
+        String(item?.titre || '').trim(),
+        String(item?.configuration || item?.type || '').trim(),
+      ].filter(Boolean).join(' - '))
+      .filter(Boolean)
+      .join(' | ')
+    : Array.from(
     new Set([...equipementsFromArray, ...equipementsFromList, ...equipementsFromFlags, ...equipementsFromValues]
       .map((row) => String(row || '').trim())
       .filter(Boolean))
@@ -15300,6 +15566,28 @@ async function generateReservationOwnerContractHtml({
   const balance = Math.max(0, reservationTotal - Number(amountDueNow || 0));
   const nowDisplay = new Date(String(contractCreatedAt).replace(' ', 'T')).toLocaleString('fr-FR', { timeZone: AGENCY_TIME_ZONE, hour12: false });
   const paymentModeLabel = paymentMode === 'totalite' ? 'Totalite' : 'Avance';
+  const groupBienIds = parseJsonArray(demand?.reservation_group_item_bien_ids_json || demand?.reservation_group_item_bien_ids)
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  let groupCompositionLines = [];
+  if (groupBienIds.length > 1) {
+    const placeholders = groupBienIds.map(() => '?').join(',');
+    try {
+      const [groupRows] = await pool.query(
+        `SELECT id, reference, titre, type, configuration
+         FROM biens
+         WHERE id IN (${placeholders})`,
+        groupBienIds
+      );
+      const rowsById = new Map((groupRows || []).map((row) => [String(row.id || '').trim(), row]));
+      groupCompositionLines = groupBienIds
+        .map((id) => rowsById.get(id))
+        .filter(Boolean)
+        .map((row) => [row.reference, row.titre, row.configuration || row.type].filter(Boolean).join(' - '));
+    } catch (_) {
+      groupCompositionLines = [];
+    }
+  }
 
   const html = `<!doctype html>
 <html lang="fr">
@@ -15344,8 +15632,10 @@ async function generateReservationOwnerContractHtml({
     <div class="box">
       <p><strong>Reference:</strong> ${escapeHtml(bien?.reference || demand.bien_id)}</p>
       <p><strong>Titre:</strong> ${escapeHtml(bien?.titre || demand.bien_titre || 'Bien')}</p>
+      ${groupCompositionLines.length > 0 ? `<p><strong>Groupe:</strong> ${escapeHtml(String(demand?.reservation_group_label || '').trim() || 'Composition groupe')}</p>` : ''}
       <p><strong>Periode:</strong> ${escapeHtml(stayPeriodLabel)}</p>
       <p><strong>Voyageurs:</strong> ${escapeHtml(String(totalGuests))} (Adultes: ${escapeHtml(String(adultGuests))}, Enfants: ${escapeHtml(String(childGuests))})</p>
+      ${groupCompositionLines.length > 0 ? `<p><strong>Composition:</strong> ${escapeHtml(groupCompositionLines.join(' | '))}</p>` : ''}
     </div>
 
     <h2>Conditions financieres</h2>
@@ -15935,6 +16225,7 @@ async function initializeDatabaseSchema() {
       ['ensureSeasonalPricingSchema', ensureSeasonalPricingSchema],
       ['ensureTypeFilterImagesSchema', ensureTypeFilterImagesSchema],
       ['ensureHomeFilterOptionImagesSchema', ensureHomeFilterOptionImagesSchema],
+      ['ensurePropertyPackTabsSchema', ensurePropertyPackTabsSchema],
       ['ensurePropertyPacksSchema', ensurePropertyPacksSchema],
     ];
 
@@ -16181,16 +16472,107 @@ app.get('/api/property-packs', async (_req, res) => {
   }
 });
 
+app.get('/api/property-pack-tabs', async (_req, res) => {
+  try {
+    res.json(await listPropertyPackTabs());
+  } catch (error) {
+    console.error('Error fetching property pack tabs:', error);
+    res.status(500).json({ error: 'Impossible de charger les onglets packs' });
+  }
+});
+
+app.post('/api/property-pack-tabs', requireAdminSession, async (req, res) => {
+  try {
+    await ensurePropertyPackTabsSchema();
+    const label = String(req.body?.label || '').trim();
+    const iconKey = normalizePropertyPackTabIconKey(req.body?.iconKey);
+    const customIconUrl = normalizePropertyPackTabCustomIconUrl(req.body?.customIconUrl);
+    const sortOrder = Number.isFinite(Number(req.body?.sortOrder)) ? Number(req.body.sortOrder) : 0;
+    if (!label) return res.status(400).json({ error: 'Nom onglet requis' });
+    const id = `pack_tab_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `INSERT INTO property_pack_tabs (id, label, icon_key, custom_icon_url, sort_order, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+      [id, label, iconKey, customIconUrl, sortOrder, now, now]
+    );
+    const tabs = await listPropertyPackTabs();
+    res.status(201).json(
+      tabs.find((tab) => tab.id === id)
+      || { id, label, iconKey, customIconUrl, sortOrder, isActive: true, createdAt: now, updatedAt: now }
+    );
+  } catch (error) {
+    console.error('Error creating property pack tab:', error);
+    res.status(500).json({ error: 'Impossible de creer l onglet pack' });
+  }
+});
+
+app.put('/api/property-pack-tabs/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensurePropertyPackTabsSchema();
+    const id = String(req.params.id || '').trim();
+    const label = String(req.body?.label || '').trim();
+    const iconKey = normalizePropertyPackTabIconKey(req.body?.iconKey);
+    const customIconUrl = normalizePropertyPackTabCustomIconUrl(req.body?.customIconUrl);
+    const sortOrder = Number.isFinite(Number(req.body?.sortOrder)) ? Number(req.body.sortOrder) : 0;
+    if (!id) return res.status(400).json({ error: 'Onglet introuvable' });
+    if (!label) return res.status(400).json({ error: 'Nom onglet requis' });
+    const now = getAgencySqlDateTime();
+    const [result] = await pool.query(
+      `UPDATE property_pack_tabs
+       SET label = ?, icon_key = ?, custom_icon_url = ?, sort_order = ?, updated_at = ?
+       WHERE id = ?`,
+      [label, iconKey, customIconUrl, sortOrder, now, id]
+    );
+    if (!result || Number(result.affectedRows || 0) === 0) {
+      return res.status(404).json({ error: 'Onglet introuvable' });
+    }
+    const tabs = await listPropertyPackTabs();
+    res.json(
+      tabs.find((tab) => tab.id === id)
+      || { id, label, iconKey, customIconUrl, sortOrder, isActive: true, updatedAt: now }
+    );
+  } catch (error) {
+    console.error('Error updating property pack tab:', error);
+    res.status(500).json({ error: 'Impossible de modifier l onglet pack' });
+  }
+});
+
+app.delete('/api/property-pack-tabs/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensurePropertyPacksSchema();
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'Onglet introuvable' });
+    await pool.query('UPDATE property_packs SET client_tab_id = NULL WHERE client_tab_id = ?', [id]);
+    const [result] = await pool.query('DELETE FROM property_pack_tabs WHERE id = ?', [id]);
+    if (!result || Number(result.affectedRows || 0) === 0) {
+      return res.status(404).json({ error: 'Onglet introuvable' });
+    }
+    res.json({ ok: true, id });
+  } catch (error) {
+    console.error('Error deleting property pack tab:', error);
+    res.status(500).json({ error: 'Impossible de supprimer l onglet pack' });
+  }
+});
+
 app.post('/api/property-packs', requireAdminSession, async (req, res) => {
   try {
     await ensurePropertyPacksSchema();
     const name = String(req.body?.name || '').trim();
     const description = String(req.body?.description || '').trim() || null;
     const bienIds = normalizePropertyPackBienIds(req.body?.bienIds);
+    const clientTabId = String(req.body?.clientTabId || '').trim() || null;
+    const isActive = req.body?.isActive === true || req.body?.isActive === 1 || req.body?.isActive === '1';
     const highlightBullets = normalizeStringArray(req.body?.highlightBullets);
     const galleryImages = normalizeStringArray(req.body?.galleryImages);
     if (!name) return res.status(400).json({ error: 'Nom du pack requis' });
     if (bienIds.length === 0) return res.status(400).json({ error: 'Ajoutez au moins une reference au pack' });
+    if (clientTabId) {
+      const [tabRows] = await pool.query('SELECT id FROM property_pack_tabs WHERE id = ? LIMIT 1', [clientTabId]);
+      if (!Array.isArray(tabRows) || tabRows.length === 0) {
+        return res.status(400).json({ error: 'Onglet client invalide' });
+      }
+    }
     const placeholders = bienIds.map(() => '?').join(', ');
     const [bienRows] = await pool.query(`SELECT id FROM biens WHERE id IN (${placeholders})`, bienIds);
     const existingBienIds = new Set((bienRows || []).map((row) => String(row.id || '').trim()).filter(Boolean));
@@ -16201,14 +16583,14 @@ app.post('/api/property-packs', requireAdminSession, async (req, res) => {
     const id = `pack_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
     const now = getAgencySqlDateTime();
     await pool.query(
-      `INSERT INTO property_packs (id, name, description, bien_ids_json, highlight_bullets_json, gallery_images_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, name, description, JSON.stringify(filteredBienIds), JSON.stringify(highlightBullets), JSON.stringify(galleryImages), now, now]
+      `INSERT INTO property_packs (id, name, description, bien_ids_json, client_tab_id, is_active, highlight_bullets_json, gallery_images_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, description, JSON.stringify(filteredBienIds), clientTabId, isActive ? 1 : 0, JSON.stringify(highlightBullets), JSON.stringify(galleryImages), now, now]
     );
     const packs = await listPropertyPacks();
     res.status(201).json(
       packs.find((pack) => pack.id === id)
-      || { id, name, description, bienIds: filteredBienIds, highlightBullets, galleryImages, createdAt: now, updatedAt: now }
+      || { id, name, description, bienIds: filteredBienIds, clientTabId, isActive, highlightBullets, galleryImages, createdAt: now, updatedAt: now }
     );
   } catch (error) {
     console.error('Error creating property pack:', error);
@@ -16223,11 +16605,20 @@ app.put('/api/property-packs/:id', requireAdminSession, async (req, res) => {
     const name = String(req.body?.name || '').trim();
     const description = String(req.body?.description || '').trim() || null;
     const bienIds = normalizePropertyPackBienIds(req.body?.bienIds);
+    const clientTabId = String(req.body?.clientTabId || '').trim() || null;
+    const hasIsActive = Object.prototype.hasOwnProperty.call(req.body || {}, 'isActive');
+    const isActive = req.body?.isActive === true || req.body?.isActive === 1 || req.body?.isActive === '1';
     const highlightBullets = normalizeStringArray(req.body?.highlightBullets);
     const galleryImages = normalizeStringArray(req.body?.galleryImages);
     if (!id) return res.status(400).json({ error: 'Pack introuvable' });
     if (!name) return res.status(400).json({ error: 'Nom du pack requis' });
     if (bienIds.length === 0) return res.status(400).json({ error: 'Ajoutez au moins une reference au pack' });
+    if (clientTabId) {
+      const [tabRows] = await pool.query('SELECT id FROM property_pack_tabs WHERE id = ? LIMIT 1', [clientTabId]);
+      if (!Array.isArray(tabRows) || tabRows.length === 0) {
+        return res.status(400).json({ error: 'Onglet client invalide' });
+      }
+    }
     const placeholders = bienIds.map(() => '?').join(', ');
     const [bienRows] = await pool.query(`SELECT id FROM biens WHERE id IN (${placeholders})`, bienIds);
     const existingBienIds = new Set((bienRows || []).map((row) => String(row.id || '').trim()).filter(Boolean));
@@ -16236,11 +16627,32 @@ app.put('/api/property-packs/:id', requireAdminSession, async (req, res) => {
       return res.status(400).json({ error: 'Aucune reference valide dans ce pack' });
     }
     const now = getAgencySqlDateTime();
+    const updateFields = [
+      'name = ?',
+      'description = ?',
+      'bien_ids_json = ?',
+      'client_tab_id = ?',
+      ...(hasIsActive ? ['is_active = ?'] : []),
+      'highlight_bullets_json = ?',
+      'gallery_images_json = ?',
+      'updated_at = ?',
+    ];
+    const updateValues = [
+      name,
+      description,
+      JSON.stringify(filteredBienIds),
+      clientTabId,
+      ...(hasIsActive ? [isActive ? 1 : 0] : []),
+      JSON.stringify(highlightBullets),
+      JSON.stringify(galleryImages),
+      now,
+      id,
+    ];
     const [result] = await pool.query(
       `UPDATE property_packs
-       SET name = ?, description = ?, bien_ids_json = ?, highlight_bullets_json = ?, gallery_images_json = ?, updated_at = ?
+       SET ${updateFields.join(', ')}
        WHERE id = ?`,
-      [name, description, JSON.stringify(filteredBienIds), JSON.stringify(highlightBullets), JSON.stringify(galleryImages), now, id]
+      updateValues
     );
     if (!result || Number(result.affectedRows || 0) === 0) {
       return res.status(404).json({ error: 'Pack introuvable' });
@@ -16248,7 +16660,7 @@ app.put('/api/property-packs/:id', requireAdminSession, async (req, res) => {
     const packs = await listPropertyPacks();
     res.json(
       packs.find((pack) => pack.id === id)
-      || { id, name, description, bienIds: filteredBienIds, highlightBullets, galleryImages, updatedAt: now }
+      || { id, name, description, bienIds: filteredBienIds, clientTabId, isActive, highlightBullets, galleryImages, updatedAt: now }
     );
   } catch (error) {
     console.error('Error updating property pack:', error);
@@ -18018,6 +18430,110 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
   }
 });
 
+app.get('/api/property-groups', async (req, res) => {
+  try {
+    const requester = getSessionUserFromRequest(req);
+    const groups = await fetchPropertyGroupsDetailed({ activeOnly: requester?.role !== 'admin' });
+    res.json(groups);
+  } catch (error) {
+    console.error('Error fetching property groups:', error);
+    res.status(500).json({ error: 'Impossible de charger les groupes de biens' });
+  }
+});
+
+app.post('/api/property-groups', requireAdminSession, async (req, res) => {
+  try {
+    await ensurePropertyGroupsSchema();
+    const now = getAgencySqlDateTime();
+    const name = String(req.body?.name || '').trim();
+    const description = String(req.body?.description || '').trim() || null;
+    const zoneId = String(req.body?.zone_id || '').trim() || null;
+    const active = req.body?.active !== false;
+    const bienIds = Array.from(new Set((Array.isArray(req.body?.bien_ids) ? req.body.bien_ids : []).map((value) => String(value || '').trim()).filter(Boolean)));
+    if (!name) return res.status(400).json({ error: 'Nom du groupe requis' });
+    if (bienIds.length < 2) return res.status(400).json({ error: 'Selectionnez au moins 2 biens' });
+    const [bienRows] = await pool.query(
+      `SELECT id, mode, zone_id, visible_sur_site FROM biens WHERE id IN (${bienIds.map(() => '?').join(',')})`,
+      bienIds
+    );
+    if ((bienRows || []).length !== bienIds.length) return res.status(400).json({ error: 'Un ou plusieurs biens sont introuvables' });
+    const mode = String(bienRows?.[0]?.mode || '').trim() || null;
+    const groupId = `pg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const slug = await ensureUniquePropertyGroupSlug(name);
+    await pool.query(
+      `INSERT INTO property_groups (id, name, slug, description, mode, zone_id, active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [groupId, name, slug, description, mode, zoneId, active ? 1 : 0, now, now]
+    );
+    let orderIndex = 0;
+    for (const bienId of bienIds) {
+      await pool.query(
+        `INSERT INTO property_group_items (id, group_id, bien_id, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [`pgi_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, groupId, bienId, orderIndex, now, now]
+      );
+      orderIndex += 1;
+    }
+    const group = await fetchPropertyGroupDetailedByIdOrSlug(groupId);
+    res.status(201).json(group);
+  } catch (error) {
+    console.error('Error creating property group:', error);
+    res.status(500).json({ error: 'Impossible de creer le groupe de biens' });
+  }
+});
+
+app.put('/api/property-groups/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensurePropertyGroupsSchema();
+    const groupId = String(req.params.id || '').trim();
+    if (!groupId) return res.status(400).json({ error: 'Groupe introuvable' });
+    const name = String(req.body?.name || '').trim();
+    const description = String(req.body?.description || '').trim() || null;
+    const zoneId = String(req.body?.zone_id || '').trim() || null;
+    const active = req.body?.active !== false;
+    const bienIds = Array.from(new Set((Array.isArray(req.body?.bien_ids) ? req.body.bien_ids : []).map((value) => String(value || '').trim()).filter(Boolean)));
+    if (!name) return res.status(400).json({ error: 'Nom du groupe requis' });
+    if (bienIds.length < 2) return res.status(400).json({ error: 'Selectionnez au moins 2 biens' });
+    const slug = await ensureUniquePropertyGroupSlug(name, groupId);
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE property_groups
+       SET name = ?, slug = ?, description = ?, zone_id = ?, active = ?, updated_at = ?
+       WHERE id = ?`,
+      [name, slug, description, zoneId, active ? 1 : 0, now, groupId]
+    );
+    await pool.query('DELETE FROM property_group_items WHERE group_id = ?', [groupId]);
+    let orderIndex = 0;
+    for (const bienId of bienIds) {
+      await pool.query(
+        `INSERT INTO property_group_items (id, group_id, bien_id, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [`pgi_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, groupId, bienId, orderIndex, now, now]
+      );
+      orderIndex += 1;
+    }
+    const group = await fetchPropertyGroupDetailedByIdOrSlug(groupId);
+    res.json(group);
+  } catch (error) {
+    console.error('Error updating property group:', error);
+    res.status(500).json({ error: 'Impossible de mettre a jour le groupe de biens' });
+  }
+});
+
+app.delete('/api/property-groups/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensurePropertyGroupsSchema();
+    const groupId = String(req.params.id || '').trim();
+    if (!groupId) return res.status(400).json({ error: 'Groupe introuvable' });
+    await pool.query('DELETE FROM property_group_items WHERE group_id = ?', [groupId]);
+    await pool.query('DELETE FROM property_groups WHERE id = ?', [groupId]);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting property group:', error);
+    res.status(500).json({ error: 'Impossible de supprimer le groupe de biens' });
+  }
+});
+
 app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
@@ -18069,18 +18585,136 @@ app.post('/api/contrats/:id/regenerate-template-pdf', requireAdminSession, async
 app.put('/api/contrats/:id/template-vars', requireAdminSession, async (req, res) => {
   try {
     await ensureContractsSchema();
+    await ensureReservationDemandSchema();
     const contractId = String(req.params.id || '').trim();
     if (!contractId) return res.status(400).json({ error: 'id contrat requis' });
     const vars = (req.body && typeof req.body === 'object') ? (req.body.template_vars || req.body.vars || null) : null;
     if (!vars || typeof vars !== 'object') {
       return res.status(400).json({ error: 'template_vars objet requis' });
     }
-    const payload = JSON.stringify(vars);
-    await pool.query('UPDATE contrats SET template_vars_json = ? WHERE id = ?', [payload, contractId]);
-    res.json({ ok: true, contract_id: contractId, template_vars: vars });
+    const sanitizedVars = sanitizeContractTemplateVars(vars);
+    const templateContext = await loadContractTemplateContext(contractId);
+    if (!templateContext?.contract) {
+      return res.status(404).json({ error: 'Contrat introuvable' });
+    }
+
+    const currentDemand = templateContext.demand || null;
+    const currentContract = templateContext.contract;
+    const currentStartDate = toSqlDateOnly(currentDemand?.start_date || currentContract.date_debut || '');
+    const currentEndDate = toSqlDateOnly(currentDemand?.end_date || currentContract.date_fin || '');
+    const syncedDates = resolveContractTemplateVarDateSync({
+      templateVars: sanitizedVars,
+      currentStartDate,
+      currentEndDate,
+    });
+    const now = getAgencySqlDateTime();
+    const requestedArrivalTime = Object.prototype.hasOwnProperty.call(vars, 'heureArrivee')
+      ? (String(vars.heureArrivee || '').trim() || null)
+      : undefined;
+    const requestedDepartureTime = Object.prototype.hasOwnProperty.call(vars, 'heureDepart')
+      ? (String(vars.heureDepart || '').trim() || null)
+      : undefined;
+    const payload = JSON.stringify(sanitizedVars);
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const contractFields = ['template_vars_json = ?'];
+      const contractValues = [payload];
+      if (syncedDates.startDate && syncedDates.startDate !== toSqlDateOnly(currentContract.date_debut || '')) {
+        contractFields.push('date_debut = ?');
+        contractValues.push(syncedDates.startDate);
+      }
+      if (syncedDates.endDate && syncedDates.endDate !== toSqlDateOnly(currentContract.date_fin || '')) {
+        contractFields.push('date_fin = ?');
+        contractValues.push(syncedDates.endDate);
+      }
+      await connection.query(
+        `UPDATE contrats SET ${contractFields.join(', ')} WHERE id = ?`,
+        [...contractValues, contractId]
+      );
+
+      if (currentDemand?.id) {
+        const demandFields = [];
+        const demandValues = [];
+        const nextStartDate = syncedDates.startDate || currentStartDate || null;
+        const nextEndDate = syncedDates.endDate || currentEndDate || null;
+        const currentArrivalTime = String(currentDemand.arrival_time || '').trim() || null;
+        const currentDepartureTime = String(currentDemand.departure_time || '').trim() || null;
+
+        if (nextStartDate && nextStartDate !== currentStartDate) {
+          demandFields.push('start_date = ?');
+          demandValues.push(nextStartDate);
+        }
+        if (nextEndDate && nextEndDate !== currentEndDate) {
+          demandFields.push('end_date = ?');
+          demandValues.push(nextEndDate);
+        }
+        if (requestedArrivalTime !== undefined && requestedArrivalTime !== currentArrivalTime) {
+          demandFields.push('arrival_time = ?');
+          demandValues.push(requestedArrivalTime);
+        }
+        if (requestedDepartureTime !== undefined && requestedDepartureTime !== currentDepartureTime) {
+          demandFields.push('departure_time = ?');
+          demandValues.push(requestedDepartureTime);
+        }
+
+        if (demandFields.length > 0) {
+          demandFields.push('updated_at = ?');
+          demandValues.push(now);
+          await connection.query(
+            `UPDATE reservation_demands SET ${demandFields.join(', ')} WHERE id = ?`,
+            [...demandValues, currentDemand.id]
+          );
+        }
+
+        if (
+          syncedDates.hasDateOverride
+          && nextStartDate
+          && nextEndDate
+        ) {
+          if (String(currentDemand.unavailable_date_id || '').trim()) {
+            await connection.query(
+              `UPDATE unavailable_dates
+               SET start_date = ?, end_date = ?
+               WHERE id = ? AND reservation_demand_id = ?`,
+              [nextStartDate, nextEndDate, currentDemand.unavailable_date_id, currentDemand.id]
+            );
+          } else {
+            await connection.query(
+              `UPDATE unavailable_dates
+               SET start_date = ?, end_date = ?
+               WHERE reservation_demand_id = ?`,
+              [nextStartDate, nextEndDate, currentDemand.id]
+            );
+          }
+        }
+      }
+
+      await connection.commit();
+    } catch (transactionError) {
+      await connection.rollback();
+      throw transactionError;
+    } finally {
+      connection.release();
+    }
+
+    res.json({
+      ok: true,
+      contract_id: contractId,
+      template_vars: sanitizedVars,
+      synced_dates: syncedDates,
+      synced_times: {
+        arrival_time: requestedArrivalTime === undefined ? null : requestedArrivalTime,
+        departure_time: requestedDepartureTime === undefined ? null : requestedDepartureTime,
+      },
+    });
   } catch (error) {
     console.error('Error updating contract template vars:', error);
-    res.status(500).json({ error: 'Mise a jour des variables impossible' });
+    const message = String(error?.message || '').trim();
+    const statusCode = message.includes('date') || message.includes('jour') || message.includes('mois') ? 400 : 500;
+    res.status(statusCode).json({ error: message || 'Mise a jour des variables impossible' });
   }
 });
 
@@ -20588,6 +21222,25 @@ app.post('/api/mobile/owners/:ownerId/availability-requests/:demandId/respond', 
       now
     );
 
+    const parentGroupDemandId = String(demand.reservation_group_parent_demand_id || '').trim();
+    if (parentGroupDemandId && String(demand.reservation_group_role || '').trim() === 'child') {
+      if (available) {
+        const nextOwnerDispatch = await notifyNextGroupReservationOwner(
+          parentGroupDemandId,
+          `Disponibilite confirmee pour ${String(demand.bien_reference || demand.bien_id || 'bien')}, passage au proprietaire suivant`
+        );
+        if (!nextOwnerDispatch) {
+          await syncGroupReservationParentStatus(parentGroupDemandId, {
+            note: 'Tous les proprietaires du groupe ont repondu positivement',
+          });
+        }
+      } else {
+        await syncGroupReservationParentStatus(parentGroupDemandId, {
+          note: `Refus proprietaire pour ${String(demand.bien_reference || demand.bien_id || 'bien')}`,
+        });
+      }
+    }
+
     await createAdminNotification(
       available ? 'success' : 'warning',
       `${available ? 'Disponibilite confirmee' : 'Indisponibilite confirmee'} par proprietaire ${ownerId} pour ${String(demand.bien_reference || demand.bien_id || 'bien')} (${String(demand.start_date || '')} -> ${String(demand.end_date || '')})`,
@@ -21657,6 +22310,7 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
     const params = [];
 
     if (requester?.role === 'admin') {
+      where.push("(d.reservation_group_role IS NULL OR d.reservation_group_role <> 'child')");
       if (req.query.client_user_id) {
         where.push('d.client_user_id = ?');
         params.push(String(req.query.client_user_id));
@@ -21670,7 +22324,7 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
         params.push(String(req.query.proprietaire_id));
       }
     } else {
-      where.push('(d.client_user_id = ? OR (d.client_email IS NOT NULL AND LOWER(TRIM(d.client_email)) = ?))');
+      where.push("((d.reservation_group_role IS NULL OR d.reservation_group_role <> 'child') AND (d.client_user_id = ? OR (d.client_email IS NOT NULL AND LOWER(TRIM(d.client_email)) = ?)))");
       params.push(String(requester?.id || '').trim(), normalizeEmailForCompare(requester?.email));
     }
 
@@ -21717,7 +22371,7 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
       LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
       LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id
       LEFT JOIN contrats c ON c.id = d.contract_id
-      ${where.length > 0 ? `WHERE ${where.join(' OR ')}` : ''}
+      ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY d.created_at DESC
     `, params);
     res.json((rows || []).map((row) => formatReservationDemandRow(row)));
@@ -21837,6 +22491,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       amicale_matricule,
       amicale_phone,
       amicale_code,
+      group_reservation,
       turnstileToken,
       sessionId,
     } = req.body || {};
@@ -21908,6 +22563,259 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         });
         return res.status(403).json({ error: 'Verification anti-bot invalide. Veuillez reessayer.' });
       }
+    }
+
+    const normalizedGroupReservation = group_reservation && typeof group_reservation === 'object'
+      ? group_reservation
+      : null;
+    if (normalizedGroupReservation) {
+      await ensurePropertyGroupsSchema();
+      const groupId = String(normalizedGroupReservation.group_id || normalizedGroupReservation.groupId || '').trim();
+      const groupLabel = String(normalizedGroupReservation.group_label || normalizedGroupReservation.groupLabel || '').trim();
+      const selectedBienIds = Array.from(new Set((Array.isArray(normalizedGroupReservation.selected_bien_ids || normalizedGroupReservation.selectedBienIds)
+        ? (normalizedGroupReservation.selected_bien_ids || normalizedGroupReservation.selectedBienIds)
+        : []).map((value) => String(value || '').trim()).filter(Boolean)));
+      if (!groupId || selectedBienIds.length < 2) {
+        return res.status(400).json({ error: 'Groupe de biens invalide' });
+      }
+      if (!start_date || !end_date || String(end_date) < String(start_date)) {
+        return res.status(400).json({ error: 'Periode de reservation invalide' });
+      }
+      const group = await fetchPropertyGroupDetailedByIdOrSlug(groupId);
+      const packs = !group ? await listPropertyPacks().catch(() => []) : [];
+      const matchedPack = !group
+        ? (Array.isArray(packs) ? packs.find((entry) => String(entry.id || '').trim() === groupId) : null)
+        : null;
+      if (!group && !matchedPack) {
+        return res.status(404).json({ error: 'Pack ou groupe de biens introuvable' });
+      }
+      if (group && group.active === false) {
+        return res.status(404).json({ error: 'Groupe de biens introuvable' });
+      }
+      const groupItemBienIds = group
+        ? new Set((group.items || []).map((item) => String(item.bien_id || '').trim()).filter(Boolean))
+        : new Set((Array.isArray(matchedPack?.bienIds) ? matchedPack.bienIds : []).map((item) => String(item || '').trim()).filter(Boolean));
+      if (!selectedBienIds.every((bienId) => groupItemBienIds.has(bienId))) {
+        return res.status(400).json({ error: 'La selection ne correspond pas au pack choisi' });
+      }
+      const placeholders = selectedBienIds.map(() => '?').join(',');
+      const [groupBienRows] = await pool.query(
+        `SELECT id, titre, reference, mode, proprietaire_id, location_saisonniere_config_json
+         FROM biens
+         WHERE id IN (${placeholders})`,
+        selectedBienIds
+      );
+      if ((groupBienRows || []).length !== selectedBienIds.length) {
+        return res.status(400).json({ error: 'Un ou plusieurs biens du groupe sont introuvables' });
+      }
+      const bienRowById = new Map((groupBienRows || []).map((row) => [String(row.id || '').trim(), row]));
+      const now = getAgencySqlDateTime();
+      const paymentDeadline = getAgencySqlDateTime(new Date(Date.now() + (48 * 60 * 60 * 1000)));
+      const requestType = 'reservation';
+      const normalizedTotalAmount = Number.isFinite(Number(total_amount)) ? Number(total_amount) : null;
+      const normalizedAmountDueNow = Number.isFinite(Number(amount_due_now)) ? Number(amount_due_now) : null;
+      const normalizedGuests = Math.max(1, Math.floor(Number(guests || 1)));
+      const normalizedAdultGuests = Math.max(1, Math.floor(Number((adult_guests ?? guests) || 1)));
+      const normalizedChildGuests = Math.max(0, Math.floor(Number(child_guests ?? 0)));
+      const selectedRefs = selectedBienIds.map((bienId) => String(bienRowById.get(bienId)?.reference || bienId).trim()).filter(Boolean);
+      const effectiveGroupLabel = groupLabel || `${matchedPack ? 'pack' : 'groupe'} : ${selectedRefs.join(', ')}`;
+      const masterDemandId = `rd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const masterBien = bienRowById.get(selectedBienIds[0]);
+      const masterOwnerUserId = masterBien?.proprietaire_id
+        ? (await fetchClienteleProfileBySource('proprietaires', masterBien.proprietaire_id))?.linkedUserId || null
+        : null;
+      await pool.query(
+        `INSERT INTO reservation_demands (
+          id, bien_id, reservation_group_id, reservation_group_role, reservation_group_parent_demand_id, reservation_group_sequence, reservation_group_label, reservation_group_refs_json, reservation_group_item_bien_ids_json,
+          request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
+          start_date, end_date, guests, adult_guests, child_guests, payment_mode, partner_agency_id, partner_agency_margin_multiplier, pricing_amicale_id, amicale_matricule, amicale_phone, amicale_code,
+          total_amount, amount_due_now, flash_offer_json, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status,
+          partner_agency_validation_at, amicale_validation_at, agency_validation_at, voucher_id, voucher_number, voucher_url, voucher_generated_at, owner_notified_at, owner_response_at, admin_note, client_note,
+          finalization_due_at, contract_id, payment_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+        [
+          masterDemandId,
+          masterBien?.id || selectedBienIds[0],
+          groupId,
+          'master',
+          null,
+          null,
+          effectiveGroupLabel,
+          JSON.stringify(selectedRefs),
+          JSON.stringify(selectedBienIds),
+          requestType,
+          null,
+          resolvedClientUserId,
+          resolvedClientEmail,
+          resolvedClientName,
+          masterBien?.proprietaire_id || null,
+          masterOwnerUserId,
+          start_date,
+          end_date,
+          normalizedGuests,
+          normalizedAdultGuests,
+          normalizedChildGuests,
+          normalizedPaymentMode,
+          normalizedPartnerAgencyId,
+          isPartnerAgencyFlow ? Number(partnerAgencyRow?.margin_multiplier || 1) : null,
+          normalizedPricingAmicaleId,
+          isAmicaleFlow ? normalizedAmicaleMatricule : null,
+          isAmicaleFlow ? normalizedAmicalePhone : null,
+          isAmicaleFlow ? normalizedAmicaleCode : null,
+          normalizedTotalAmount,
+          normalizedAmountDueNow,
+          null,
+          JSON.stringify(Array.isArray(selected_fixed_services) ? selected_fixed_services : []),
+          JSON.stringify(Array.isArray(selected_variable_services) ? selected_variable_services : []),
+          JSON.stringify([]),
+          null,
+          Array.isArray(selected_variable_services) && selected_variable_services.length > 0 ? 'a_traiter' : 'aucun',
+          isPartnerAgencyFlow ? 'attente_validation_agence_partenaire' : (isAmicaleFlow ? 'attente_validation_amicale' : 'en_attente_reponse_proprietaire'),
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          [String(client_note || '').trim(), effectiveGroupLabel].filter(Boolean).join('\n') || null,
+          paymentDeadline,
+          null,
+          null,
+          now,
+          now,
+        ]
+      );
+      await appendReservationDemandHistory(
+        masterDemandId,
+        isPartnerAgencyFlow ? 'attente_validation_agence_partenaire' : (isAmicaleFlow ? 'attente_validation_amicale' : 'en_attente_reponse_proprietaire'),
+        'client',
+        resolvedClientUserId || resolvedClientEmail || normalizedAmicaleMatricule || null,
+        `Nouvelle demande groupe: ${effectiveGroupLabel}`,
+        now
+      );
+
+      let sequenceIndex = 1;
+      for (const bienId of selectedBienIds) {
+        const bien = bienRowById.get(bienId);
+        const [overlapRows] = await pool.query(
+          `SELECT id
+           FROM unavailable_dates
+           WHERE bien_id = ?
+             AND start_date < ?
+             AND end_date > ?
+             AND status IN ('blocked', 'booked', 'pending')
+           LIMIT 1`,
+          [bienId, end_date, start_date]
+        );
+        if (overlapRows?.[0]) {
+          return res.status(400).json({ error: `Le bien ${String(bien?.reference || bienId)} n'est plus disponible sur cette periode` });
+        }
+        const saisonCfg = safeParseJson(bien?.location_saisonniere_config_json, {});
+        const cfgMinStayRaw = Number(saisonCfg?.duree_min_sejour_nuits ?? saisonCfg?.dureeMinSejourNuits);
+        const cfgMinStay = Number.isFinite(cfgMinStayRaw) && cfgMinStayRaw > 0 ? Math.max(1, Math.floor(cfgMinStayRaw)) : 1;
+        if (computeNights(start_date, end_date) < cfgMinStay) {
+          return res.status(400).json({ error: `Sejour minimum pour ${String(bien?.reference || bienId)}: ${cfgMinStay} nuit(s)` });
+        }
+        const childDemandId = `rd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const childUnavailableDateId = `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const ownerUserId = bien?.proprietaire_id
+          ? (await fetchClienteleProfileBySource('proprietaires', bien.proprietaire_id))?.linkedUserId || null
+          : null;
+        await pool.query(
+          `INSERT INTO reservation_demands (
+            id, bien_id, reservation_group_id, reservation_group_role, reservation_group_parent_demand_id, reservation_group_sequence, reservation_group_label, reservation_group_refs_json, reservation_group_item_bien_ids_json,
+            request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
+            start_date, end_date, guests, adult_guests, child_guests, payment_mode, partner_agency_id, partner_agency_margin_multiplier, pricing_amicale_id, amicale_matricule, amicale_phone, amicale_code,
+            total_amount, amount_due_now, flash_offer_json, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status,
+            partner_agency_validation_at, amicale_validation_at, agency_validation_at, voucher_id, voucher_number, voucher_url, voucher_generated_at, owner_notified_at, owner_response_at, admin_note, client_note,
+            finalization_due_at, contract_id, payment_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+          [
+            childDemandId,
+            bienId,
+            groupId,
+            'child',
+            masterDemandId,
+            sequenceIndex,
+            effectiveGroupLabel,
+            JSON.stringify(selectedRefs),
+            JSON.stringify(selectedBienIds),
+            requestType,
+            childUnavailableDateId,
+            resolvedClientUserId,
+            resolvedClientEmail,
+            resolvedClientName,
+            bien?.proprietaire_id || null,
+            ownerUserId,
+            start_date,
+            end_date,
+            normalizedGuests,
+            normalizedAdultGuests,
+            normalizedChildGuests,
+            normalizedPaymentMode,
+            normalizedPartnerAgencyId,
+            isPartnerAgencyFlow ? Number(partnerAgencyRow?.margin_multiplier || 1) : null,
+            normalizedPricingAmicaleId,
+            isAmicaleFlow ? normalizedAmicaleMatricule : null,
+            isAmicaleFlow ? normalizedAmicalePhone : null,
+            isAmicaleFlow ? normalizedAmicaleCode : null,
+            null,
+            null,
+            null,
+            JSON.stringify([]),
+            JSON.stringify([]),
+            JSON.stringify([]),
+            null,
+            'aucun',
+            isPartnerAgencyFlow ? 'attente_validation_agence_partenaire' : (isAmicaleFlow ? 'attente_validation_amicale' : 'en_attente_reponse_proprietaire'),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            sequenceIndex === 1 && !isPartnerAgencyFlow && !isAmicaleFlow ? now : null,
+            null,
+            null,
+            [String(client_note || '').trim(), effectiveGroupLabel].filter(Boolean).join('\n') || null,
+            paymentDeadline,
+            null,
+            null,
+            now,
+            now,
+          ]
+        );
+        await pool.query(
+          `INSERT INTO unavailable_dates (id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [childUnavailableDateId, bienId, start_date, end_date, 'pending', childDemandId, paymentDeadline]
+        );
+        await appendReservationDemandHistory(
+          childDemandId,
+          isPartnerAgencyFlow ? 'attente_validation_agence_partenaire' : (isAmicaleFlow ? 'attente_validation_amicale' : 'en_attente_reponse_proprietaire'),
+          'client',
+          resolvedClientUserId || resolvedClientEmail || normalizedAmicaleMatricule || null,
+          `Sous-demande groupe creee pour ${String(bien?.reference || bienId)}`,
+          now
+        );
+        sequenceIndex += 1;
+      }
+
+      if (!isAmicaleFlow && !isPartnerAgencyFlow) {
+        await createAdminNotification(
+          'warning',
+          `Nouvelle demande groupe: ${resolvedClientName || resolvedClientEmail || 'Client'} pour ${effectiveGroupLabel} du ${start_date} au ${end_date}`,
+          now
+        );
+      }
+      await notifyNextGroupReservationOwner(masterDemandId, 'Envoi disponibilite au premier proprietaire du groupe');
+      const created = await fetchReservationDemandDetailsById(masterDemandId);
+      return res.status(201).json(created);
     }
 
     if (!bien_id || !start_date || !end_date) {
@@ -22492,6 +23400,22 @@ app.post('/api/reservation-demands/:id/request-owner-availability', requireAdmin
     if (!current) {
       return res.status(404).json({ error: 'Demande introuvable' });
     }
+    if (String(current.reservation_group_role || '').trim() === 'master' && String(current.reservation_group_id || '').trim()) {
+      const now = getAgencySqlDateTime();
+      await pool.query(
+        `UPDATE reservation_demands
+         SET status = 'en_attente_reponse_proprietaire',
+             owner_notified_at = NULL,
+             owner_response_at = NULL,
+             updated_at = ?
+         WHERE reservation_group_parent_demand_id = ?
+           AND reservation_group_role = 'child'`,
+        [now, demandId]
+      );
+      await notifyNextGroupReservationOwner(demandId, 'Relance admin de la sequence proprietaires du groupe');
+      const updatedMaster = await fetchReservationDemandDetailsById(demandId);
+      return res.json(updatedMaster);
+    }
     const ownerId = String(current.proprietaire_id || '').trim();
     if (!ownerId) {
       return res.status(400).json({ error: 'Aucun proprietaire lie a cette demande' });
@@ -23007,6 +23931,59 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
             'UPDATE reservation_demands SET unavailable_date_id = ?, updated_at = ? WHERE id = ?',
             [createdUnavailableDateId, updatedAt, demandId]
           );
+        }
+      }
+    }
+
+    if (String(current.reservation_group_role || '').trim() === 'master' && String(current.reservation_group_id || '').trim()) {
+      const [childRows] = await pool.query(
+        `SELECT id, unavailable_date_id
+         FROM reservation_demands
+         WHERE reservation_group_parent_demand_id = ?
+           AND reservation_group_role = 'child'`,
+        [demandId]
+      );
+      const childDemandIds = (childRows || []).map((row) => String(row.id || '').trim()).filter(Boolean);
+      if (childDemandIds.length > 0) {
+        if (nextStatus === 'demande_rejetee_admin' || nextStatus === 'demande_annulee_client') {
+          await pool.query(
+            `UPDATE reservation_demands
+             SET status = ?, updated_at = ?
+             WHERE reservation_group_parent_demand_id = ?
+               AND reservation_group_role = 'child'`,
+            [nextStatus, updatedAt, demandId]
+          );
+          for (const child of childRows || []) {
+            if (child.unavailable_date_id) {
+              await pool.query(
+                'DELETE FROM unavailable_dates WHERE id = ? AND reservation_demand_id = ?',
+                [child.unavailable_date_id, child.id]
+              );
+            }
+          }
+        } else if ([
+          'client_procede_vers_paiement_en_cours',
+          'demande_recu_paiement',
+          'recu_paiement_envoye',
+          'succes_paiement',
+          'contrat_realise',
+        ].includes(nextStatus)) {
+          await pool.query(
+            `UPDATE reservation_demands
+             SET status = ?, updated_at = ?
+             WHERE reservation_group_parent_demand_id = ?
+               AND reservation_group_role = 'child'`,
+            [nextStatus, updatedAt, demandId]
+          );
+          const unavailableStatus = (nextStatus === 'succes_paiement' || nextStatus === 'contrat_realise') ? 'booked' : 'pending';
+          for (const child of childRows || []) {
+            if (child.unavailable_date_id) {
+              await pool.query(
+                'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ?',
+                [unavailableStatus, unavailableStatus === 'booked' ? null : (finalizationDueAt || current.finalization_due_at || null), child.unavailable_date_id]
+              );
+            }
+          }
         }
       }
     }
@@ -26370,6 +27347,13 @@ async function ensureReservationDemandSchema() {
     CREATE TABLE IF NOT EXISTS reservation_demands (
       id VARCHAR(100) PRIMARY KEY,
       bien_id VARCHAR(100) NOT NULL,
+      reservation_group_id VARCHAR(100) NULL,
+      reservation_group_role VARCHAR(20) NULL,
+      reservation_group_parent_demand_id VARCHAR(100) NULL,
+      reservation_group_sequence INT NULL,
+      reservation_group_label TEXT NULL,
+      reservation_group_refs_json LONGTEXT NULL,
+      reservation_group_item_bien_ids_json LONGTEXT NULL,
       request_type VARCHAR(20) NOT NULL DEFAULT 'reservation',
       unavailable_date_id VARCHAR(100) NULL,
       client_user_id VARCHAR(100) NULL,
@@ -26446,6 +27430,7 @@ async function ensureReservationDemandSchema() {
       updated_at DATETIME NOT NULL,
       KEY idx_reservation_demands_client (client_user_id, client_email),
       KEY idx_reservation_demands_bien (bien_id),
+      KEY idx_reservation_demands_group (reservation_group_id, reservation_group_role, reservation_group_parent_demand_id),
       KEY idx_reservation_demands_partner_agency (partner_agency_id),
       KEY idx_reservation_demands_pricing_amicale (pricing_amicale_id),
       KEY idx_reservation_demands_amicale_status (pricing_amicale_id, status),
@@ -26493,6 +27478,27 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'request_type'))) {
     await pool.query("ALTER TABLE reservation_demands ADD COLUMN request_type VARCHAR(20) NOT NULL DEFAULT 'reservation' AFTER bien_id");
+  }
+  if (!(await columnExists('reservation_demands', 'reservation_group_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN reservation_group_id VARCHAR(100) NULL AFTER bien_id');
+  }
+  if (!(await columnExists('reservation_demands', 'reservation_group_role'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN reservation_group_role VARCHAR(20) NULL AFTER reservation_group_id');
+  }
+  if (!(await columnExists('reservation_demands', 'reservation_group_parent_demand_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN reservation_group_parent_demand_id VARCHAR(100) NULL AFTER reservation_group_role');
+  }
+  if (!(await columnExists('reservation_demands', 'reservation_group_sequence'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN reservation_group_sequence INT NULL AFTER reservation_group_parent_demand_id');
+  }
+  if (!(await columnExists('reservation_demands', 'reservation_group_label'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN reservation_group_label TEXT NULL AFTER reservation_group_sequence');
+  }
+  if (!(await columnExists('reservation_demands', 'reservation_group_refs_json'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN reservation_group_refs_json LONGTEXT NULL AFTER reservation_group_label');
+  }
+  if (!(await columnExists('reservation_demands', 'reservation_group_item_bien_ids_json'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN reservation_group_item_bien_ids_json LONGTEXT NULL AFTER reservation_group_refs_json');
   }
   if (!(await columnExists('reservation_demands', 'unavailable_date_id'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN unavailable_date_id VARCHAR(100) NULL AFTER request_type');
@@ -26565,6 +27571,9 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await indexExists('reservation_demands', 'idx_reservation_demands_partner_agency'))) {
     await pool.query('ALTER TABLE reservation_demands ADD KEY idx_reservation_demands_partner_agency (partner_agency_id)');
+  }
+  if (!(await indexExists('reservation_demands', 'idx_reservation_demands_group'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD KEY idx_reservation_demands_group (reservation_group_id, reservation_group_role, reservation_group_parent_demand_id)');
   }
   if (!(await columnExists('reservation_demands', 'voucher_id'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN voucher_id VARCHAR(100) NULL AFTER agency_validation_at');
@@ -26722,6 +27731,268 @@ async function ensureReservationDemandSchema() {
     });
   }
   await ensureReservationDemandSchemaPromise;
+}
+
+let ensurePropertyGroupsSchemaPromise = null;
+
+function slugifyPropertyGroupName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120) || `groupe-${Date.now()}`;
+}
+
+function formatPropertyGroupRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id || '').trim(),
+    name: String(row.name || '').trim(),
+    slug: String(row.slug || '').trim(),
+    description: row.description || null,
+    mode: row.mode || null,
+    zone_id: row.zone_id || null,
+    active: row.active === 1 || row.active === true || row.active === '1',
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+    items: Array.isArray(row.items) ? row.items : [],
+  };
+}
+
+async function ensurePropertyGroupsSchema() {
+  if (!ensurePropertyGroupsSchemaPromise) {
+    ensurePropertyGroupsSchemaPromise = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS property_groups (
+          id VARCHAR(100) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          slug VARCHAR(160) NOT NULL,
+          description TEXT NULL,
+          mode VARCHAR(40) NULL,
+          zone_id VARCHAR(100) NULL,
+          active TINYINT(1) NOT NULL DEFAULT 1,
+          created_at DATETIME NOT NULL,
+          updated_at DATETIME NOT NULL,
+          UNIQUE KEY uq_property_groups_slug (slug),
+          KEY idx_property_groups_mode_zone (mode, zone_id, active)
+        )
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS property_group_items (
+          id VARCHAR(100) PRIMARY KEY,
+          group_id VARCHAR(100) NOT NULL,
+          bien_id VARCHAR(100) NOT NULL,
+          order_index INT NOT NULL DEFAULT 0,
+          created_at DATETIME NOT NULL,
+          updated_at DATETIME NOT NULL,
+          UNIQUE KEY uq_property_group_item (group_id, bien_id),
+          KEY idx_property_group_items_group (group_id, order_index),
+          KEY idx_property_group_items_bien (bien_id)
+        )
+      `);
+    })().catch((error) => {
+      ensurePropertyGroupsSchemaPromise = null;
+      throw error;
+    });
+  }
+  await ensurePropertyGroupsSchemaPromise;
+}
+
+async function fetchPropertyGroupsDetailed({ activeOnly = false } = {}) {
+  await ensurePropertyGroupsSchema();
+  const [groupRows] = await pool.query(
+    `SELECT id, name, slug, description, mode, zone_id, active,
+            DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+            DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM property_groups
+     ${activeOnly ? 'WHERE active = 1' : ''}
+     ORDER BY active DESC, updated_at DESC, created_at DESC`
+  );
+  const [itemRows] = await pool.query(
+    `SELECT i.id, i.group_id, i.bien_id, i.order_index,
+            DATE_FORMAT(i.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+            DATE_FORMAT(i.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
+            b.reference AS bien_reference,
+            b.titre AS bien_titre,
+            b.configuration AS bien_configuration,
+            b.nb_chambres AS bien_nb_chambres
+     FROM property_group_items i
+     LEFT JOIN biens b ON b.id = i.bien_id
+     ORDER BY i.order_index ASC, i.created_at ASC`
+  );
+  const itemsByGroupId = new Map();
+  for (const row of itemRows || []) {
+    const groupId = String(row.group_id || '').trim();
+    if (!groupId) continue;
+    const list = itemsByGroupId.get(groupId) || [];
+    list.push({
+      id: String(row.id || '').trim(),
+      group_id: groupId,
+      bien_id: String(row.bien_id || '').trim(),
+      bien_reference: row.bien_reference || null,
+      bien_titre: row.bien_titre || null,
+      bien_configuration: row.bien_configuration || null,
+      bien_nb_chambres: row.bien_nb_chambres === null || row.bien_nb_chambres === undefined ? null : Number(row.bien_nb_chambres),
+      order_index: row.order_index === null || row.order_index === undefined ? 0 : Number(row.order_index),
+      created_at: row.created_at || null,
+      updated_at: row.updated_at || null,
+    });
+    itemsByGroupId.set(groupId, list);
+  }
+  return (groupRows || []).map((row) => formatPropertyGroupRow({
+    ...row,
+    items: itemsByGroupId.get(String(row.id || '').trim()) || [],
+  }));
+}
+
+async function fetchPropertyGroupDetailedByIdOrSlug(identifier) {
+  const normalized = String(identifier || '').trim();
+  if (!normalized) return null;
+  const groups = await fetchPropertyGroupsDetailed();
+  return groups.find((group) => String(group.id || '').trim() === normalized || String(group.slug || '').trim() === normalized) || null;
+}
+
+async function ensureUniquePropertyGroupSlug(baseSlug, currentId = null) {
+  const root = slugifyPropertyGroupName(baseSlug);
+  let slug = root;
+  let suffix = 2;
+  while (true) {
+    const [rows] = await pool.query(
+      `SELECT id FROM property_groups WHERE slug = ? ${currentId ? 'AND id <> ?' : ''} LIMIT 1`,
+      currentId ? [slug, currentId] : [slug]
+    );
+    if (!rows?.[0]) return slug;
+    slug = `${root}-${suffix}`;
+    suffix += 1;
+  }
+}
+
+async function notifyNextGroupReservationOwner(parentDemandId, actorNote = 'Passage au proprietaire suivant') {
+  const normalizedParentId = String(parentDemandId || '').trim();
+  if (!normalizedParentId) return null;
+  const [pendingRows] = await pool.query(
+    `SELECT d.*, b.titre AS bien_titre, b.reference AS bien_reference
+     FROM reservation_demands d
+     LEFT JOIN biens b ON b.id = d.bien_id
+     WHERE d.reservation_group_parent_demand_id = ?
+       AND d.reservation_group_role = 'child'
+     ORDER BY COALESCE(d.reservation_group_sequence, 999999) ASC, d.created_at ASC`,
+    [normalizedParentId]
+  );
+  const children = pendingRows || [];
+  const nextChild = children.find((row) => !row.owner_notified_at && !row.owner_response_at);
+  if (!nextChild) return null;
+  const ownerId = String(nextChild.proprietaire_id || '').trim();
+  if (!ownerId) return null;
+  const now = getAgencySqlDateTime();
+  const availabilityMessage = `Confirmez la disponibilite du bien ${String(nextChild.bien_titre || nextChild.bien_reference || nextChild.bien_id || 'bien')} pour la periode ${String(nextChild.start_date || '')} -> ${String(nextChild.end_date || '')}`;
+  await createOwnerMobileNotification({
+    ownerId,
+    type: 'warning',
+    message: availabilityMessage,
+    metadata: {
+      kind: 'reservation_availability_request',
+      demandId: String(nextChild.id || '').trim(),
+      ownerId,
+      bienId: String(nextChild.bien_id || '').trim(),
+      propertyTitle: String(nextChild.bien_titre || nextChild.bien_reference || '').trim(),
+      startDate: String(nextChild.start_date || '').trim(),
+      endDate: String(nextChild.end_date || '').trim(),
+      guests: Number(nextChild.guests || 1),
+      reservationGroupParentDemandId: normalizedParentId,
+    },
+    createdAt: now,
+  });
+  await pushToOwnerDevices(ownerId, {
+    title: 'Demande de disponibilite',
+    body: availabilityMessage,
+    data: {
+      title: 'Demande de disponibilite',
+      body: availabilityMessage,
+      kind: 'reservation_availability_request',
+      demandId: String(nextChild.id || '').trim(),
+      ownerId,
+      bienId: String(nextChild.bien_id || '').trim(),
+      reservationGroupParentDemandId: normalizedParentId,
+    },
+  });
+  await pool.query(
+    'UPDATE reservation_demands SET status = ?, owner_notified_at = ?, updated_at = ? WHERE id = ?',
+    ['en_attente_reponse_proprietaire', now, now, nextChild.id]
+  );
+  await appendReservationDemandHistory(
+    String(nextChild.id || '').trim(),
+    'en_attente_reponse_proprietaire',
+    'system',
+    'group_sequence',
+    actorNote,
+    now
+  );
+  return { childDemandId: String(nextChild.id || '').trim(), ownerId };
+}
+
+async function syncGroupReservationParentStatus(parentDemandId, options = {}) {
+  const normalizedParentId = String(parentDemandId || '').trim();
+  if (!normalizedParentId) return null;
+  const [parentRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [normalizedParentId]);
+  const parent = parentRows?.[0] || null;
+  if (!parent) return null;
+  const [childRows] = await pool.query(
+    `SELECT * FROM reservation_demands
+     WHERE reservation_group_parent_demand_id = ?
+       AND reservation_group_role = 'child'
+     ORDER BY COALESCE(reservation_group_sequence, 999999) ASC, created_at ASC`,
+    [normalizedParentId]
+  );
+  const children = childRows || [];
+  const allPositive = children.length > 0 && children.every((row) => String(row.status || '').trim() === 'reponse_positive_attente_confirmation_client');
+  const anyNegative = children.some((row) => {
+    const status = String(row.status || '').trim();
+    return status === 'reponse_negative_autre_proposition_bien_similaire' || status === 'reponse_negative_autre_proposition_meme_bien' || status === 'demande_rejetee_admin';
+  });
+  const now = getAgencySqlDateTime();
+  if (anyNegative) {
+    await pool.query(
+      'UPDATE reservation_demands SET status = ?, owner_response_at = ?, updated_at = ? WHERE id = ?',
+      ['reponse_negative_autre_proposition_bien_similaire', now, now, normalizedParentId]
+    );
+    for (const child of children) {
+      if (child.unavailable_date_id) {
+        await pool.query(
+          'DELETE FROM unavailable_dates WHERE id = ? AND reservation_demand_id = ?',
+          [child.unavailable_date_id, child.id]
+        );
+      }
+    }
+    await appendReservationDemandHistory(
+      normalizedParentId,
+      'reponse_negative_autre_proposition_bien_similaire',
+      'system',
+      'group_sequence',
+      options.note || 'Une des disponibilites du groupe a ete refusee',
+      now
+    );
+    return { status: 'reponse_negative_autre_proposition_bien_similaire' };
+  }
+  if (allPositive) {
+    await pool.query(
+      'UPDATE reservation_demands SET status = ?, owner_response_at = ?, updated_at = ? WHERE id = ?',
+      ['reponse_positive_attente_confirmation_client', now, now, normalizedParentId]
+    );
+    await appendReservationDemandHistory(
+      normalizedParentId,
+      'reponse_positive_attente_confirmation_client',
+      'system',
+      'group_sequence',
+      options.note || 'Tous les proprietaires du groupe ont confirme la disponibilite',
+      now
+    );
+    return { status: 'reponse_positive_attente_confirmation_client' };
+  }
+  return { status: String(parent.status || '').trim() || 'en_attente_reponse_proprietaire' };
 }
 
 async function ensureContractsSchema() {

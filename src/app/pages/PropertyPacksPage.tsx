@@ -11,32 +11,36 @@ import {
   Heart,
   Home,
   MapPinned,
+  Palette,
+  Phone,
   Search,
   Sparkles,
   Star,
   Users,
 } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
-import type { PropertyPack } from "../admin/types";
+import type { PropertyPack, PropertyPackTabIconKey } from "../admin/types";
 import { formatTnd } from "../utils/amicalePricing";
-import { buildPropertyPackPath, getPackSearchContextFromParams, resolvePublicPropertyPacks } from "../utils/propertyPacks";
+import { buildPropertyPackPath, formatPackCombinationRequestLabel, getPackSearchContextFromParams, getPackVariantParamValue, resolvePublicPropertyPacks, sortPropertyPackTabs } from "../utils/propertyPacks";
+import { resolveMediaUrl } from "../utils/media";
 import { SmartImage } from "../components/SmartImage";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
-const themeIcons = {
-  famille: Home,
-  romantique: Heart,
-  luxe: Crown,
-  decouverte: MapPinned,
-  affaires: BriefcaseBusiness,
-  exclusive: Sparkles,
+const packTabIcons: Record<PropertyPackTabIconKey, typeof Home> = {
+  home: Home,
+  heart: Heart,
+  crown: Crown,
+  map: MapPinned,
+  briefcase: BriefcaseBusiness,
+  sparkles: Sparkles,
 } as const;
 
 export default function PropertyPacksPage() {
   const { properties, loading } = useProperties();
   const [searchParams] = useSearchParams();
   const [packs, setPacks] = useState<PropertyPack[]>([]);
+  const [packTabs, setPackTabs] = useState<Array<{ id: string; label: string; iconKey: PropertyPackTabIconKey; customIconUrl?: string | null; sortOrder?: number | null }>>([]);
   const [packsLoading, setPacksLoading] = useState(true);
   const [activeTheme, setActiveTheme] = useState("all");
   const [sortBy, setSortBy] = useState<"remise" | "prix_asc" | "prix_desc">("remise");
@@ -60,10 +64,31 @@ export default function PropertyPacksPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/property-pack-tabs`);
+        if (!response.ok) throw new Error("property-pack-tabs");
+        const rows = await response.json();
+        if (!cancelled) setPackTabs(sortPropertyPackTabs(Array.isArray(rows) ? rows : []));
+      } catch {
+        if (!cancelled) setPackTabs([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const searchContext = useMemo(() => getPackSearchContextFromParams(searchParams), [searchParams]);
   const resolvedPacks = useMemo(
     () => resolvePublicPropertyPacks(packs, properties, searchContext),
     [packs, properties, searchContext]
+  );
+  const allPublicPacks = useMemo(
+    () => resolvePublicPropertyPacks(packs, properties, null),
+    [packs, properties]
   );
   const persistedQuery = searchParams.toString();
   const hasSearchIntent = Boolean(
@@ -73,21 +98,64 @@ export default function PropertyPacksPage() {
     || searchContext.locations.length > 0
     || searchContext.categories.length > 0
     || searchContext.mainTypes.length > 0
+    || searchContext.comboRequests.length > 0
+  );
+  const comboSummary = useMemo(
+    () => formatPackCombinationRequestLabel(searchContext.comboRequests),
+    [searchContext.comboRequests]
   );
 
   const themeOptions = useMemo(() => {
-    const seen = new Set<string>();
-    return resolvedPacks
-      .map((pack) => pack.theme)
-      .filter((theme) => {
-        if (seen.has(theme.key)) return false;
-        seen.add(theme.key);
-        return true;
+    const groupedPacks = new Map<string, ReturnType<typeof resolvePublicPropertyPacks>[number][]>();
+    resolvedPacks.forEach((pack) => {
+      const collectionKey = pack.theme.sourceTabId ? `tab:${pack.theme.sourceTabId}` : `theme:${pack.theme.key}`;
+      const current = groupedPacks.get(collectionKey) || [];
+      current.push(pack);
+      groupedPacks.set(collectionKey, current);
+    });
+
+    const optionsFromTabs = packTabs
+      .map((tab) => {
+        const key = `tab:${tab.id}`;
+        const grouped = groupedPacks.get(key) || [];
+        if (grouped.length === 0) return null;
+        return {
+          key,
+          label: tab.label,
+          iconKey: tab.iconKey,
+          customIconUrl: tab.customIconUrl || null,
+          softClass: grouped[0].theme.softClass,
+          count: grouped.length,
+          sortOrder: Number(tab.sortOrder || 0),
+        };
+      })
+      .filter(Boolean) as Array<{ key: string; label: string; iconKey: PropertyPackTabIconKey; customIconUrl?: string | null; softClass: string; count: number; sortOrder: number }>;
+
+    const fallbackOptions: Array<{ key: string; label: string; iconKey: PropertyPackTabIconKey; customIconUrl?: string | null; softClass: string; count: number; sortOrder: number }> = [];
+    groupedPacks.forEach((grouped, key) => {
+      if (!key.startsWith("theme:") || grouped.length === 0) return;
+      fallbackOptions.push({
+        key,
+        label: grouped[0].theme.label,
+        iconKey: grouped[0].theme.iconKey,
+        customIconUrl: null,
+        softClass: grouped[0].theme.softClass,
+        count: grouped.length,
+        sortOrder: 999,
       });
-  }, [resolvedPacks]);
+    });
+
+    return [...optionsFromTabs, ...fallbackOptions].sort((a, b) =>
+      a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, "fr")
+    );
+  }, [packTabs, resolvedPacks]);
 
   const filteredPacks = useMemo(() => {
-    const visible = resolvedPacks.filter((pack) => activeTheme === "all" || pack.theme.key === activeTheme);
+    const visible = resolvedPacks.filter((pack) => {
+      if (activeTheme === "all") return true;
+      const packKey = pack.theme.sourceTabId ? `tab:${pack.theme.sourceTabId}` : `theme:${pack.theme.key}`;
+      return packKey === activeTheme;
+    });
     return [...visible].sort((a, b) => {
       if (sortBy === "prix_asc") return a.totalNightlyPrice - b.totalNightlyPrice;
       if (sortBy === "prix_desc") return b.totalNightlyPrice - a.totalNightlyPrice;
@@ -97,6 +165,11 @@ export default function PropertyPacksPage() {
 
   const featuredPacks = activeTheme === "all" ? filteredPacks.slice(0, 2) : [];
   const otherPacks = activeTheme === "all" ? filteredPacks.slice(2) : filteredPacks;
+  const activeThemeOption = activeTheme === "all" ? null : themeOptions.find((theme) => theme.key === activeTheme) || null;
+  const fallbackPacks = useMemo(
+    () => allPublicPacks.filter((pack) => !resolvedPacks.some((current) => current.variantKey === pack.variantKey)),
+    [allPublicPacks, resolvedPacks]
+  );
 
   return (
     <div className="min-h-screen bg-[#f7f8fb]">
@@ -131,6 +204,16 @@ export default function PropertyPacksPage() {
                 <p className="mt-2 text-sm text-emerald-50/75">Presentation personnalisable</p>
               </div>
             </div>
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 backdrop-blur-sm">
+                <Palette className="h-4 w-4 text-yellow-300" />
+                Collections client personnalisables
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 backdrop-blur-sm">
+                <Sparkles className="h-4 w-4 text-yellow-300" />
+                Variantes intelligentes selon la recherche
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -143,9 +226,70 @@ export default function PropertyPacksPage() {
         )}
 
         {!packsLoading && !loading && resolvedPacks.length === 0 && (
-          <div className="rounded-[32px] border border-dashed border-slate-300 bg-white px-6 py-14 text-center shadow-sm">
-            <h2 className="text-2xl font-bold text-slate-900">Aucun pack disponible</h2>
-            <p className="mt-3 text-sm text-slate-500">Les packs publics apparaitront ici des qu&apos;ils seront prets.</p>
+          <div className="space-y-8">
+            <div className="overflow-hidden rounded-[32px] border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f6fffb_58%,#eefbf6_100%)] shadow-sm">
+              <div className="grid gap-0 lg:grid-cols-[1.3fr_0.7fr]">
+                <div className="px-6 py-10 sm:px-8">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+                    <Sparkles className="h-4 w-4 text-amber-500" />
+                    Aucune combinaison disponible pour cette demande
+                  </div>
+                  <h2 className="mt-5 text-3xl font-black text-slate-950">Contactez directement l&apos;agence</h2>
+                  <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
+                    Aucun pack ne correspond a vos dates ou a votre composition actuelle. Vous pouvez appeler l&apos;agence pour une proposition manuelle ou un regroupement sur mesure.
+                  </p>
+                  <div className="mt-6 flex flex-wrap items-center gap-3">
+                    <a
+                      href="tel:29879227"
+                      className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-[0_16px_32px_rgba(5,150,105,0.24)] transition hover:bg-emerald-700"
+                    >
+                      <Phone className="h-4 w-4" />
+                      Appeler 29879227
+                    </a>
+                    <Link
+                      to="/contact"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                    >
+                      Demander un pack personnalise
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </div>
+                <div className="border-t border-emerald-100 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_40%),linear-gradient(135deg,#0f766e_0%,#047857_48%,#065f46_100%)] px-6 py-10 text-white lg:border-l lg:border-t-0">
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-100">Assistance rapide</p>
+                  <div className="mt-4 text-4xl font-black">29879227</div>
+                  <p className="mt-3 text-sm leading-6 text-emerald-50/85">
+                    Appelez si vous voulez verifier une combinaison speciale, une disponibilite alternative ou une proposition adaptee a votre groupe.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {fallbackPacks.length > 0 ? (
+              <section className="space-y-6">
+                <div className="flex flex-col gap-2 rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Autres packs</p>
+                  <h3 className="text-2xl font-black text-slate-950">Autres packs disponibles</h3>
+                  <p className="text-sm text-slate-500">
+                    Ces packs ne correspondent pas exactement a votre recherche actuelle, mais restent disponibles a la consultation.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {fallbackPacks.map((pack, index) => (
+                    <motion.article
+                      key={pack.variantKey}
+                      initial={{ opacity: 0, y: 18 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.06 }}
+                      className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_24px_54px_rgba(15,23,42,0.10)]"
+                    >
+                      <PackCard pack={pack} />
+                    </motion.article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
         )}
 
@@ -160,7 +304,7 @@ export default function PropertyPacksPage() {
                       {searchContext.checkIn} au {searchContext.checkOut}
                     </span>
                   ) : null}
-                  {searchContext.guestsMin > 0 ? (
+                  {searchContext.guestsMin > 1 ? (
                     <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
                       <Users className="h-4 w-4 text-rose-500" />
                       {searchContext.guestsMin} voyageur{searchContext.guestsMin > 1 ? "s" : ""} min
@@ -172,6 +316,12 @@ export default function PropertyPacksPage() {
                       {type}
                     </span>
                   ))}
+                  {comboSummary ? (
+                    <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+                      <Sparkles className="h-4 w-4 text-amber-500" />
+                      {comboSummary}
+                    </span>
+                  ) : null}
                   {searchContext.locations.map((location) => (
                     <span key={`location-${location}`} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
                       <MapPinned className="h-4 w-4 text-emerald-700" />
@@ -194,7 +344,7 @@ export default function PropertyPacksPage() {
                 <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                   {featuredPacks.map((pack, index) => (
                     <motion.article
-                      key={pack.id}
+                      key={pack.variantKey}
                       initial={{ opacity: 0, y: 18 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.08 }}
@@ -222,7 +372,7 @@ export default function PropertyPacksPage() {
                   Tous les packs
                 </button>
                 {themeOptions.map((theme) => {
-                  const ThemeIcon = themeIcons[theme.key];
+                  const ThemeIcon = packTabIcons[theme.iconKey] || Sparkles;
                   const selected = activeTheme === theme.key;
                   return (
                     <button
@@ -233,8 +383,19 @@ export default function PropertyPacksPage() {
                         selected ? `${theme.softClass} shadow-sm` : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
                       }`}
                     >
-                      <ThemeIcon className="h-4 w-4" />
+                      {theme.customIconUrl ? (
+                        <img
+                          src={resolveMediaUrl(theme.customIconUrl) || theme.customIconUrl}
+                          alt={theme.label}
+                          className="h-4 w-4 object-contain"
+                        />
+                      ) : (
+                        <ThemeIcon className="h-4 w-4" />
+                      )}
                       {theme.label}
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${selected ? "bg-white/80 text-slate-800" : "bg-slate-100 text-slate-500"}`}>
+                        {theme.count}
+                      </span>
                     </button>
                   );
                 })}
@@ -253,8 +414,18 @@ export default function PropertyPacksPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm font-medium text-slate-500">{filteredPacks.length} pack{filteredPacks.length > 1 ? "s" : ""} trouves</p>
+            <div className="flex flex-col gap-3 rounded-[28px] border border-slate-200 bg-white/80 p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
+                  {activeThemeOption ? "Collection active" : "Catalogue complet"}
+                </p>
+                <h2 className="mt-1 text-2xl font-black text-slate-950">
+                  {activeThemeOption ? activeThemeOption.label : "Tous les packs visibles"}
+                </h2>
+                <p className="mt-1 text-sm font-medium text-slate-500">
+                  {filteredPacks.length} pack{filteredPacks.length > 1 ? "s" : ""} trouve{filteredPacks.length > 1 ? "s" : ""}
+                </p>
+              </div>
               <Link
                 to="/logements?mode=location_saisonniere"
                 className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-emerald-200 hover:text-emerald-700"
@@ -268,7 +439,7 @@ export default function PropertyPacksPage() {
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
                 {otherPacks.map((pack, index) => (
                   <motion.article
-                    key={pack.id}
+                    key={pack.variantKey}
                     initial={{ opacity: 0, y: 18 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.06 }}
@@ -308,7 +479,10 @@ function PackCard({
   featured?: boolean;
   persistedQuery?: string;
 }) {
-  const packHref = persistedQuery ? `${buildPropertyPackPath(pack)}?${persistedQuery}` : buildPropertyPackPath(pack);
+  const packHrefParams = new URLSearchParams(persistedQuery || "");
+  const variantValue = getPackVariantParamValue(pack);
+  if (variantValue) packHrefParams.set("variantBienIds", variantValue);
+  const packHref = `${buildPropertyPackPath(pack)}${packHrefParams.toString() ? `?${packHrefParams.toString()}` : ""}`;
 
   return (
     <Link to={packHref} className="group flex h-full flex-col">
@@ -340,7 +514,7 @@ function PackCard({
           <h3 className={`${featured ? "text-4xl" : "text-2xl"} font-black leading-tight drop-shadow-md`}>{pack.name}</h3>
           <div className="mt-2 flex flex-wrap gap-2">
             {pack.locationPills.map((location) => (
-              <span key={`${pack.id}-${location}`} className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
+              <span key={`${pack.variantKey}-${location}`} className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
                 {location}
               </span>
             ))}
@@ -353,7 +527,7 @@ function PackCard({
 
         <div className="mb-4 flex flex-wrap gap-2">
           {pack.featureTags.map((tag) => (
-            <span key={`${pack.id}-${tag}`} className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+            <span key={`${pack.variantKey}-${tag}`} className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
               {tag}
             </span>
           ))}
@@ -376,7 +550,7 @@ function PackCard({
 
         <div className="mb-4 flex gap-2">
           {pack.galleryImages.slice(0, 3).map((image, index) => (
-            <div key={`${pack.id}-thumb-${index}`} className="relative h-14 flex-1 overflow-hidden rounded-xl bg-slate-100">
+            <div key={`${pack.variantKey}-thumb-${index}`} className="relative h-14 flex-1 overflow-hidden rounded-xl bg-slate-100">
               <SmartImage
                 src={image}
                 alt={`${pack.name} ${index + 1}`}
@@ -394,7 +568,7 @@ function PackCard({
 
         <div className="mb-5 space-y-2 rounded-[22px] border border-slate-100 bg-slate-50/80 p-4">
           {pack.propertyLines.map((line) => (
-            <div key={`${pack.id}-${line}`} className="flex items-start gap-2 text-sm text-slate-700">
+            <div key={`${pack.variantKey}-${line}`} className="flex items-start gap-2 text-sm text-slate-700">
               <span className="mt-2 h-1.5 w-1.5 rounded-full bg-emerald-500" />
               <span>{line}</span>
             </div>

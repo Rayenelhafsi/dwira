@@ -518,10 +518,58 @@ export interface PropertyPack {
   name: string;
   description?: string | null;
   bienIds: string[];
+  clientTabId?: string | null;
+  isActive?: boolean;
+  clientTab?: PropertyPackTab | null;
   highlightBullets?: string[];
   galleryImages?: string[];
   createdAt?: string | null;
   updatedAt?: string | null;
+}
+
+export type PropertyPackTabIconKey =
+  | 'home'
+  | 'heart'
+  | 'crown'
+  | 'map'
+  | 'briefcase'
+  | 'sparkles';
+
+export interface PropertyPackTab {
+  id: string;
+  label: string;
+  iconKey: PropertyPackTabIconKey;
+  customIconUrl?: string | null;
+  sortOrder?: number | null;
+  isActive?: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface PropertyGroupItem {
+  id: string;
+  group_id: string;
+  bien_id: string;
+  bien_reference?: string | null;
+  bien_titre?: string | null;
+  bien_configuration?: string | null;
+  bien_nb_chambres?: number | null;
+  order_index?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface PropertyGroup {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  mode?: BienMode | null;
+  zone_id?: string | null;
+  active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+  items: PropertyGroupItem[];
 }
 
 export interface Caracteristique {
@@ -673,6 +721,13 @@ export type HotelReservationDemandStatus =
 export interface ReservationDemand {
   id: string;
   bien_id: string;
+  reservation_group_id?: string | null;
+  reservation_group_role?: 'master' | 'child' | null;
+  reservation_group_parent_demand_id?: string | null;
+  reservation_group_sequence?: number | null;
+  reservation_group_label?: string | null;
+  reservation_group_refs?: string[] | null;
+  reservation_group_item_bien_ids?: string[] | null;
   request_type?: ReservationDemandRequestType;
   unavailable_date_id?: string | null;
   client_user_id?: string | null;

@@ -3,8 +3,11 @@ const AUTH_RETURN_TO_KEY = "dwira_auth_return_to";
 const AUTH_PENDING_LOGIN_KEY = "dwira_auth_pending_login";
 
 export type PendingReservationDraft = {
+  targetType?: "property" | "group" | "pack";
   propertyId: string;
   propertySlug: string;
+  propertyTitle?: string;
+  propertyReference?: string;
   requestType?: "reservation" | "visite";
   startDate: string;
   endDate: string;
@@ -36,6 +39,13 @@ export type PendingReservationDraft = {
   amicaleMatricule?: string;
   amicalePhone?: string;
   amicaleCode?: string;
+  groupId?: string;
+  groupSlug?: string;
+  groupLabel?: string;
+  groupSelectedBienIds?: string[];
+  groupSelectedBienRefs?: string[];
+  packId?: string;
+  packName?: string;
   reservationNote: string;
 };
 

@@ -1540,9 +1540,9 @@ out body 40;
   const displayedMinStay = useMemo(() => {
     if (selectedRangeRuleRelaxation.active) return 1;
     if (activeLockedFlashOffer) return Math.max(1, Number(activeLockedFlashOffer.minimumNights || 1));
-    if (activePreviewFlashOffer) return Math.max(1, Number(activePreviewFlashOffer.minimumNights || 1));
+    if (selectedPreviewFlashRange?.offer) return Math.max(1, Number(selectedPreviewFlashRange.offer.minimumNights || 1));
     return periodMinStay || minStay;
-  }, [activeLockedFlashOffer, activePreviewFlashOffer, minStay, periodMinStay, selectedRangeRuleRelaxation.active]);
+  }, [activeLockedFlashOffer, minStay, periodMinStay, selectedPreviewFlashRange, selectedRangeRuleRelaxation.active]);
   const reservationValidation = useMemo(() => {
     if (isSaleProperty) return { valid: true, message: "" };
     if (!selectedStart || !selectedEnd) return { valid: false, message: "Selectionnez vos dates d'arrivee et de depart." };
@@ -1570,7 +1570,7 @@ out body 40;
     const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
     const skipPreviewFlashStayRules = Boolean(matchingPreviewFlashRange?.offer);
     const skipFlashStayRules = Boolean(flashRangeForStayRules?.offer);
-    const minStayForSelectionBase = skipFlashStayRules ? Math.max(1, Number(flashRangeForStayRules?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || activePreviewFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
+    const minStayForSelectionBase = skipFlashStayRules ? Math.max(1, Number(flashRangeForStayRules?.offer.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],
@@ -2857,7 +2857,7 @@ out body 40;
       const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
       const skipPreviewFlashStayRules = Boolean(matchingPreviewFlashRange?.offer);
       const skipFlashStayRules = Boolean(flashRangeForStayRules?.offer);
-      const minStayForSelectionBase = skipFlashStayRules ? Math.max(1, Number(flashRangeForStayRules?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || activePreviewFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
+      const minStayForSelectionBase = skipFlashStayRules ? Math.max(1, Number(flashRangeForStayRules?.offer.minimumNights || 1)) : getReservationMinStayRequirement({
         startDate,
         endDate,
         periods: property?.pricingPeriods || [],
@@ -3321,7 +3321,7 @@ out body 40;
     const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
     const skipPreviewFlashStayRules = Boolean(matchingPreviewFlashRange?.offer);
     const skipFlashStayRules = Boolean(flashRangeForStayRules?.offer);
-    const minStayForSelectionBase = skipFlashStayRules ? Math.max(1, Number(flashRangeForStayRules?.offer.minimumNights || activeLockedFlashOffer?.minimumNights || activePreviewFlashOffer?.minimumNights || 1)) : getReservationMinStayRequirement({
+    const minStayForSelectionBase = skipFlashStayRules ? Math.max(1, Number(flashRangeForStayRules?.offer.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
       periods: property?.pricingPeriods || [],

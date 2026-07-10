@@ -46,6 +46,13 @@ function resolvePartnerLogoUrl(path: string) {
   return `/partners/${path}`;
 }
 
+function getDemandDisplayLabel(demand: ReservationDemand | null) {
+  if (!demand) return "-";
+  return String(demand.reservation_group_label || "").trim()
+    || String(demand.bien_reference || demand.bien_id || "").trim()
+    || "-";
+}
+
 async function getApiErrorMessage(response: Response, fallback: string) {
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -256,6 +263,9 @@ export default function ContractIdentityPage() {
           <h1 className="mt-2 text-2xl font-bold text-gray-900">Finalisation de reservation</h1>
           <div className="mt-4 grid gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-700 sm:grid-cols-2">
             <p><strong>Reference:</strong> {demand.bien_reference || demand.bien_id}</p>
+            {demand.reservation_group_refs?.length ? (
+              <p><strong>Groupe:</strong> {getDemandDisplayLabel(demand)} ({demand.reservation_group_refs.join(", ")})</p>
+            ) : null}
             <p><strong>Type:</strong> {demand.request_type === "visite" ? "Visite" : "Reservation"}</p>
             <p><strong>Periode:</strong> {periodText}</p>
             <p><strong>Voyageurs:</strong> {demand.guests}</p>

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, Edit2, Expand, Image as ImageIcon, MapPin, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, BriefcaseBusiness, Check, ChevronDown, ChevronLeft, ChevronRight, Crown, Edit2, Expand, Heart, Home, Image as ImageIcon, LoaderCircle, MapPin, Plus, Search, Sparkles, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useProperties } from '../../context/PropertiesContext';
 import { SmartImage } from '../../components/SmartImage';
@@ -8,7 +8,8 @@ import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '.
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
 import { resolveMediaUrl } from '../../utils/media';
-import type { Bien, BienMode, BienStatut, Media, PropertyPack, Zone } from '../types';
+import { PROPERTY_PACK_TAB_ICON_OPTIONS, sortPropertyPackTabs } from '../../utils/propertyPacks';
+import type { Bien, BienMode, BienStatut, Media, PropertyPack, PropertyPackTab, PropertyPackTabIconKey, Zone } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const ADMIN_IMAGE_FALLBACK =
@@ -19,8 +20,17 @@ type PropertyPackEditorState = {
   name: string;
   description: string;
   bienIds: string[];
+  clientTabId: string;
+  isActive: boolean;
   highlightBulletsText: string;
   galleryImages: string[];
+};
+type PropertyPackTabEditorState = {
+  id: string | null;
+  label: string;
+  iconKey: PropertyPackTabIconKey;
+  customIconUrl: string;
+  sortOrder: number;
 };
 type LocationLevel = 'gouvernerat' | 'region' | 'zone';
 
@@ -29,8 +39,26 @@ const EMPTY_PROPERTY_PACK: PropertyPackEditorState = {
   name: '',
   description: '',
   bienIds: [],
+  clientTabId: '',
+  isActive: false,
   highlightBulletsText: '',
   galleryImages: [],
+};
+const EMPTY_PROPERTY_PACK_TAB: PropertyPackTabEditorState = {
+  id: null,
+  label: '',
+  iconKey: 'sparkles',
+  customIconUrl: '',
+  sortOrder: 0,
+};
+
+const PACK_TAB_ICONS: Record<PropertyPackTabIconKey, typeof Home> = {
+  home: Home,
+  heart: Heart,
+  crown: Crown,
+  map: MapPin,
+  briefcase: BriefcaseBusiness,
+  sparkles: Sparkles,
 };
 
 const modeLabels: Record<BienMode, string> = {
@@ -212,7 +240,9 @@ function PackSelectableBienCard({
 export default function PropertyPacksAdminPage() {
   const { biens, zones, isLoading } = useProperties();
   const [propertyPacks, setPropertyPacks] = useState<PropertyPack[]>([]);
+  const [propertyPackTabs, setPropertyPackTabs] = useState<PropertyPackTab[]>([]);
   const [propertyPackEditor, setPropertyPackEditor] = useState<PropertyPackEditorState>(EMPTY_PROPERTY_PACK);
+  const [propertyPackTabEditor, setPropertyPackTabEditor] = useState<PropertyPackTabEditorState>(EMPTY_PROPERTY_PACK_TAB);
   const [propertyPackSearch, setPropertyPackSearch] = useState('');
   const [propertyPackLocationFilter, setPropertyPackLocationFilter] = useState('all');
   const [locationSelectionStep, setLocationSelectionStep] = useState<LocationLevel>('gouvernerat');
@@ -221,6 +251,8 @@ export default function PropertyPacksAdminPage() {
   const [selectedZone, setSelectedZone] = useState('');
   const [isLocationFilterOpen, setIsLocationFilterOpen] = useState(false);
   const [propertyPackActionId, setPropertyPackActionId] = useState<string | null>(null);
+  const [propertyPackTabActionId, setPropertyPackTabActionId] = useState<string | null>(null);
+  const [isUploadingPackTabIcon, setIsUploadingPackTabIcon] = useState(false);
   const [selectedBienMediaById, setSelectedBienMediaById] = useState<Record<string, Media[]>>({});
   const [visiblePackBienCount, setVisiblePackBienCount] = useState(INITIAL_PACK_REFERENCE_CARD_COUNT);
   const [galleryVisibleCountByBienId, setGalleryVisibleCountByBienId] = useState<Record<string, number>>({});
@@ -229,6 +261,7 @@ export default function PropertyPacksAdminPage() {
     bienId: string;
     imageIndex: number;
   }>({ open: false, bienId: '', imageIndex: 0 });
+  const propertyPackTabIconInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -240,6 +273,23 @@ export default function PropertyPacksAdminPage() {
         if (!cancelled) setPropertyPacks(Array.isArray(rows) ? rows : []);
       } catch {
         if (!cancelled) setPropertyPacks([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/property-pack-tabs`, { credentials: 'include' });
+        if (!response.ok) throw new Error('property-pack-tabs');
+        const rows = await response.json();
+        if (!cancelled) setPropertyPackTabs(sortPropertyPackTabs(Array.isArray(rows) ? rows : []));
+      } catch {
+        if (!cancelled) setPropertyPackTabs([]);
       }
     })();
     return () => {
@@ -397,6 +447,7 @@ export default function PropertyPacksAdminPage() {
   );
 
   const resetPropertyPackEditor = () => setPropertyPackEditor(EMPTY_PROPERTY_PACK);
+  const resetPropertyPackTabEditor = () => setPropertyPackTabEditor(EMPTY_PROPERTY_PACK_TAB);
 
   const togglePropertyPackBien = (bienId: string) => {
     setPropertyPackEditor((current) => {
@@ -440,9 +491,92 @@ export default function PropertyPacksAdminPage() {
       name: String(pack.name || '').trim(),
       description: String(pack.description || '').trim(),
       bienIds: Array.isArray(pack.bienIds) ? pack.bienIds.map((item) => String(item || '').trim()).filter(Boolean) : [],
+      clientTabId: String(pack.clientTabId || '').trim(),
+      isActive: pack.isActive !== false,
       highlightBulletsText: Array.isArray(pack.highlightBullets) ? pack.highlightBullets.join('\n') : '',
       galleryImages: Array.isArray(pack.galleryImages) ? pack.galleryImages.map((item) => String(item || '').trim()).filter(Boolean) : [],
     });
+  };
+
+  const handleEditPropertyPackTab = (tab: PropertyPackTab) => {
+    setPropertyPackTabEditor({
+      id: tab.id,
+      label: String(tab.label || '').trim(),
+      iconKey: tab.iconKey || 'sparkles',
+      customIconUrl: String(tab.customIconUrl || '').trim(),
+      sortOrder: Number(tab.sortOrder || 0),
+    });
+  };
+
+  const handlePackTabIconUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setIsUploadingPackTabIcon(true);
+    try {
+      const uploadPayload = new FormData();
+      uploadPayload.append('image', file);
+      uploadPayload.append('upload_scope', 'property_pack_tab_icon');
+      const response = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        body: uploadPayload,
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(String(payload?.error || 'Upload icone impossible'));
+      }
+      const uploadedUrl = String(payload?.url || '').trim();
+      if (!uploadedUrl) throw new Error('URL icone manquante');
+      setPropertyPackTabEditor((current) => ({ ...current, customIconUrl: uploadedUrl }));
+      toast.success('Icone importee');
+    } catch (error: any) {
+      toast.error(String(error?.message || 'Upload icone impossible'));
+    } finally {
+      setIsUploadingPackTabIcon(false);
+    }
+  };
+
+  const handleSavePropertyPackTab = async () => {
+    const label = propertyPackTabEditor.label.trim();
+    if (!label) {
+      toast.error('Nom onglet requis');
+      return;
+    }
+    const targetId = propertyPackTabEditor.id || '__new_pack_tab__';
+    setPropertyPackTabActionId(targetId);
+    try {
+      const response = await fetch(
+        propertyPackTabEditor.id
+          ? `${API_URL}/property-pack-tabs/${encodeURIComponent(propertyPackTabEditor.id)}`
+          : `${API_URL}/property-pack-tabs`,
+        {
+          method: propertyPackTabEditor.id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            label,
+            iconKey: propertyPackTabEditor.iconKey,
+            customIconUrl: propertyPackTabEditor.customIconUrl.trim() || null,
+            sortOrder: Math.max(0, Number(propertyPackTabEditor.sortOrder || 0)),
+          }),
+        }
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(String(payload?.error || 'Impossible de sauvegarder l onglet'));
+      }
+      const savedTab = payload as PropertyPackTab;
+      setPropertyPackTabs((current) =>
+        sortPropertyPackTabs([savedTab, ...current.filter((item) => item.id !== savedTab.id)])
+      );
+      resetPropertyPackTabEditor();
+      toast.success(propertyPackTabEditor.id ? 'Onglet mis a jour' : 'Onglet cree');
+    } catch (error: any) {
+      toast.error(String(error?.message || 'Impossible de sauvegarder l onglet'));
+    } finally {
+      setPropertyPackTabActionId(null);
+    }
   };
 
   const handleSavePropertyPack = async () => {
@@ -471,6 +605,8 @@ export default function PropertyPacksAdminPage() {
             name,
             description: propertyPackEditor.description.trim() || null,
             bienIds,
+            clientTabId: propertyPackEditor.clientTabId.trim() || null,
+            isActive: propertyPackEditor.isActive,
             highlightBullets,
             galleryImages,
           }),
@@ -489,6 +625,46 @@ export default function PropertyPacksAdminPage() {
       toast.success(propertyPackEditor.id ? 'Pack mis a jour' : 'Pack cree');
     } catch (error: any) {
       toast.error(String(error?.message || 'Impossible de sauvegarder le pack'));
+    } finally {
+      setPropertyPackActionId(null);
+    }
+  };
+
+  const handleTogglePropertyPackActive = async (pack: PropertyPack) => {
+    const nextIsActive = !(pack.isActive !== false);
+    setPropertyPackActionId(pack.id);
+    try {
+      const response = await fetch(`${API_URL}/property-packs/${encodeURIComponent(pack.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: String(pack.name || '').trim(),
+          description: String(pack.description || '').trim() || null,
+          bienIds: Array.isArray(pack.bienIds) ? pack.bienIds.map((item) => String(item || '').trim()).filter(Boolean) : [],
+          clientTabId: String(pack.clientTabId || '').trim() || null,
+          isActive: nextIsActive,
+          highlightBullets: Array.isArray(pack.highlightBullets) ? pack.highlightBullets : [],
+          galleryImages: Array.isArray(pack.galleryImages) ? pack.galleryImages : [],
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(String(payload?.error || 'Impossible de modifier l etat du pack'));
+      }
+      const savedPack = payload as PropertyPack;
+      setPropertyPacks((current) => [savedPack, ...current.filter((item) => item.id !== savedPack.id)]);
+      setPropertyPackEditor((current) => (
+        current.id === savedPack.id
+          ? {
+              ...current,
+              isActive: savedPack.isActive !== false,
+            }
+          : current
+      ));
+      toast.success(nextIsActive ? 'Pack active' : 'Pack desactive');
+    } catch (error: any) {
+      toast.error(String(error?.message || 'Impossible de modifier l etat du pack'));
     } finally {
       setPropertyPackActionId(null);
     }
@@ -639,6 +815,11 @@ export default function PropertyPacksAdminPage() {
     return ordered.slice(0, 2);
   }, [selectedEditorBiens, zonesById]);
 
+  const selectedClientTab = useMemo(
+    () => propertyPackTabs.find((tab) => tab.id === propertyPackEditor.clientTabId) || null,
+    [propertyPackEditor.clientTabId, propertyPackTabs]
+  );
+
   const handleDeletePropertyPack = async (pack: PropertyPack) => {
     if (!window.confirm(`Supprimer le pack "${pack.name}" ?`)) return;
     setPropertyPackActionId(pack.id);
@@ -658,6 +839,32 @@ export default function PropertyPacksAdminPage() {
       toast.error(String(error?.message || 'Impossible de supprimer le pack'));
     } finally {
       setPropertyPackActionId(null);
+    }
+  };
+
+  const handleDeletePropertyPackTab = async (tab: PropertyPackTab) => {
+    if (!window.confirm(`Supprimer l onglet "${tab.label}" ? Les packs restent actifs mais sans onglet client.`)) return;
+    setPropertyPackTabActionId(tab.id);
+    try {
+      const response = await fetch(`${API_URL}/property-pack-tabs/${encodeURIComponent(tab.id)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(String(payload?.error || 'Impossible de supprimer l onglet'));
+      }
+      setPropertyPackTabs((current) => current.filter((item) => item.id !== tab.id));
+      setPropertyPacks((current) => current.map((pack) => (
+        pack.clientTabId === tab.id ? { ...pack, clientTabId: null, clientTab: null } : pack
+      )));
+      setPropertyPackEditor((current) => current.clientTabId === tab.id ? { ...current, clientTabId: '' } : current);
+      setPropertyPackTabEditor((current) => current.id === tab.id ? EMPTY_PROPERTY_PACK_TAB : current);
+      toast.success('Onglet supprime');
+    } catch (error: any) {
+      toast.error(String(error?.message || 'Impossible de supprimer l onglet'));
+    } finally {
+      setPropertyPackTabActionId(null);
     }
   };
 
@@ -695,8 +902,248 @@ export default function PropertyPacksAdminPage() {
         </button>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f7fffb_58%,#eefbf6_100%)] p-4 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">Packs</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{propertyPacks.length}</p>
+          <p className="mt-1 text-sm text-slate-500">Packs deja configures</p>
+        </div>
+        <div className="rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_58%,#eef6ff_100%)] p-4 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">Onglets client</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{propertyPackTabs.length}</p>
+          <p className="mt-1 text-sm text-slate-500">Collections visibles dans `/packs`</p>
+        </div>
+        <div className="rounded-2xl border border-amber-100 bg-[linear-gradient(135deg,#fff9ec_0%,#ffffff_58%,#fff3da_100%)] p-4 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Selection courante</p>
+          <p className="mt-2 text-3xl font-black text-slate-950">{propertyPackEditor.bienIds.length}</p>
+          <p className="mt-1 text-sm text-slate-500">References choisies pour ce pack</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600">Etat</p>
+          <p className="mt-2 text-lg font-black text-slate-950">{propertyPackEditor.id ? 'Edition en cours' : 'Nouveau pack'}</p>
+          <p className="mt-1 text-sm text-slate-500">{propertyPackEditor.id ? 'Vous modifiez un pack existant.' : 'Configurez un nouveau pack public.'}</p>
+        </div>
+      </div>
+
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.12fr)_360px]">
+        <div className="space-y-4 rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f7fffb_58%,#eefbf6_100%)] p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">Onglets client</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-900">Collections visibles dans `/packs`</h2>
+              <p className="mt-1 text-sm text-slate-500">Creez des onglets comme Romantique, Decouverte, Luxe ou Famille puis rattachez chaque pack a un onglet.</p>
+            </div>
+            <button
+              type="button"
+              onClick={resetPropertyPackTabEditor}
+              className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Nouvel onglet
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="block md:col-span-3">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Nom onglet</span>
+              <input
+                type="text"
+                value={propertyPackTabEditor.label}
+                onChange={(event) => setPropertyPackTabEditor((current) => ({ ...current, label: event.target.value }))}
+                placeholder="Ex: Romantique"
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="block md:col-span-2">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Palette d&apos;icone</span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {PROPERTY_PACK_TAB_ICON_OPTIONS.map((option) => {
+                  const TabIcon = PACK_TAB_ICONS[option.key] || Sparkles;
+                  const selected = propertyPackTabEditor.iconKey === option.key;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setPropertyPackTabEditor((current) => ({ ...current, iconKey: option.key }))}
+                      className={`flex items-center gap-3 rounded-2xl border px-3 py-3 text-left transition ${
+                        selected
+                          ? 'border-emerald-300 bg-emerald-50 shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-emerald-200'
+                      }`}
+                    >
+                      <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${selected ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                        <TabIcon className="h-5 w-5" />
+                      </span>
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-900">{option.label}</span>
+                        <span className="block text-xs text-slate-500">{selected ? 'Theme actif' : 'Choisir cette icone'}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <label className="block md:col-span-1">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Ordre</span>
+              <input
+                type="number"
+                min={0}
+                value={propertyPackTabEditor.sortOrder}
+                onChange={(event) => setPropertyPackTabEditor((current) => ({ ...current, sortOrder: Math.max(0, Number(event.target.value || 0)) }))}
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="block md:col-span-3">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Icone personnalisee</span>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                    {propertyPackTabEditor.customIconUrl ? (
+                      <img
+                        src={resolveMediaUrl(propertyPackTabEditor.customIconUrl) || propertyPackTabEditor.customIconUrl}
+                        alt="Icone onglet"
+                        className="h-10 w-10 object-contain"
+                      />
+                    ) : (
+                      <span className="text-[11px] font-semibold text-slate-400">Apercu</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-900">SVG ou petite image</p>
+                    <p className="mt-0.5 text-xs text-slate-500">Optionnel. Si presente, elle remplace l&apos;icone de palette cote client.</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <input
+                    ref={propertyPackTabIconInputRef}
+                    type="file"
+                    accept="image/svg+xml,image/png,image/webp,image/jpeg,.svg,.png,.webp,.jpg,.jpeg"
+                    onChange={(event) => void handlePackTabIconUpload(event)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => propertyPackTabIconInputRef.current?.click()}
+                    disabled={isUploadingPackTabIcon}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-60"
+                  >
+                    {isUploadingPackTabIcon ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {isUploadingPackTabIcon ? 'Upload...' : 'Importer une icone'}
+                  </button>
+                  {propertyPackTabEditor.customIconUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setPropertyPackTabEditor((current) => ({ ...current, customIconUrl: '' }))}
+                      className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                    >
+                      Retirer l&apos;icone
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSavePropertyPackTab()}
+              disabled={propertyPackTabActionId === (propertyPackTabEditor.id || '__new_pack_tab__')}
+              className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {propertyPackTabActionId === (propertyPackTabEditor.id || '__new_pack_tab__')
+                ? 'Enregistrement...'
+                : propertyPackTabEditor.id ? 'Mettre a jour onglet' : 'Creer onglet'}
+            </button>
+            {propertyPackTabEditor.id ? (
+              <button
+                type="button"
+                onClick={resetPropertyPackTabEditor}
+                className="inline-flex items-center justify-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Annuler edition
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:sticky xl:top-4">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600">Onglets enregistres</h2>
+            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">{propertyPackTabs.length}</span>
+          </div>
+          {propertyPackTabs.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
+              Aucun onglet client pour le moment.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {propertyPackTabs.map((tab) => {
+                const TabIcon = PACK_TAB_ICONS[tab.iconKey] || Sparkles;
+                const linkedCount = propertyPacks.filter((pack) => pack.clientTabId === tab.id).length;
+                return (
+                  <div key={tab.id} className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                          {tab.customIconUrl ? (
+                            <img
+                              src={resolveMediaUrl(tab.customIconUrl) || tab.customIconUrl}
+                              alt={tab.label}
+                              className="h-5 w-5 object-contain"
+                            />
+                          ) : (
+                            <TabIcon className="h-5 w-5" />
+                          )}
+                        </span>
+                        <div>
+                          <p className="text-base font-semibold text-slate-900">{tab.label}</p>
+                          <p className="text-xs text-slate-500">{linkedCount} pack{linkedCount > 1 ? 's' : ''} rattache{linkedCount > 1 ? 's' : ''}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEditPropertyPackTab(tab)}
+                          className="rounded-md border border-gray-300 bg-white p-2 text-gray-600 hover:bg-gray-100"
+                          title="Modifier l onglet"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeletePropertyPackTab(tab)}
+                          disabled={propertyPackTabActionId === tab.id}
+                          className="rounded-md border border-rose-200 bg-white p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                          title="Supprimer l onglet"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.18fr)_380px]">
         <div className="space-y-4 rounded-2xl border border-amber-100 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3 rounded-[22px] border border-amber-100 bg-[linear-gradient(135deg,#fffaf0_0%,#ffffff_55%,#f4fbf7_100%)] p-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Constructeur du pack</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-900">Informations, apercu et composition</h2>
+              <p className="mt-1 text-sm text-slate-500">Completez le pack, recherchez les biens, puis organisez la galerie publique avant enregistrement.</p>
+            </div>
+            {propertyPackEditor.id ? (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                Mode edition
+              </span>
+            ) : null}
+          </div>
+
           <div className="grid gap-3 md:grid-cols-2">
             <label className="block md:col-span-2">
               <span className="mb-1 block text-sm font-medium text-gray-700">Nom du pack</span>
@@ -717,6 +1164,36 @@ export default function PropertyPacksAdminPage() {
                 rows={3}
                 className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
               />
+            </label>
+            <div className="md:col-span-2 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div>
+                <span className="block text-sm font-semibold text-slate-900">Publication du pack</span>
+                <span className="mt-1 block text-xs text-slate-500">Laissez desactive pour preparer le pack sans l afficher sur `/packs`.</span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={propertyPackEditor.isActive}
+                onClick={() => setPropertyPackEditor((current) => ({ ...current, isActive: !current.isActive }))}
+                className={`relative inline-flex h-7 w-14 items-center rounded-full transition ${propertyPackEditor.isActive ? 'bg-emerald-600' : 'bg-slate-300'}`}
+              >
+                <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition ${propertyPackEditor.isActive ? 'translate-x-8' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <label className="block md:col-span-1">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Onglet client</span>
+              <select
+                value={propertyPackEditor.clientTabId}
+                onChange={(event) => setPropertyPackEditor((current) => ({ ...current, clientTabId: event.target.value }))}
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value="">Sans onglet dedie</option>
+                {propertyPackTabs.map((tab) => (
+                  <option key={tab.id} value={tab.id}>
+                    {tab.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="block md:col-span-2">
               <span className="mb-1 block text-sm font-medium text-gray-700">Points visibles sur la card</span>
@@ -749,7 +1226,7 @@ export default function PropertyPacksAdminPage() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/30 to-transparent" />
                 <div className="absolute left-4 top-4 rounded-full bg-emerald-600 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-white">
-                  Pack principal
+                  {selectedClientTab?.label || 'Pack principal'}
                 </div>
                 <div className="absolute inset-x-0 bottom-0 p-5 text-white">
                   <h3 className="text-3xl font-black leading-tight">{propertyPackEditor.name || 'Nom du pack'}</h3>
@@ -1203,7 +1680,7 @@ export default function PropertyPacksAdminPage() {
             ) : null}
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="sticky bottom-3 z-10 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-[0_14px_34px_rgba(15,23,42,0.08)] backdrop-blur-sm">
             <button
               type="button"
               onClick={() => void handleSavePropertyPack()}
@@ -1226,7 +1703,7 @@ export default function PropertyPacksAdminPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm xl:sticky xl:top-4">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600">Packs enregistres</h2>
             <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">{propertyPacks.length}</span>
@@ -1236,7 +1713,7 @@ export default function PropertyPacksAdminPage() {
               Aucun pack cree pour le moment.
             </div>
           )}
-          <div className="space-y-3">
+          <div className="max-h-[78vh] space-y-3 overflow-y-auto pr-1">
             {propertyPacks.map((pack) => {
               const linkedBiens = Array.isArray(pack.bienIds)
                 ? pack.bienIds.map((id) => propertyPackBienLookup.get(String(id || '').trim())).filter(Boolean)
@@ -1246,6 +1723,7 @@ export default function PropertyPacksAdminPage() {
                 || linkedBiens.flatMap((bien) => (bien?.media || []).filter((media) => media.type !== 'video').map((media) => resolveMediaUrl(media.url) || '')).find(Boolean)
                 || ADMIN_IMAGE_FALLBACK;
               const locationPills = Array.from(new Set(linkedBiens.flatMap((bien) => getBienLocationParts(bien as Bien, zonesById)))).slice(0, 2);
+              const linkedTab = propertyPackTabs.find((tab) => tab.id === pack.clientTabId) || pack.clientTab || null;
               const previewBullets = (Array.isArray(pack.highlightBullets) && pack.highlightBullets.length > 0
                 ? pack.highlightBullets
                 : linkedBiens.slice(0, 3).map((bien) =>
@@ -1266,6 +1744,14 @@ export default function PropertyPacksAdminPage() {
                       quality={56}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
+                    {linkedTab ? (
+                      <div className="absolute left-4 top-4 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] text-slate-950">
+                        {linkedTab.label}
+                      </div>
+                    ) : null}
+                    <div className={`absolute right-4 top-4 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] ${pack.isActive !== false ? 'bg-emerald-500 text-white' : 'bg-slate-900/75 text-white'}`}>
+                      {pack.isActive !== false ? 'Actif' : 'Desactive'}
+                    </div>
                     <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
                       <h3 className="text-base font-black">{pack.name}</h3>
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -1283,6 +1769,15 @@ export default function PropertyPacksAdminPage() {
                       {pack.description ? <p className="text-sm text-gray-500">{pack.description}</p> : null}
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleTogglePropertyPackActive(pack)}
+                        disabled={propertyPackActionId === pack.id}
+                        className={`rounded-md border px-3 py-2 text-xs font-semibold disabled:opacity-60 ${pack.isActive !== false ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                        title={pack.isActive !== false ? 'Desactiver le pack' : 'Activer le pack'}
+                      >
+                        {pack.isActive !== false ? 'Desactiver' : 'Activer'}
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleEditPropertyPack(pack)}

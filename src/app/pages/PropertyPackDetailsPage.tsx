@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Link, Navigate, useParams, useSearchParams } from "react-router";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 import {
   ArrowLeft,
+  Camera,
   CalendarDays,
+  ChevronLeft,
   ChevronRight,
   Clock3,
   Minus,
@@ -15,6 +17,7 @@ import {
   Star,
   Tag,
   Users,
+  X,
 } from "lucide-react";
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import type { PropertyPack } from "../admin/types";
@@ -23,13 +26,16 @@ import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import { useProperties } from "../context/PropertiesContext";
 import { formatTnd } from "../utils/amicalePricing";
 import { buildPropertyDetailsPath } from "../utils/propertyRouting";
-import { buildPropertyPackPath, getPackSearchContextFromParams, resolvePublicPropertyPacks } from "../utils/propertyPacks";
+import { buildPropertyPackPath, getPackSearchContextFromParams, getPackVariantParamValue, resolvePublicPropertyPacks } from "../utils/propertyPacks";
+import { savePendingReservationDraft } from "../utils/pendingReservation";
+import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 export default function PropertyPackDetailsPage() {
   const { packId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { properties, loading } = useProperties();
   const [packs, setPacks] = useState<PropertyPack[]>([]);
   const [packsLoading, setPacksLoading] = useState(true);
@@ -37,6 +43,7 @@ export default function PropertyPackDetailsPage() {
   const [selectedEnd, setSelectedEnd] = useState<Date | null>(null);
   const [adultGuests, setAdultGuests] = useState(1);
   const [childGuests, setChildGuests] = useState(0);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,20 +76,33 @@ export default function PropertyPackDetailsPage() {
   }, [searchParams]);
 
   const searchContext = useMemo(() => getPackSearchContextFromParams(searchParams), [searchParams]);
+  const selectedVariantBienIds = useMemo(
+    () => String(searchParams.get("variantBienIds") || "").split(",").map((value) => String(value || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b, "fr")),
+    [searchParams]
+  );
   const baseResolvedPacks = useMemo(() => resolvePublicPropertyPacks(packs, properties), [packs, properties]);
   const searchResolvedPacks = useMemo(
     () => resolvePublicPropertyPacks(packs, properties, searchContext),
     [packs, properties, searchContext]
   );
   const pack = useMemo(
-    () =>
-      searchResolvedPacks.find((item) => String(item.id || "").trim() === String(packId || "").trim())
-      || baseResolvedPacks.find((item) => String(item.id || "").trim() === String(packId || "").trim())
-      || null,
-    [baseResolvedPacks, searchResolvedPacks, packId]
+    () => {
+      const matchesVariant = (item: typeof searchResolvedPacks[number]) => {
+        if (String(item.id || "").trim() !== String(packId || "").trim()) return false;
+        if (selectedVariantBienIds.length === 0) return true;
+        const itemIds = [...(item.variantPropertyIds || [])].map((value) => String(value || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b, "fr"));
+        return itemIds.length === selectedVariantBienIds.length && itemIds.every((value, index) => value === selectedVariantBienIds[index]);
+      };
+      return searchResolvedPacks.find(matchesVariant)
+        || baseResolvedPacks.find(matchesVariant)
+        || searchResolvedPacks.find((item) => String(item.id || "").trim() === String(packId || "").trim())
+        || baseResolvedPacks.find((item) => String(item.id || "").trim() === String(packId || "").trim())
+        || null;
+    },
+    [baseResolvedPacks, searchResolvedPacks, packId, selectedVariantBienIds]
   );
   const otherPacks = useMemo(
-    () => searchResolvedPacks.filter((item) => item.id !== pack?.id).slice(0, 3),
+    () => searchResolvedPacks.filter((item) => item.variantKey !== pack?.variantKey).slice(0, 3),
     [searchResolvedPacks, pack]
   );
   const [activeImg, setActiveImg] = useState(0);
@@ -160,7 +180,7 @@ export default function PropertyPackDetailsPage() {
 
   useEffect(() => {
     setActiveImg(0);
-  }, [pack?.id]);
+  }, [pack?.variantKey]);
 
   if (!packsLoading && !loading && !pack) {
     return <Navigate to="/packs" replace />;
@@ -175,10 +195,66 @@ export default function PropertyPackDetailsPage() {
   }
 
   const persistedQuery = searchParams.toString();
-  const allImages = [pack.coverImage, ...pack.galleryImages.filter((image) => image !== pack.coverImage)];
+  const allImages = Array.from(
+    new Set(
+      [
+        pack.coverImage,
+        ...(pack.galleryImages || []),
+        ...pack.properties.flatMap((property) => property.images || []),
+      ]
+        .map((image) => String(image || "").trim())
+        .filter(Boolean)
+    )
+  );
   const activeImage = allImages[activeImg] || pack.coverImage;
-  const otherPacksHref = (idPack: { id: string | number }) =>
-    persistedQuery ? `${buildPropertyPackPath(idPack)}?${persistedQuery}` : buildPropertyPackPath(idPack);
+  const buildPackHref = (targetPack: { id: string | number; variantPropertyIds?: string[] }) => {
+    const params = new URLSearchParams(persistedQuery);
+    const variantValue = getPackVariantParamValue(targetPack);
+    if (variantValue) params.set("variantBienIds", variantValue);
+    return `${buildPropertyPackPath(targetPack)}${params.toString() ? `?${params.toString()}` : ""}`;
+  };
+  const goPrevGalleryImage = () => {
+    setActiveImg((prev) => (prev - 1 + Math.max(1, allImages.length)) % Math.max(1, allImages.length));
+  };
+  const goNextGalleryImage = () => {
+    setActiveImg((prev) => (prev + 1) % Math.max(1, allImages.length));
+  };
+
+  const handlePackReservation = () => {
+    if (!selectedStart || !selectedEnd) {
+      toast.error("Choisissez d'abord vos dates");
+      return;
+    }
+    if (totalGuests > pack.maxGuests) {
+      toast.error(`Capacite max du pack: ${pack.maxGuests} personne(s)`);
+      return;
+    }
+    const draft = {
+      targetType: "group" as const,
+      propertyId: pack.id,
+      propertySlug: pack.id,
+      propertyTitle: pack.name,
+      propertyReference: `groupe : ${pack.properties.map((property) => property.reference || property.id).join(", ")}`,
+      requestType: "reservation" as const,
+      startDate: format(selectedStart < selectedEnd ? selectedStart : selectedEnd, "yyyy-MM-dd"),
+      endDate: format(selectedStart < selectedEnd ? selectedEnd : selectedStart, "yyyy-MM-dd"),
+      guests: totalGuests,
+      adultGuests,
+      childGuests,
+      includeCleaningFee: true,
+      includeServiceFee: true,
+      reservationNote: "",
+      groupId: pack.id,
+      groupSlug: pack.id,
+      groupLabel: `groupe : ${pack.properties.map((property) => property.reference || property.id).join(", ")}`,
+      groupSelectedBienIds: pack.properties.map((property) => String(property.id || "")),
+      groupSelectedBienRefs: pack.properties.map((property) => String(property.reference || property.id || "")),
+      packId: pack.id,
+      packName: pack.name,
+    };
+    savePendingReservationDraft(draft);
+    navigate(`/reservation/packs/confirmation/${encodeURIComponent(String(pack.id || ""))}`, { state: { draft } });
+  };
 
   return (
     <div className="min-h-screen bg-[#f7f8fb]">
@@ -251,6 +327,16 @@ export default function PropertyPackDetailsPage() {
                   />
                 </button>
               ))}
+              {allImages.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setIsGalleryOpen(true)}
+                  className="inline-flex h-14 items-center gap-2 rounded-xl border border-white/35 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur-sm transition hover:bg-white/15"
+                >
+                  <Camera className="h-4 w-4" />
+                  Voir les photos
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -417,7 +503,7 @@ export default function PropertyPackDetailsPage() {
             </div>
             <div className="space-y-5 p-6 text-sm text-slate-600">
               <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-500">Reservation pack</p>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-500">Demande groupe</p>
                 <div className="mt-4 space-y-3">
                   <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Arrivee</p>
@@ -488,13 +574,24 @@ export default function PropertyPackDetailsPage() {
                 <span>Pack racine admin</span>
                 <strong className="text-slate-950">{pack.rootPropertyCount} refs</strong>
               </div>
-              <Link
-                to={`/contact?source=pack&packId=${encodeURIComponent(String(pack.id || ""))}&packName=${encodeURIComponent(pack.name)}${searchContext.checkIn ? `&checkIn=${encodeURIComponent(searchContext.checkIn)}` : ""}${searchContext.checkOut ? `&checkOut=${encodeURIComponent(searchContext.checkOut)}` : ""}&guests=${encodeURIComponent(String(totalGuests))}`}
+              {allImages.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setIsGalleryOpen(true)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-base font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                >
+                  <Camera className="h-4 w-4" />
+                  Voir les photos
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={handlePackReservation}
                 className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-base font-semibold shadow-md transition ${pack.theme.buttonClass}`}
               >
                 <Phone className="h-4 w-4" />
-                Reserver ce pack
-              </Link>
+                Envoyer demande groupe
+              </button>
               <Link
                 to={`/packs?${searchParams.toString()}`}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-100 px-5 py-4 text-base font-semibold text-slate-700 transition hover:bg-slate-200"
@@ -510,7 +607,7 @@ export default function PropertyPackDetailsPage() {
               <h2 className="text-2xl font-black tracking-tight text-slate-950">Autres packs</h2>
               <div className="mt-5 space-y-4">
                 {otherPacks.map((item) => (
-                  <Link key={item.id} to={otherPacksHref(item)} className="group flex items-center gap-4 rounded-2xl">
+                  <Link key={item.variantKey} to={buildPackHref(item)} className="group flex items-center gap-4 rounded-2xl">
                     <div className="h-16 w-16 overflow-hidden rounded-2xl bg-slate-100">
                       <SmartImage
                         src={item.coverImage}
@@ -535,6 +632,96 @@ export default function PropertyPackDetailsPage() {
           ) : null}
         </aside>
       </section>
+
+      {isGalleryOpen ? (
+        <div
+          className="fixed inset-0 z-[120] bg-black/95"
+          onClick={() => setIsGalleryOpen(false)}
+        >
+          <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between px-6 py-4 text-white">
+              <div>
+                <p className="text-lg font-bold">{pack.name} · Photos</p>
+                <p className="text-sm text-white/70">
+                  {activeImg + 1} / {allImages.length}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGalleryOpen(false)}
+                className="rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+                aria-label="Fermer la galerie"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 pb-28 pt-2">
+              {allImages.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    goPrevGalleryImage();
+                  }}
+                  className="absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white backdrop-blur transition hover:bg-white/20"
+                  aria-label="Photo precedente"
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+              ) : null}
+
+              <img
+                src={activeImage}
+                alt={`${pack.name} ${activeImg + 1}`}
+                className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              />
+
+              {allImages.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    goNextGalleryImage();
+                  }}
+                  className="absolute right-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white backdrop-blur transition hover:bg-white/20"
+                  aria-label="Photo suivante"
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              ) : null}
+            </div>
+
+            {allImages.length > 1 ? (
+              <div
+                className="absolute inset-x-0 bottom-4 flex justify-center px-4"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex max-w-full gap-2 overflow-x-auto rounded-full bg-black/55 px-4 py-3 backdrop-blur">
+                  {allImages.map((image, index) => (
+                    <button
+                      key={`${pack.id}-lightbox-gallery-${index}`}
+                      type="button"
+                      onClick={() => setActiveImg(index)}
+                      className={`h-16 w-16 shrink-0 overflow-hidden rounded-2xl border-2 transition ${
+                        activeImg === index ? "border-white shadow-lg" : "border-transparent opacity-70 hover:opacity-100"
+                      }`}
+                    >
+                      <img
+                        src={image}
+                        alt={`${pack.name} miniature ${index + 1}`}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

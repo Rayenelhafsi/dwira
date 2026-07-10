@@ -142,7 +142,9 @@ export function Header() {
   const isPublicPartnerLanding = Boolean(activePublicPartnerSlug);
   const isHomePage = location.pathname === "/" || isPublicPartnerLanding;
   const isAgentAmicaleDashboard = location.pathname.startsWith("/agent-amicale/dashboard");
-  const isReservationConfirmationPage = location.pathname.startsWith("/reservation/confirmation/");
+  const isReservationConfirmationPage =
+    location.pathname.startsWith("/reservation/confirmation/")
+    || location.pathname.startsWith("/reservation/packs/confirmation/");
   const isClientFinalizationFlowPage =
     /^\/mes-reservations\/[^/]+\/(coordonnees|paiement)$/.test(location.pathname);
   const isMyReservationsPage = location.pathname === "/mes-reservations";

@@ -33,6 +33,16 @@ export const buildPropertyDetailsPath = (property: Pick<Property, "reference" | 
 export const buildReservationConfirmationPath = (property: Pick<Property, "reference" | "slug" | "id">): string =>
   `/reservation/confirmation/${encodeURIComponent(getPropertyRouteToken(property))}`;
 
+export const buildPropertyGroupDetailsPath = (slugOrId?: string | null): string => {
+  const token = String(slugOrId || "").trim();
+  return `/groupes/${encodeURIComponent(token)}`;
+};
+
+export const buildPropertyGroupReservationConfirmationPath = (slugOrId?: string | null): string => {
+  const token = String(slugOrId || "").trim();
+  return `/reservation/groupes/confirmation/${encodeURIComponent(token)}`;
+};
+
 export const propertyMatchesRouteToken = (property: Pick<Property, "reference" | "slug" | "id">, token?: string | null): boolean => {
   const normalizedToken = normalizeRouteToken(token);
   const normalizedReferenceToken = normalizeReferenceToken(token);

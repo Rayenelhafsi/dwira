@@ -9,6 +9,7 @@ import type { HotelReservationDemand } from "../services/hotels";
 import { listHotelReservationDemands } from "../services/hotels";
 import { getReservationsFromCache } from "../utils/reservations";
 import { buildPropertyDetailsPath } from "../utils/propertyRouting";
+import { buildPropertyPackPath } from "../utils/propertyPacks";
 import { getSessionUser } from "../services/auth";
 import {
   Dialog,
@@ -109,6 +110,17 @@ function resolveAssetUrl(url?: string) {
   if (!url) return "";
   if (/^https?:\/\//i.test(url)) return url;
   return `${window.location.origin}${url}`;
+}
+
+function isPackReservation(reservation: ReservationDemand) {
+  const groupId = String(reservation.reservation_group_id || "").trim();
+  return Boolean(groupId && groupId.startsWith("pack_"));
+}
+
+function getReservationDisplayTitle(reservation: ReservationDemand) {
+  return String(reservation.reservation_group_label || "").trim()
+    || String(reservation.bien_titre || "").trim()
+    || "Bien";
 }
 
 function printVoucherUrl(voucherUrl: string) {
@@ -240,10 +252,15 @@ export default function MyReservationsPage() {
   const reservationCards = useMemo(
     () => reservations.map((reservation) => {
       const property = properties.find((item) => String(item.id) === String(reservation.bien_id));
+      const isPack = isPackReservation(reservation);
+      const groupId = String(reservation.reservation_group_id || "").trim();
       return {
         ...reservation,
         image: property?.images?.[0] || "",
-        path: property ? buildPropertyDetailsPath(property) : "/logements",
+        path: isPack
+          ? buildPropertyPackPath({ id: groupId })
+          : (property ? buildPropertyDetailsPath(property) : "/logements"),
+        ctaLabel: isPack ? "Voir le pack" : "Voir le bien",
       };
     }),
     [properties, reservations]
@@ -420,7 +437,7 @@ export default function MyReservationsPage() {
                 <div key={reservation.id} className="grid gap-5 overflow-hidden rounded-[28px] border border-gray-200 bg-white p-5 shadow-sm md:grid-cols-[280px,1fr]">
                   <div className="overflow-hidden rounded-[22px] bg-gray-100">
                     {reservation.image ? (
-                      <img src={reservation.image} alt={reservation.bien_titre || reservation.bien_id} className="h-full min-h-[220px] w-full object-cover" />
+                      <img src={reservation.image} alt={getReservationDisplayTitle(reservation)} className="h-full min-h-[220px] w-full object-cover" />
                     ) : (
                       <div className="flex h-full min-h-[220px] items-center justify-center text-gray-400">Image indisponible</div>
                     )}
@@ -429,11 +446,18 @@ export default function MyReservationsPage() {
                   <div className="flex flex-col justify-between gap-5">
                     <div>
                       <div className="flex flex-wrap items-center gap-3">
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{reservation.bien_reference || reservation.bien_id}</span>
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                          {reservation.reservation_group_label || reservation.bien_reference || reservation.bien_id}
+                        </span>
                         <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">{statusLabels[reservation.status]}</span>
                         <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{reservation.request_type === "visite" ? "Visite" : "Reservation"}</span>
                       </div>
-                      <h2 className="mt-3 text-2xl font-bold text-gray-900">{reservation.bien_titre || "Bien"}</h2>
+                      <h2 className="mt-3 text-2xl font-bold text-gray-900">{getReservationDisplayTitle(reservation)}</h2>
+                      {reservation.reservation_group_refs?.length ? (
+                        <p className="mt-2 text-sm text-slate-500">
+                          Composition: {reservation.reservation_group_refs.join(", ")}
+                        </p>
+                      ) : null}
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
                         <Info label={reservation.request_type === "visite" ? "Creneau" : "Periode"} value={formatReservationPeriod(reservation)} />
                         <Info label={reservation.request_type === "visite" ? "Visiteurs" : "Voyageurs"} value={`${reservation.guests}`} />
@@ -484,7 +508,7 @@ export default function MyReservationsPage() {
 
                     <div className="flex flex-wrap gap-3">
                       <Link to={reservation.path} className="inline-flex rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                        Voir le bien
+                        {reservation.ctaLabel}
                       </Link>
                       {reservation.status === "reponse_positive_attente_confirmation_client" && (
                         <button
@@ -647,7 +671,7 @@ export default function MyReservationsPage() {
           <DialogHeader>
             <DialogTitle className="text-2xl text-emerald-700">Reponse positive recue</DialogTitle>
             <DialogDescription className="text-base text-gray-600">
-              Le proprietaire a accepte votre demande pour {activePositiveDemand?.bien_titre || "ce bien"}.
+              Le proprietaire a accepte votre demande pour {getReservationDisplayTitle(activePositiveDemand) || "ce bien"}.
               Cliquez sur le bouton ci-dessous pour continuer directement vers le paiement.
             </DialogDescription>
           </DialogHeader>

@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import type { Dispatch, SetStateAction, UIEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload, CheckCircle2, CircleDollarSign, UtensilsCrossed, ExternalLink, LayoutGrid, Rows3, Flame, Building2, Palmtree } from "lucide-react";
+import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload, CheckCircle2, CircleDollarSign, UtensilsCrossed, ExternalLink, LayoutGrid, Rows3, Flame, Building2, Palmtree, Layers3 } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import { PropertyCard } from "../components/PropertyCard";
@@ -108,13 +108,14 @@ const MODE_TABS: Array<{ value: ListingMode; label: string; comingSoon?: boolean
   { value: "hotellerie", label: "Hotellerie", comingSoon: false },
 ];
 const HERO_TABS: Array<{
-  key: "location_saisonniere" | "hotellerie" | "ventes_flash";
+  key: "location_saisonniere" | "hotellerie" | "ventes_flash" | "packs";
   label: string;
   icon: typeof Palmtree;
 }> = [
   { key: "location_saisonniere", label: "Location saisonniere", icon: Palmtree },
   { key: "hotellerie", label: "Hotellerie", icon: Building2 },
   { key: "ventes_flash", label: "Ventes flash", icon: Flame },
+  { key: "packs", label: "Packs", icon: Layers3 },
 ];
 
 const ZONE_FALLBACK_IMAGE =
@@ -1056,6 +1057,8 @@ type HomePageProps = {
   partnerBrandLogoUrl?: string | null;
 };
 
+const buildMultiPropertyRequestKey = (mainType: PropertyMainType, label: string) => `${mainType}:::${label}`;
+
 export default function HomePage({
   forcedAmicaleId,
   forcedPartnerAgencyId,
@@ -1140,6 +1143,10 @@ export default function HomePage({
   const [draftSelectedGouvernerats, setDraftSelectedGouvernerats] = useState<string[]>([]);
   const [draftSelectedRegions, setDraftSelectedRegions] = useState<string[]>([]);
   const [draftSelectedZones, setDraftSelectedZones] = useState<string[]>([]);
+  const [showMultiPropertyModal, setShowMultiPropertyModal] = useState(false);
+  const [multiPropertyStep, setMultiPropertyStep] = useState<"main" | "counts">("main");
+  const [multiPropertyMainTypes, setMultiPropertyMainTypes] = useState<PropertyMainType[]>([]);
+  const [multiPropertyCounts, setMultiPropertyCounts] = useState<Record<string, number>>({});
   const [selectedSeasideOptions, setSelectedSeasideOptions] = useState<HomeSeasideOptionKey[]>([]);
   const [selectedComfortOptions, setSelectedComfortOptions] = useState<HomeComfortOptionKey[]>([]);
   const [visiblePropertiesCount, setVisiblePropertiesCount] = useState(INITIAL_VISIBLE_PROPERTIES);
@@ -2430,6 +2437,27 @@ export default function HomePage({
     const selectedGroup = groupedTypeOptions.find((group) => group.mainType === draftMainType);
     return selectedGroup?.subTypes || [];
   }, [availableTypeOptions, groupedTypeOptions, draftMainType]);
+  const multiPropertyGroups = useMemo(
+    () => groupedTypeOptions.filter((group) => ["appartement", "residence", "villa_maison", "studio"].includes(group.mainType)),
+    [groupedTypeOptions]
+  );
+  const selectedMultiPropertyGroups = useMemo(
+    () => multiPropertyGroups.filter((group) => multiPropertyMainTypes.includes(group.mainType)),
+    [multiPropertyGroups, multiPropertyMainTypes]
+  );
+  const multiPropertyRequests = useMemo(
+    () =>
+      selectedMultiPropertyGroups.flatMap((group) =>
+        group.subTypes
+          .map((subType) => ({
+            mainType: group.mainType,
+            label: subType.label,
+            count: Math.max(0, Number(multiPropertyCounts[buildMultiPropertyRequestKey(group.mainType, subType.label)] || 0)),
+          }))
+          .filter((item) => item.count > 0)
+      ),
+    [multiPropertyCounts, selectedMultiPropertyGroups]
+  );
   const normalizeSelectedCategories = useCallback((categories: string[], mainTypes: PropertyMainType[]) => {
     const next: string[] = [];
     const seenNormalizedCategories = new Set<string>();
@@ -3011,6 +3039,62 @@ export default function HomePage({
     setSelectedSeasideOptions(draftSeasideOptions);
     setSelectedComfortOptions(draftComfortOptions);
     setShowComfortDropdown(false);
+  };
+  const openMultiPropertyModal = () => {
+    setMultiPropertyStep("main");
+    setMultiPropertyMainTypes([]);
+    setMultiPropertyCounts({});
+    setShowMultiPropertyModal(true);
+  };
+  const toggleMultiPropertyMainType = (mainType: PropertyMainType) => {
+    const isRemoving = multiPropertyMainTypes.includes(mainType);
+    setMultiPropertyMainTypes((prev) =>
+      isRemoving
+        ? prev.filter((item) => item !== mainType)
+        : normalizeResidenceExclusiveMainTypes([...prev, mainType], mainType)
+    );
+    if (isRemoving) {
+      const group = multiPropertyGroups.find((item) => item.mainType === mainType);
+      if (!group) return;
+      setMultiPropertyCounts((prev) => {
+        const next = { ...prev };
+        group.subTypes.forEach((subType) => {
+          delete next[buildMultiPropertyRequestKey(mainType, subType.label)];
+        });
+        return next;
+      });
+    }
+  };
+  const updateMultiPropertyCount = (mainType: PropertyMainType, label: string, delta: number) => {
+    const key = buildMultiPropertyRequestKey(mainType, label);
+    setMultiPropertyCounts((prev) => {
+      const nextValue = Math.max(0, Number(prev[key] || 0) + delta);
+      if (nextValue <= 0) {
+        const { [key]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [key]: nextValue };
+    });
+  };
+  const submitMultiPropertyDemand = () => {
+    if (multiPropertyRequests.length === 0) {
+      toast.error("Ajoutez au moins une combinaison de sous-types.");
+      return;
+    }
+    const params = applyAmicaleParam(new URLSearchParams());
+    params.set("mode", "location_saisonniere");
+    if (selectedLocations.length > 0) params.set("locations", selectedLocations.join(","));
+    if (selectedStayRanges.length > 0) {
+      params.set("stayRanges", serializeStayRangesParam(selectedStayRanges));
+      const primaryRange = selectedStayRanges[0];
+      if (primaryRange?.start) params.set("checkIn", primaryRange.start);
+      if (primaryRange?.end) params.set("checkOut", primaryRange.end);
+    }
+    params.set("mainTypes", Array.from(new Set(multiPropertyRequests.map((item) => item.mainType))).join(","));
+    params.set("categories", multiPropertyRequests.map((item) => item.label).join(","));
+    params.set("packCombos", JSON.stringify(multiPropertyRequests));
+    navigate(`/packs?${params.toString()}`);
+    setShowMultiPropertyModal(false);
   };
 
   const handleDateClick = (date: Date) => {
@@ -4440,17 +4524,19 @@ export default function HomePage({
           </div>
           
           <p className="text-lg md:text-xl mb-8 max-w-2xl mx-auto drop-shadow-md text-gray-100">
-            Location saisonniere • Hotellerie • Ventes flash
+            Location saisonniere • Hotellerie • Ventes flash • Packs
           </p>
 
           {/* Filter Bar */}
           <div className="relative z-10 -mb-3 px-4 pb-0 md:px-6">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {HERO_TABS.map((tab) => {
               const Icon = tab.icon;
               const isSelected =
                 tab.key === "ventes_flash"
                   ? isFlashLanding
+                  : tab.key === "packs"
+                    ? routerLocation.pathname === "/packs" || routerLocation.pathname.startsWith("/packs/")
                   : !isFlashLanding && selectedMode === tab.key;
               return (
               <button
@@ -4459,6 +4545,10 @@ export default function HomePage({
                 onClick={() => {
                   if (tab.key === "ventes_flash") {
                     navigate("/ventes_flash");
+                    return;
+                  }
+                  if (tab.key === "packs") {
+                    navigate("/packs");
                     return;
                   }
                   setSelectedMode(tab.key);
@@ -5765,6 +5855,14 @@ export default function HomePage({
             </div>
             {!isSelectedModeComingSoon && !isHotelMode && (
               <div className="hidden md:flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={openMultiPropertyModal}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-white px-5 py-2.5 text-sm font-bold text-emerald-800 shadow-[0_12px_26px_rgba(16,185,129,0.10)] transition-transform hover:-translate-y-0.5"
+                >
+                  <LayoutGrid size={16} />
+                  Demander plusieurs biens
+                </button>
                 <Link
                   to="/packs"
                   className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-[linear-gradient(135deg,#fff8d6,#facc15)] px-5 py-2.5 text-sm font-bold text-amber-900 shadow-[0_12px_26px_rgba(245,158,11,0.16)] transition-transform hover:-translate-y-0.5"
@@ -6990,9 +7088,19 @@ export default function HomePage({
           
           {!isSelectedModeComingSoon && !isHotelMode && (
             <div className="mt-12 text-center md:hidden">
-              <Link to={selectedMode === "vente" ? "/ventes" : publicListingLink} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
-                Voir tous les logements <ArrowRight size={20} />
-              </Link>
+              <div className="flex flex-col items-center gap-3">
+                <button
+                  type="button"
+                  onClick={openMultiPropertyModal}
+                  className="inline-flex items-center gap-2 rounded-full border-2 border-emerald-700 px-6 py-3 font-bold text-emerald-700 transition-colors hover:bg-emerald-50"
+                >
+                  <LayoutGrid size={18} />
+                  Demander plusieurs biens
+                </button>
+                <Link to={selectedMode === "vente" ? "/ventes" : publicListingLink} className="inline-flex items-center gap-2 text-emerald-700 font-bold hover:text-emerald-800 transition-colors border-2 border-emerald-700 px-6 py-3 rounded-full hover:bg-emerald-50">
+                  Voir tous les logements <ArrowRight size={20} />
+                </Link>
+              </div>
             </div>
           )}
         </div>
@@ -7714,6 +7822,196 @@ export default function HomePage({
             </div>
           )}
         </>,
+        document.body
+      )}
+      {showMultiPropertyModal && createPortal(
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.18),transparent_34%),rgba(2,6,23,0.72)] px-4 py-6 backdrop-blur-[3px]">
+          <button type="button" className="absolute inset-0" onClick={() => setShowMultiPropertyModal(false)} aria-label="Fermer la demande multi-biens" />
+          <div className="relative z-10 w-full max-w-4xl overflow-hidden rounded-[32px] border border-white/40 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,250,248,0.98))] shadow-[0_32px_120px_rgba(15,23,42,0.28)]">
+            <div className="relative overflow-hidden bg-[linear-gradient(135deg,#064e3b_0%,#059669_54%,#34d399_100%)] px-6 py-5 text-white sm:px-8">
+              <div className="pointer-events-none absolute inset-y-0 right-[-8%] w-[38%] bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.18),transparent_68%)]" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-white/20" />
+              <div className="flex items-start justify-between gap-4">
+                <div className="relative z-10">
+                  <p className="text-xs font-black uppercase tracking-[0.26em] text-emerald-100">Accueil</p>
+                  <h3 className="mt-2 text-2xl font-black sm:text-3xl">Demander plusieurs biens</h3>
+                  <p className="mt-2 max-w-2xl text-sm text-emerald-50/85">
+                    Selectionnez les types recherches, puis indiquez combien de biens il vous faut pour chaque sous-type.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setShowMultiPropertyModal(false)} className="relative z-10 rounded-full border border-white/25 bg-white/12 p-2 text-white shadow-[0_10px_30px_rgba(15,23,42,0.18)] transition hover:bg-white/18">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-6 bg-[linear-gradient(180deg,rgba(255,255,255,0.88),rgba(240,253,247,0.7))] p-6 sm:p-8">
+              <div className="inline-flex flex-wrap items-center gap-3 rounded-full border border-emerald-100 bg-white/90 p-2 shadow-[0_18px_50px_rgba(16,185,129,0.12)]">
+                <button
+                  type="button"
+                  onClick={() => setMultiPropertyStep("main")}
+                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${multiPropertyStep === "main" ? "bg-emerald-600 text-white shadow-[0_10px_24px_rgba(5,150,105,0.28)]" : "bg-slate-100/90 text-slate-600 hover:bg-slate-200/80"}`}
+                >
+                  1. Type principal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => multiPropertyMainTypes.length > 0 && setMultiPropertyStep("counts")}
+                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${multiPropertyStep === "counts" ? "bg-emerald-600 text-white shadow-[0_10px_24px_rgba(5,150,105,0.28)]" : "bg-slate-100/90 text-slate-600 hover:bg-slate-200/80"}`}
+                >
+                  2. Quantites par sous-type
+                </button>
+              </div>
+
+              {multiPropertyStep === "main" ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    {multiPropertyGroups.map((group) => {
+                      const selected = multiPropertyMainTypes.includes(group.mainType);
+                      return (
+                        <button
+                          key={`multi-main-${group.mainType}`}
+                          type="button"
+                          onClick={() => toggleMultiPropertyMainType(group.mainType)}
+                          className={`group relative min-h-[188px] overflow-hidden rounded-[28px] border text-left transition ${selected ? "border-emerald-400 shadow-[0_22px_45px_rgba(16,185,129,0.2)]" : "border-slate-200 shadow-[0_12px_30px_rgba(15,23,42,0.08)] hover:border-emerald-200 hover:shadow-[0_18px_36px_rgba(16,185,129,0.14)]"}`}
+                        >
+                          <img
+                            src={resolveTypeImageUrl(group.imageUrl)}
+                            alt={group.label}
+                            className="pointer-events-none absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+                          />
+                          <div className={`pointer-events-none absolute inset-0 ${selected ? "bg-[linear-gradient(180deg,rgba(5,150,105,0.16),rgba(2,6,23,0.68))]" : "bg-[linear-gradient(180deg,rgba(15,23,42,0.08),rgba(2,6,23,0.72))]"}`} />
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(180deg,transparent,rgba(2,6,23,0.35))]" />
+                          <div className="relative flex h-full flex-col justify-between p-5">
+                            <div className="flex items-start justify-between gap-3">
+                              <span className="inline-flex rounded-full border border-white/20 bg-white/12 px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em] text-white/90">
+                                Type
+                              </span>
+                              {renderSelectionCheckbox(selected)}
+                            </div>
+                            <div>
+                              <span className="text-xl font-black text-white drop-shadow-[0_6px_24px_rgba(15,23,42,0.5)]">{group.label}</span>
+                              <p className="mt-3 max-w-[15rem] text-sm text-white/82">
+                                {group.subTypes.length} sous-type{group.subTypes.length > 1 ? "s" : ""} disponibles
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setMultiPropertyStep("counts")}
+                      disabled={multiPropertyMainTypes.length === 0}
+                      className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Continuer
+                      <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {selectedMultiPropertyGroups.length === 0 ? (
+                    <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-sm text-slate-500">
+                      Choisissez d&apos;abord un type principal.
+                    </div>
+                  ) : (
+                    selectedMultiPropertyGroups.map((group) => {
+                      const totalForGroup = group.subTypes.reduce(
+                        (sum, subType) => sum + Math.max(0, Number(multiPropertyCounts[buildMultiPropertyRequestKey(group.mainType, subType.label)] || 0)),
+                        0
+                      );
+                      return (
+                        <section key={`multi-group-${group.mainType}`} className="overflow-hidden rounded-[28px] border border-emerald-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(236,253,245,0.7))] shadow-[0_20px_50px_rgba(15,23,42,0.08)]">
+                          <div className="border-b border-emerald-100/80 bg-[linear-gradient(90deg,rgba(16,185,129,0.08),rgba(255,255,255,0.2))] px-5 py-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <p className="text-[11px] font-black uppercase tracking-[0.24em] text-emerald-700">Type principal</p>
+                                <h4 className="mt-1 text-xl font-black text-slate-950">{group.label}</h4>
+                                <p className="mt-1 text-sm text-slate-500">Total demande pour ce type principal: {totalForGroup}</p>
+                              </div>
+                              <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-sm font-bold text-emerald-700 shadow-sm">
+                                {group.subTypes.length} options
+                              </span>
+                            </div>
+                          </div>
+                          <div className="p-5">
+                            <div className="mt-0 grid grid-cols-1 gap-3 md:grid-cols-2">
+                              {group.subTypes.map((subType) => {
+                                const key = buildMultiPropertyRequestKey(group.mainType, subType.label);
+                                const count = Math.max(0, Number(multiPropertyCounts[key] || 0));
+                                return (
+                                  <div key={key} className="group relative overflow-hidden rounded-[24px] border border-emerald-100 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+                                    <div className="absolute inset-y-0 left-0 w-28 overflow-hidden">
+                                      <img
+                                        src={resolveTypeImageUrl(subType.imageUrl || group.imageUrl)}
+                                        alt={subType.label}
+                                        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                                      />
+                                      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,150,105,0.18),rgba(255,255,255,0.08))]" />
+                                    </div>
+                                    <div className="relative flex items-center justify-between gap-4 px-4 py-4 pl-[8.5rem]">
+                                      <div className="min-w-0">
+                                        <p className="font-semibold text-slate-950">{subType.label}</p>
+                                        <p className="text-xs text-slate-500">{group.label}</p>
+                                      </div>
+                                      <div className="flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50/80 px-2 py-1">
+                                        <button type="button" onClick={() => updateMultiPropertyCount(group.mainType, subType.label, -1)} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700">
+                                          <Minus size={16} />
+                                        </button>
+                                        <span className="w-8 text-center text-lg font-black text-slate-950">{count}</span>
+                                        <button type="button" onClick={() => updateMultiPropertyCount(group.mainType, subType.label, 1)} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 transition hover:bg-emerald-100">
+                                          <Plus size={16} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </section>
+                      );
+                    })
+                  )}
+
+                  {multiPropertyRequests.length > 0 ? (
+                    <div className="rounded-[28px] border border-amber-200 bg-[linear-gradient(135deg,rgba(255,251,235,0.95),rgba(254,243,199,0.82))] px-5 py-4 shadow-[0_18px_40px_rgba(245,158,11,0.08)]">
+                      <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-700">Combinaison demandee</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {multiPropertyRequests.map((request) => (
+                          <span key={`${request.mainType}-${request.label}`} className="rounded-full border border-amber-200 bg-white px-3 py-1 text-sm font-semibold text-amber-800">
+                            {request.count} x {request.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-col-reverse justify-between gap-3 sm:flex-row sm:items-center">
+                    <button
+                      type="button"
+                      onClick={() => setMultiPropertyStep("main")}
+                      className="rounded-full border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700"
+                    >
+                      Retour
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitMultiPropertyDemand}
+                      className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-bold text-white"
+                    >
+                      Voir les combinaisons packs
+                      <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
         document.body
       )}
       {showChatbotWidget ? (

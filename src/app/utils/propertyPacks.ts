@@ -1,5 +1,5 @@
 import type { Property } from "../data/properties";
-import type { PropertyPack } from "../admin/types";
+import type { PropertyPack, PropertyPackTab, PropertyPackTabIconKey } from "../admin/types";
 import { normalizeDateOnlyInput, resolveStayAvailability } from "./availability";
 import { resolveCurrentPricing } from "./seasonalPricing";
 
@@ -11,6 +11,8 @@ export type PropertyPackThemeKey = "famille" | "romantique" | "luxe" | "decouver
 export type PropertyPackTheme = {
   key: PropertyPackThemeKey;
   label: string;
+  iconKey: PropertyPackTabIconKey;
+  sourceTabId?: string | null;
   accentClass: string;
   pillClass: string;
   buttonClass: string;
@@ -24,15 +26,27 @@ export type PackSearchContext = {
   locations: string[];
   categories: string[];
   mainTypes: string[];
+  comboRequests: PackCombinationRequest[];
+};
+
+export type PackCombinationRequest = {
+  mainType: string;
+  label: string;
+  count: number;
 };
 
 export type PackAvailabilityStatus = "exact" | "partial" | "unavailable";
 
 export type ResolvedPropertyPack = PropertyPack & {
+  variantKey: string;
+  variantPropertyIds: string[];
   rootProperties: Property[];
   properties: Property[];
   matchedProperties: Property[];
   rootPropertyCount: number;
+  matchedSubtypeScore: number;
+  matchedRequestedSubtypeScore: number;
+  matchedReferences: string[];
   coverImage: string;
   galleryImages: string[];
   totalNightlyPrice: number;
@@ -56,6 +70,7 @@ const PACK_THEMES: Record<PropertyPackThemeKey, PropertyPackTheme> = {
   famille: {
     key: "famille",
     label: "Famille",
+    iconKey: "home",
     accentClass: "from-emerald-700/95 via-emerald-600/90 to-emerald-500/85",
     pillClass: "bg-emerald-600 text-white",
     buttonClass: "bg-emerald-600 text-white hover:bg-emerald-700",
@@ -64,6 +79,7 @@ const PACK_THEMES: Record<PropertyPackThemeKey, PropertyPackTheme> = {
   romantique: {
     key: "romantique",
     label: "Romantique",
+    iconKey: "heart",
     accentClass: "from-pink-700/95 via-fuchsia-600/90 to-rose-500/85",
     pillClass: "bg-pink-600 text-white",
     buttonClass: "bg-pink-600 text-white hover:bg-pink-700",
@@ -72,6 +88,7 @@ const PACK_THEMES: Record<PropertyPackThemeKey, PropertyPackTheme> = {
   luxe: {
     key: "luxe",
     label: "Luxe",
+    iconKey: "crown",
     accentClass: "from-amber-700/95 via-amber-500/90 to-yellow-400/85",
     pillClass: "bg-amber-500 text-white",
     buttonClass: "bg-amber-500 text-slate-950 hover:bg-amber-400",
@@ -80,6 +97,7 @@ const PACK_THEMES: Record<PropertyPackThemeKey, PropertyPackTheme> = {
   decouverte: {
     key: "decouverte",
     label: "Decouverte",
+    iconKey: "map",
     accentClass: "from-cyan-700/95 via-sky-600/90 to-blue-500/85",
     pillClass: "bg-sky-600 text-white",
     buttonClass: "bg-sky-600 text-white hover:bg-sky-700",
@@ -88,6 +106,7 @@ const PACK_THEMES: Record<PropertyPackThemeKey, PropertyPackTheme> = {
   affaires: {
     key: "affaires",
     label: "Affaires",
+    iconKey: "briefcase",
     accentClass: "from-slate-800/95 via-slate-700/90 to-slate-600/85",
     pillClass: "bg-slate-700 text-white",
     buttonClass: "bg-slate-700 text-white hover:bg-slate-800",
@@ -96,12 +115,26 @@ const PACK_THEMES: Record<PropertyPackThemeKey, PropertyPackTheme> = {
   exclusive: {
     key: "exclusive",
     label: "Selection",
+    iconKey: "sparkles",
     accentClass: "from-teal-900/95 via-emerald-800/90 to-emerald-600/85",
     pillClass: "bg-white text-emerald-800",
     buttonClass: "bg-emerald-600 text-white hover:bg-emerald-700",
     softClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
   },
 };
+
+export const PROPERTY_PACK_TAB_ICON_OPTIONS: Array<{
+  key: PropertyPackTabIconKey;
+  label: string;
+  themeKey: PropertyPackThemeKey;
+}> = [
+  { key: "home", label: "Famille", themeKey: "famille" },
+  { key: "heart", label: "Romantique", themeKey: "romantique" },
+  { key: "crown", label: "Luxe", themeKey: "luxe" },
+  { key: "map", label: "Decouverte", themeKey: "decouverte" },
+  { key: "briefcase", label: "Affaires", themeKey: "affaires" },
+  { key: "sparkles", label: "Selection", themeKey: "exclusive" },
+];
 
 const normalizeToken = (value: string) =>
   String(value || "")
@@ -110,11 +143,20 @@ const normalizeToken = (value: string) =>
     .toLowerCase()
     .trim();
 
+const decodeScopedCategory = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw.startsWith("__scoped__::")) return raw;
+  const payload = raw.slice("__scoped__::".length);
+  const separatorIndex = payload.indexOf("::");
+  if (separatorIndex <= 0) return raw;
+  return payload.slice(separatorIndex + 2).trim() || raw;
+};
+
 const normalizeMainType = (value: string) => {
   const normalized = normalizeToken(value);
-  if (normalized === "appartement" || normalized.startsWith("s+")) return "appartement";
-  if (normalized === "residence") return "residence";
-  if (normalized === "studio") return "studio";
+  if (normalized === "appartement" || normalized.includes("appartement") || normalized.startsWith("s+")) return "appartement";
+  if (normalized === "residence" || normalized.includes("residence")) return "residence";
+  if (normalized === "studio" || normalized.includes("studio")) return "studio";
   if (normalized.includes("villa") || normalized.includes("maison") || normalized.includes("bungalow")) return "villa_maison";
   return normalized;
 };
@@ -136,6 +178,55 @@ const getPropertySubtypeScore = (property: Property) =>
   ?? getSPlusValue(property.title)
   ?? getSPlusValue(property.residenceUnitSubType)
   ?? Math.max(1, Number(property.bedrooms || 0));
+
+const getCategoryMatchToken = (value?: string | null) => {
+  const decoded = decodeScopedCategory(value);
+  const sPlusValue = getSPlusValue(decoded);
+  if (sPlusValue && sPlusValue > 0) return `s+${sPlusValue}`;
+  return normalizeToken(decoded).replace(/[^a-z0-9+]+/g, " ").replace(/\s+/g, " ").trim();
+};
+
+const getPropertyCategoryTokens = (property: Property) => {
+  const sourceValues = [
+    property.filterProfile?.displayCategory,
+    property.filterProfile?.subType,
+    property.residenceUnitSubType,
+    property.category,
+    property.title,
+  ];
+  return Array.from(new Set(
+    sourceValues
+      .map((value) => getCategoryMatchToken(String(value || "")))
+      .filter(Boolean)
+  ));
+};
+
+const propertyMatchesCombinationRequest = (property: Property, request: PackCombinationRequest) => {
+  const normalizedMainType = normalizeMainType(request.mainType);
+  if (normalizedMainType && getPropertyMainType(property) !== normalizedMainType) return false;
+  const requestToken = getCategoryMatchToken(request.label);
+  if (!requestToken) return true;
+  const propertyTokens = getPropertyCategoryTokens(property);
+  return propertyTokens.some((token) => token === requestToken || token.includes(requestToken) || requestToken.includes(token));
+};
+
+const parsePackCombinationRequests = (params: URLSearchParams): PackCombinationRequest[] => {
+  const raw = String(params.get("packCombos") || "").trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => ({
+        mainType: String(item?.mainType || "").trim(),
+        label: String(item?.label || "").trim(),
+        count: Math.max(0, Number(item?.count || 0) || 0),
+      }))
+      .filter((item) => item.mainType && item.label && item.count > 0);
+  } catch {
+    return [];
+  }
+};
 
 const getPropertyLocationTokens = (property: Property) => {
   const hierarchy = property.filterProfile?.locationHierarchy;
@@ -166,6 +257,13 @@ export function buildPropertyPackPath(pack: Pick<PropertyPack, "id">) {
   return `/packs/${encodeURIComponent(String(pack.id || "").trim())}`;
 }
 
+export function getPackVariantParamValue(pack: { variantPropertyIds?: string[] }) {
+  return (Array.isArray(pack.variantPropertyIds) ? pack.variantPropertyIds : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(",");
+}
+
 export function getPackSearchContextFromParams(params: URLSearchParams): PackSearchContext {
   const adultGuests = Math.max(1, Number(params.get("adultGuests") || 0) || 0);
   const childGuests = Math.max(0, Number(params.get("childGuests") || 0) || 0);
@@ -189,7 +287,43 @@ export function getPackSearchContextFromParams(params: URLSearchParams): PackSea
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean),
+    comboRequests: parsePackCombinationRequests(params),
   };
+}
+
+export function formatPackCombinationRequestLabel(requests: PackCombinationRequest[]) {
+  return requests
+    .filter((request) => request.count > 0)
+    .map((request) => `${request.count} x ${decodeScopedCategory(request.label)}`)
+    .join(" + ");
+}
+
+export function getRequestedPackSubtypeScore(context: Pick<PackSearchContext, "categories" | "comboRequests">) {
+  const comboRequestedScore = Array.isArray(context.comboRequests)
+    ? context.comboRequests.reduce((sum, request) => {
+      const requestValue = getSPlusValue(request.label) || 0;
+      return sum + (requestValue > 0 ? requestValue * Math.max(0, Number(request.count || 0)) : 0);
+    }, 0)
+    : 0;
+  if (comboRequestedScore > 0) return comboRequestedScore;
+  return Math.max(
+    0,
+    ...((context.categories || []).map((value) => getSPlusValue(value) || 0))
+  );
+}
+
+export function getRequestedPackSubtypeScores(context: Pick<PackSearchContext, "categories" | "comboRequests">) {
+  if (Array.isArray(context.comboRequests) && context.comboRequests.length > 0) {
+    const total = getRequestedPackSubtypeScore(context);
+    return total > 0 ? [total] : [];
+  }
+  return Array.from(
+    new Set(
+      (context.categories || [])
+        .map((value) => getSPlusValue(value) || 0)
+        .filter((value) => value > 0)
+    )
+  ).sort((a, b) => a - b);
 }
 
 export function inferPropertyPackTheme(name?: string | null, description?: string | null): PropertyPackTheme {
@@ -200,6 +334,28 @@ export function inferPropertyPackTheme(name?: string | null, description?: strin
   if (/(affaire|business|pro|travail|seminaire)/.test(haystack)) return PACK_THEMES.affaires;
   if (/(decouverte|exploration|escapade|sejour|weekend)/.test(haystack)) return PACK_THEMES.decouverte;
   return PACK_THEMES.exclusive;
+}
+
+function resolvePropertyPackTheme(pack: PropertyPack): PropertyPackTheme {
+  const clientTab = pack.clientTab || null;
+  if (clientTab?.iconKey) {
+    const iconTheme = PROPERTY_PACK_TAB_ICON_OPTIONS.find((option) => option.key === clientTab.iconKey)?.themeKey || "exclusive";
+    const baseTheme = PACK_THEMES[iconTheme];
+    return {
+      ...baseTheme,
+      label: String(clientTab.label || "").trim() || baseTheme.label,
+      iconKey: clientTab.iconKey,
+      sourceTabId: String(clientTab.id || "").trim() || null,
+    };
+  }
+  return inferPropertyPackTheme(pack.name, pack.description);
+}
+
+export function sortPropertyPackTabs(tabs: PropertyPackTab[]) {
+  return [...tabs].sort((a, b) =>
+    Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
+    || String(a.label || "").localeCompare(String(b.label || ""), "fr")
+  );
 }
 
 function getNightlyPrice(property: Property) {
@@ -333,13 +489,28 @@ function buildSubsets<T>(values: T[]) {
   return subsets;
 }
 
-function choosePackVariant(properties: Property[], context: PackSearchContext) {
+function buildSubsetKey(properties: Property[]) {
+  return properties
+    .map((property) => String(property.id || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "fr"))
+    .join("__");
+}
+
+function choosePackVariants(properties: Property[], context: PackSearchContext) {
+  if (properties.length < 2) {
+    return {
+      matchedPropertiesList: [] as Property[][],
+      availabilityStatus: "unavailable" as PackAvailabilityStatus,
+      matchedRequestedSubtypeScores: [] as number[],
+    };
+  }
   const allowedMainTypes = context.mainTypes.map(normalizeMainType).filter(Boolean);
-  const requestedSubtypeScore = Math.max(
-    0,
-    ...context.categories.map((value) => getSPlusValue(value) || 0)
-  );
+  const comboRequests = Array.isArray(context.comboRequests) ? context.comboRequests.filter((item) => item.count > 0) : [];
+  const requestedSubtypeScores = getRequestedPackSubtypeScores(context);
+  const requestedSubtypeScore = getRequestedPackSubtypeScore(context);
   const requestedGuests = Math.max(0, Number(context.guestsMin || 0));
+  const requestedUnitCount = comboRequests.reduce((sum, request) => sum + Math.max(0, Number(request.count || 0)), 0);
   const exactAvailable = properties.filter((property) => {
     if (!locationsMatch(property, context.locations)) return false;
     if (allowedMainTypes.length > 0 && !allowedMainTypes.includes(getPropertyMainType(property))) return false;
@@ -348,11 +519,11 @@ function choosePackVariant(properties: Property[], context: PackSearchContext) {
   });
 
   if (exactAvailable.length === 0) {
-    return { matchedProperties: [] as Property[], availabilityStatus: "unavailable" as PackAvailabilityStatus };
-  }
-
-  if (!context.checkIn || !context.checkOut) {
-    return { matchedProperties: exactAvailable, availabilityStatus: "exact" as PackAvailabilityStatus };
+    return {
+      matchedPropertiesList: [] as Property[][],
+      availabilityStatus: "unavailable" as PackAvailabilityStatus,
+      matchedRequestedSubtypeScores: [] as number[],
+    };
   }
 
   const subsets = buildSubsets(exactAvailable);
@@ -361,43 +532,108 @@ function choosePackVariant(properties: Property[], context: PackSearchContext) {
       const totalGuests = subset.reduce((sum, property) => sum + Math.max(0, Number(property.guests || 0)), 0);
       const subtypeTotal = subset.reduce((sum, property) => sum + Math.max(0, getPropertySubtypeScore(property) || 0), 0);
       const guestGap = requestedGuests > 0 && totalGuests < requestedGuests ? requestedGuests - totalGuests : 0;
-      const subtypeGap = requestedSubtypeScore > 0 && subtypeTotal < requestedSubtypeScore ? requestedSubtypeScore - subtypeTotal : 0;
+      const subtypeGap = requestedSubtypeScore > 0 ? Math.abs(subtypeTotal - requestedSubtypeScore) : 0;
+      const comboShortage = comboRequests.reduce((sum, request) => {
+        const matchedCount = subset.filter((property) => propertyMatchesCombinationRequest(property, request)).length;
+        return sum + Math.max(0, request.count - matchedCount);
+      }, 0);
+      const comboOverflow = comboRequests.reduce((sum, request) => {
+        const matchedCount = subset.filter((property) => propertyMatchesCombinationRequest(property, request)).length;
+        return sum + Math.max(0, matchedCount - request.count);
+      }, 0);
+      const comboGap = comboShortage + comboOverflow;
+      const unitGap = requestedUnitCount > 0 ? Math.abs(subset.length - requestedUnitCount) : 0;
+      const matchedRequestedSubtypeScore =
+        requestedSubtypeScores.find((score) => score > 0 && subtypeTotal === score) || 0;
       return {
         subset,
         guestGap,
         subtypeGap,
+        comboGap,
+        unitGap,
         totalGuests,
         subtypeTotal,
+        matchedRequestedSubtypeScore,
         unitCount: subset.length,
       };
     })
-    .filter((item) => item.guestGap === 0)
+    .filter((item) => {
+      if (item.subset.length < 2) return false;
+      if (item.guestGap !== 0 || item.comboGap !== 0 || item.unitGap !== 0) return false;
+      if (requestedSubtypeScores.length > 0 && item.matchedRequestedSubtypeScore <= 0) return false;
+      if (requestedSubtypeScores.length === 0 && requestedSubtypeScore > 0 && item.subtypeTotal !== requestedSubtypeScore) return false;
+      return true;
+    })
     .sort((a, b) =>
-      a.subtypeGap - b.subtypeGap
+      a.matchedRequestedSubtypeScore - b.matchedRequestedSubtypeScore
+      || a.subtypeGap - b.subtypeGap
       || Math.abs(a.subtypeTotal - requestedSubtypeScore) - Math.abs(b.subtypeTotal - requestedSubtypeScore)
       || a.unitCount - b.unitCount
       || a.totalGuests - b.totalGuests
     );
 
   if (scored.length > 0) {
-    return { matchedProperties: scored[0].subset, availabilityStatus: "exact" as PackAvailabilityStatus };
+    const uniqueVariants = new Map<string, { subset: Property[]; matchedRequestedSubtypeScore: number }>();
+    scored.forEach((item) => {
+      const key = buildSubsetKey(item.subset);
+      if (!key || uniqueVariants.has(key)) return;
+      uniqueVariants.set(key, {
+        subset: item.subset,
+        matchedRequestedSubtypeScore: item.matchedRequestedSubtypeScore,
+      });
+    });
+    return {
+      matchedPropertiesList: Array.from(uniqueVariants.values()).map((item) => item.subset),
+      availabilityStatus: "exact" as PackAvailabilityStatus,
+      matchedRequestedSubtypeScores: Array.from(uniqueVariants.values()).map((item) => item.matchedRequestedSubtypeScore),
+    };
+  }
+
+  if (!context.checkIn && !context.checkOut && requestedGuests === 0 && requestedSubtypeScore === 0 && allowedMainTypes.length === 0 && comboRequests.length === 0) {
+    return {
+      matchedPropertiesList: exactAvailable.length >= 2 ? [exactAvailable] : ([] as Property[][]),
+      availabilityStatus: exactAvailable.length >= 2 ? ("exact" as PackAvailabilityStatus) : ("unavailable" as PackAvailabilityStatus),
+      matchedRequestedSubtypeScores: exactAvailable.length >= 2 ? [0] : [],
+    };
   }
 
   return {
-    matchedProperties: exactAvailable,
-    availabilityStatus: exactAvailable.length > 0 ? "partial" as PackAvailabilityStatus : "unavailable" as PackAvailabilityStatus,
+    matchedPropertiesList: [] as Property[][],
+    availabilityStatus: "unavailable" as PackAvailabilityStatus,
+    matchedRequestedSubtypeScores: [] as number[],
   };
 }
 
-function buildSearchSummary(context: PackSearchContext, matchedProperties: Property[], availabilityStatus: PackAvailabilityStatus) {
-  if (!context.checkIn || !context.checkOut) return null;
+function buildSearchSummary(
+  context: PackSearchContext,
+  matchedProperties: Property[],
+  availabilityStatus: PackAvailabilityStatus,
+  matchedRequestedSubtypeScore = 0
+) {
+  const comboLabel = context.comboRequests.length > 0 ? formatPackCombinationRequestLabel(context.comboRequests) : "";
+  const subtypeLabel = matchedRequestedSubtypeScore > 0 ? `S+${matchedRequestedSubtypeScore}` : "";
+  if (!context.checkIn || !context.checkOut) {
+    if (comboLabel && availabilityStatus === "exact") {
+      return `${comboLabel} compose a partir des references du pack`;
+    }
+    if (subtypeLabel && availabilityStatus === "exact") {
+      return `Combinaison ${subtypeLabel} composee a partir des references du pack`;
+    }
+    return null;
+  }
   if (availabilityStatus === "exact") {
-    return `${matchedProperties.length} reference(s) disponibles pour vos dates`;
+    return comboLabel
+      ? `${comboLabel} disponible pour vos dates`
+      : subtypeLabel
+        ? `Combinaison ${subtypeLabel} disponible pour vos dates`
+      : `${matchedProperties.length} reference(s) disponibles pour vos dates`;
   }
   if (availabilityStatus === "partial") {
     return `Composition partielle disponible pour vos dates`;
   }
-  return "Aucune composition disponible pour vos dates";
+  return comboLabel
+    ? `Aucune combinaison disponible pour ${comboLabel}`
+    : "Aucune composition disponible pour vos dates";
 }
 
 export function resolvePublicPropertyPacks(
@@ -413,52 +649,93 @@ export function resolvePublicPropertyPacks(
     locations: [],
     categories: [],
     mainTypes: [],
+    comboRequests: [],
   };
 
   return packs
-    .map((pack) => {
+    .filter((pack) => pack?.isActive !== false)
+    .flatMap((pack) => {
       const rootProperties = (Array.isArray(pack.bienIds) ? pack.bienIds : [])
         .map((id) => propertiesById.get(String(id || "").trim()))
         .filter((property): property is Property => Boolean(property));
-      const variant = choosePackVariant(rootProperties, safeContext);
-      const matchedProperties = variant.matchedProperties.length > 0 ? variant.matchedProperties : rootProperties;
-      const allImages = matchedProperties.flatMap((property) => property.images || []).filter(Boolean);
-      const commonAmenities = buildCommonAmenities(matchedProperties);
+      const variant = choosePackVariants(rootProperties, safeContext);
+      const propertySets = variant.matchedPropertiesList.length > 0
+        ? variant.matchedPropertiesList
+        : (safeContext.checkIn || safeContext.checkOut || safeContext.categories.length > 0 || safeContext.comboRequests.length > 0 || safeContext.mainTypes.length > 0
+          ? []
+          : [rootProperties]);
       const preferredGalleryImages = Array.isArray(pack.galleryImages) && pack.galleryImages.length > 0 ? pack.galleryImages : [];
-      return {
-        ...pack,
-        rootProperties,
-        properties: matchedProperties,
-        matchedProperties,
-        rootPropertyCount: rootProperties.length,
-        coverImage: preferredGalleryImages[0] || allImages[0] || rootProperties[0]?.images?.[0] || PROPERTY_PACK_FALLBACK_IMAGE,
-        galleryImages: Array.from(new Set(preferredGalleryImages.length > 0 ? preferredGalleryImages : (allImages.length > 0 ? allImages : rootProperties.flatMap((property) => property.images || [])))).slice(0, 8),
-        totalNightlyPrice: matchedProperties.reduce((sum, property) => sum + getNightlyPrice(property), 0),
-        totalWeeklyPrice: matchedProperties.reduce((sum, property) => sum + getWeeklyPrice(property), 0),
-        maxGuests: matchedProperties.reduce((sum, property) => sum + Math.max(0, Number(property.guests || 0)), 0),
-        minStayNights: matchedProperties.reduce((max, property) => Math.max(max, getMinStay(property)), 1),
-        locationSummary: buildLocationSummary(matchedProperties.length > 0 ? matchedProperties : rootProperties),
-        shortDescription: buildShortDescription(pack, matchedProperties.length > 0 ? matchedProperties : rootProperties),
-        commonAmenities,
-        highlightItems: buildHighlightItems(matchedProperties.length > 0 ? matchedProperties : rootProperties, commonAmenities),
-        locationPills: buildLocationPills(matchedProperties.length > 0 ? matchedProperties : rootProperties),
-        propertyLines: (matchedProperties.length > 0 ? matchedProperties : rootProperties).map(buildPropertyLine).slice(0, 5),
-        featureTags: buildFeatureTags(matchedProperties.length > 0 ? matchedProperties : rootProperties, pack),
-        theme: inferPropertyPackTheme(pack.name, pack.description),
-        availabilityStatus: variant.availabilityStatus,
-        isSearchVariant: variant.availabilityStatus === "exact" && matchedProperties.length !== rootProperties.length,
-        searchSummary: buildSearchSummary(safeContext, matchedProperties, variant.availabilityStatus),
-      };
+      const rootImages = rootProperties.flatMap((property) => property.images || []).filter(Boolean);
+      return propertySets.map((matchedProperties, variantIndex) => {
+        const matchedImages = matchedProperties.flatMap((property) => property.images || []).filter(Boolean);
+        const commonAmenities = buildCommonAmenities(matchedProperties);
+        const matchedReferences = matchedProperties
+          .map((property) => String(property.reference || "").trim())
+          .filter(Boolean);
+        const variantPropertyIds = matchedProperties
+          .map((property) => String(property.id || "").trim())
+          .filter(Boolean);
+        const variantKey = `${String(pack.id || "").trim()}::${buildSubsetKey(matchedProperties) || variantIndex}`;
+        const matchedRequestedSubtypeScore = Number(variant.matchedRequestedSubtypeScores?.[variantIndex] || 0);
+        return {
+          ...pack,
+          variantKey,
+          variantPropertyIds,
+          rootProperties,
+          properties: matchedProperties,
+          matchedProperties,
+          rootPropertyCount: rootProperties.length,
+          matchedSubtypeScore: matchedProperties.reduce((sum, property) => sum + Math.max(0, getPropertySubtypeScore(property) || 0), 0),
+          matchedRequestedSubtypeScore,
+          matchedReferences,
+          coverImage: matchedImages[0] || preferredGalleryImages[0] || rootImages[0] || PROPERTY_PACK_FALLBACK_IMAGE,
+          galleryImages: Array.from(new Set(
+            matchedImages.length > 0
+              ? matchedImages
+              : (preferredGalleryImages.length > 0 ? preferredGalleryImages : rootImages)
+          )).slice(0, 8),
+          totalNightlyPrice: matchedProperties.reduce((sum, property) => sum + getNightlyPrice(property), 0),
+          totalWeeklyPrice: matchedProperties.reduce((sum, property) => sum + getWeeklyPrice(property), 0),
+          maxGuests: matchedProperties.reduce((sum, property) => sum + Math.max(0, Number(property.guests || 0)), 0),
+          minStayNights: matchedProperties.reduce((max, property) => Math.max(max, getMinStay(property)), 1),
+          locationSummary: buildLocationSummary(matchedProperties.length > 0 ? matchedProperties : rootProperties),
+          shortDescription: buildShortDescription(pack, matchedProperties.length > 0 ? matchedProperties : rootProperties),
+          commonAmenities,
+          highlightItems: buildHighlightItems(matchedProperties.length > 0 ? matchedProperties : rootProperties, commonAmenities),
+          locationPills: buildLocationPills(matchedProperties.length > 0 ? matchedProperties : rootProperties),
+          propertyLines: (matchedProperties.length > 0 ? matchedProperties : rootProperties).map(buildPropertyLine).slice(0, 5),
+          featureTags: buildFeatureTags(matchedProperties.length > 0 ? matchedProperties : rootProperties, pack),
+          theme: resolvePropertyPackTheme(pack),
+          availabilityStatus: variant.availabilityStatus,
+          isSearchVariant: variant.availabilityStatus === "exact" && matchedProperties.length !== rootProperties.length,
+          searchSummary: buildSearchSummary(
+            safeContext,
+            matchedProperties,
+            variant.availabilityStatus,
+            matchedRequestedSubtypeScore
+          ),
+        };
+      });
     })
     .filter((pack) => {
-      if (pack.rootProperties.length === 0) return false;
+      if (pack.rootProperties.length < 2) return false;
+      if (pack.properties.length < 2) return false;
+      if (safeContext.comboRequests.length > 0) return pack.availabilityStatus !== "unavailable";
+      if (safeContext.categories.length > 0) return pack.availabilityStatus !== "unavailable";
       if (safeContext.checkIn && safeContext.checkOut) return pack.availabilityStatus !== "unavailable";
       return true;
     })
     .sort((a, b) => {
       const statusWeight = { exact: 0, partial: 1, unavailable: 2 };
+      const requestedSubtypeScore = getRequestedPackSubtypeScore(safeContext);
+      const subtypeDeltaA = requestedSubtypeScore > 0 ? Math.abs(a.matchedSubtypeScore - requestedSubtypeScore) : 0;
+      const subtypeDeltaB = requestedSubtypeScore > 0 ? Math.abs(b.matchedSubtypeScore - requestedSubtypeScore) : 0;
+      const guestDeltaA = safeContext.guestsMin > 0 ? Math.max(0, a.maxGuests - safeContext.guestsMin) : 0;
+      const guestDeltaB = safeContext.guestsMin > 0 ? Math.max(0, b.maxGuests - safeContext.guestsMin) : 0;
       return statusWeight[a.availabilityStatus] - statusWeight[b.availabilityStatus]
-        || b.properties.length - a.properties.length
-        || b.totalNightlyPrice - a.totalNightlyPrice;
+        || subtypeDeltaA - subtypeDeltaB
+        || guestDeltaA - guestDeltaB
+        || a.properties.length - b.properties.length
+        || a.totalNightlyPrice - b.totalNightlyPrice;
     });
 }

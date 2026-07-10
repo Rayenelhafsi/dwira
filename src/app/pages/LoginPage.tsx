@@ -32,8 +32,26 @@ function normalizeReturnToPath(value: string | null | undefined) {
   const next = String(value || '').trim();
   if (!next.startsWith('/')) return null;
   if (next.startsWith('//')) return null;
-  if (!next.startsWith('/reservation/confirmation/')) return null;
+  if (
+    !next.startsWith('/reservation/confirmation/')
+    && !next.startsWith('/reservation/packs/confirmation/')
+  ) return null;
   return next;
+}
+
+function buildPendingReservationReturnPath() {
+  const pendingDraft = readPendingReservationDraft();
+  if (!pendingDraft) return null;
+  if (
+    (pendingDraft.targetType === 'group' || pendingDraft.targetType === 'pack')
+    && String(pendingDraft.packId || pendingDraft.groupSlug || pendingDraft.groupId || '').trim()
+  ) {
+    return `/reservation/packs/confirmation/${encodeURIComponent(String(
+      pendingDraft.packId || pendingDraft.groupSlug || pendingDraft.groupId || ''
+    ))}`;
+  }
+  if (typeof pendingDraft.propertySlug !== 'string' || !pendingDraft.propertySlug.trim()) return null;
+  return `/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`;
 }
 
 function splitHumanName(fullName?: string | null) {
@@ -109,9 +127,9 @@ export default function LoginPage() {
       navigate(returnTo, { replace: true });
       return true;
     }
-    const pendingDraft = readPendingReservationDraft();
-    if (!pendingDraft || typeof pendingDraft.propertySlug !== 'string') return false;
-    navigate(`/reservation/confirmation/${encodeURIComponent(pendingDraft.propertySlug)}`, { replace: true });
+    const pendingReturnPath = buildPendingReservationReturnPath();
+    if (!pendingReturnPath) return false;
+    navigate(pendingReturnPath, { replace: true });
     return true;
   };
 

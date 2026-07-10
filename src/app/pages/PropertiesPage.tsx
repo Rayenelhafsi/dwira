@@ -7,6 +7,7 @@ import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isBefore, 
 import { fr } from "date-fns/locale";
 import { useProperties } from "../context/PropertiesContext";
 import { PropertyCard } from "../components/PropertyCard";
+import { SmartImage } from "../components/SmartImage";
 import type { Property } from "../data/properties";
 import { getServiceDisplayPrice, normalizeServicePayant, type NormalizedServicePayant } from "../utils/servicePayants";
 import ComingSoonState from "../components/ComingSoonState";
@@ -26,6 +27,8 @@ import { fetchAmicalesPublic, findAmicaleById, normalizeAmicaleSlug } from "../u
 import { resolvePublicPartnerBySlug } from "../utils/publicPartnerResolver";
 import { getOrCreateTrackingSessionId, hasTrackingConsent } from "../utils/consent";
 import { trackPublicClientInteraction } from "../utils/clientInteractions";
+import { buildPropertyPackPath, formatPackCombinationRequestLabel, getPackSearchContextFromParams, getPackVariantParamValue, getRequestedPackSubtypeScore, resolvePublicPropertyPacks } from "../utils/propertyPacks";
+import type { PropertyPack } from "../admin/types";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
@@ -993,6 +996,7 @@ export default function PropertiesPage() {
     (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured")
   );
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [propertyPacks, setPropertyPacks] = useState<PropertyPack[]>([]);
   const [showAllResults, setShowAllResults] = useState(false);
   const resultsAutoLoadTriggerRef = useRef<HTMLDivElement | null>(null);
   const lastAutoLoadedResultsCountRef = useRef(0);
@@ -1018,6 +1022,23 @@ export default function PropertiesPage() {
   const [draftMainType, setDraftMainType] = useState<PropertyMainType | "">("");
   const [draftSelectedMainTypes, setDraftSelectedMainTypes] = useState<PropertyMainType[]>([]);
   const [draftCategories, setDraftCategories] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/property-packs`);
+        if (!response.ok) throw new Error("property-packs");
+        const rows = await response.json();
+        if (!cancelled) setPropertyPacks(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setPropertyPacks([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (loading) return;
@@ -3481,6 +3502,19 @@ export default function PropertiesPage() {
     }
     return sections;
   }, [alternativeScoredResults, selectedSeasideOptions]);
+  const packSearchContext = useMemo(() => getPackSearchContextFromParams(searchParams), [searchParams]);
+  const matchingSearchPacks = useMemo(
+    () => resolvePublicPropertyPacks(propertyPacks, properties, packSearchContext).slice(0, 4),
+    [packSearchContext, properties, propertyPacks]
+  );
+  const packRequestLabel = useMemo(() => {
+    if (packSearchContext.comboRequests.length > 0) {
+      const comboLabel = formatPackCombinationRequestLabel(packSearchContext.comboRequests);
+      return comboLabel ? `Combinaison ${comboLabel}` : "";
+    }
+    const requestedSubtypeScore = getRequestedPackSubtypeScore(packSearchContext);
+    return requestedSubtypeScore > 0 ? `Combinaison S+${requestedSubtypeScore}` : "";
+  }, [packSearchContext]);
   const hasStrictStaySearch = selectedMode === "location_saisonniere" && stayRanges.some((range) => isValidStayRange(range.start, range.end));
   const displayedPrimaryResults = useMemo<PrimaryDisplayResult[]>(() => {
     const flashRows: PrimaryDisplayResult[] = [];
@@ -4360,7 +4394,11 @@ export default function PropertiesPage() {
                 ) : (
                   <>
                     <span className="font-medium text-gray-500">
-                      {regularDisplayResults.length} resultat{regularDisplayResults.length !== 1 ? "s" : ""} trouve{regularDisplayResults.length !== 1 ? "s" : ""}
+                      {regularDisplayResults.length > 0
+                        ? `${regularDisplayResults.length} resultat${regularDisplayResults.length !== 1 ? "s" : ""} trouve${regularDisplayResults.length !== 1 ? "s" : ""}`
+                        : matchingSearchPacks.length > 0
+                          ? `${matchingSearchPacks.length} pack${matchingSearchPacks.length !== 1 ? "s" : ""} compatible${matchingSearchPacks.length !== 1 ? "s" : ""}`
+                          : "0 resultat trouve"}
                     </span>
                     {flashDisplayResults.length > 0 && (
                       <span className="text-sm font-medium text-orange-600">{flashDisplayResults.length} vente{flashDisplayResults.length !== 1 ? "s" : ""} flash</span>
@@ -4411,7 +4449,7 @@ export default function PropertiesPage() {
                   </div>
                 ))}
               </div>
-            ) : (regularDisplayResults.length > 0 || flashDisplayResults.length > 0) ? (
+            ) : (regularDisplayResults.length > 0 || flashDisplayResults.length > 0 || matchingSearchPacks.length > 0) ? (
               <div className="space-y-8">
                 {flashDisplayResults.length > 0 && (
                   <div className="rounded-[30px] border border-orange-100 bg-[linear-gradient(135deg,#fff7ed,#fff1f2)] px-4 py-5 shadow-[0_18px_44px_rgba(249,115,22,0.08)] md:px-6 md:py-7">
@@ -4507,6 +4545,116 @@ export default function PropertiesPage() {
                     </button>
                   </>
                 )}
+              </div>
+            )}
+            {matchingSearchPacks.length > 0 && (
+              <div className="mt-10 rounded-[30px] border border-amber-200 bg-[linear-gradient(135deg,#fffdf3,#fff7ed)] p-5 shadow-[0_18px_44px_rgba(245,158,11,0.08)]">
+                <div className="mb-5 flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-950">Packs combines</h3>
+                  </div>
+                  <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-semibold text-amber-700">
+                    {matchingSearchPacks.length} choix
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  {matchingSearchPacks.map((pack) => {
+                    const packHrefParams = new URLSearchParams(searchParams.toString());
+                    const variantValue = getPackVariantParamValue(pack);
+                    if (variantValue) packHrefParams.set("variantBienIds", variantValue);
+                    const packHref = `${buildPropertyPackPath(pack)}${packHrefParams.toString() ? `?${packHrefParams.toString()}` : ''}`;
+                    return (
+                    <Link
+                      key={pack.variantKey}
+                      to={packHref}
+                      className="overflow-hidden rounded-[26px] border border-amber-200 bg-white transition hover:-translate-y-0.5 hover:shadow-lg"
+                    >
+                      <div className="grid gap-0 md:grid-cols-[1.12fr_0.88fr]">
+                        <div className="relative min-h-[260px] overflow-hidden bg-slate-100 md:min-h-full">
+                          <SmartImage
+                            src={pack.coverImage}
+                            alt={pack.name}
+                            className="absolute inset-0 h-full w-full object-cover"
+                            loading="lazy"
+                            decoding="async"
+                            fetchPriority="low"
+                            targetWidth={960}
+                            quality={58}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent" />
+                          <div className="absolute left-4 top-4 inline-flex items-center rounded-full bg-amber-400/95 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-amber-950">
+                            Pack
+                          </div>
+                          <div className="absolute bottom-4 left-4 right-4">
+                            <h4 className="text-lg font-bold text-white">{pack.name}</h4>
+                            <p className="mt-1 text-sm text-white/85">
+                              {packSearchContext.comboRequests.length > 0
+                                ? (packRequestLabel || `${pack.properties.length} biens combines`)
+                                : pack.matchedRequestedSubtypeScore > 0
+                                  ? `Combinaison S+${pack.matchedRequestedSubtypeScore}`
+                                  : (packRequestLabel || (pack.matchedSubtypeScore > 0 ? `Combinaison S+${pack.matchedSubtypeScore}` : `${pack.properties.length} biens combines`))}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col p-5">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-sm text-slate-600">{pack.searchSummary || pack.shortDescription}</p>
+                              <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+                                <MapPin size={15} className="text-emerald-600" />
+                                <span>{pack.locationSummary}</span>
+                              </div>
+                            </div>
+                            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                              {pack.properties.length} bien{pack.properties.length > 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {pack.matchedReferences.slice(0, 4).map((reference) => (
+                              <span key={`${pack.variantKey}-${reference}`} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                                {reference}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                            <div className="rounded-2xl bg-slate-50 px-3 py-3">
+                              <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Biens</p>
+                              <p className="mt-1 font-semibold text-slate-950">{pack.properties.length}</p>
+                            </div>
+                            <div className="rounded-2xl bg-slate-50 px-3 py-3">
+                              <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Voyageurs</p>
+                              <p className="mt-1 font-semibold text-slate-950">{pack.maxGuests}</p>
+                            </div>
+                            <div className="rounded-2xl bg-slate-50 px-3 py-3">
+                              <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Prix / nuit</p>
+                              <p className="mt-1 font-semibold text-slate-950">{Math.round(pack.totalNightlyPrice)} TND</p>
+                            </div>
+                          </div>
+                          {pack.galleryImages.length > 1 && (
+                            <div className="mt-auto pt-4">
+                              <div className="grid grid-cols-3 gap-2">
+                              {pack.galleryImages.slice(1, 4).map((image, imageIndex) => (
+                                <SmartImage
+                                  key={`${pack.variantKey}-thumb-${imageIndex}`}
+                                  src={image}
+                                  alt={`${pack.name} ${imageIndex + 2}`}
+                                  className="h-20 w-full rounded-2xl object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                  fetchPriority="low"
+                                  targetWidth={280}
+                                  quality={46}
+                                />
+                              ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                    );
+                  })}
+                </div>
               </div>
             )}
             {alternativeScoredResults.length > 0 && (

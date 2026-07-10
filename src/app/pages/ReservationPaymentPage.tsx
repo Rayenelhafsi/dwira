@@ -63,6 +63,13 @@ function resolveAssetUrl(url?: string | null) {
   return `${window.location.origin}${value.startsWith("/") ? value : `/${value}`}`;
 }
 
+function getDemandDisplayTitle(demand: ReservationDemand | null) {
+  if (!demand) return "Bien";
+  return String(demand.reservation_group_label || "").trim()
+    || String(demand.bien_titre || "").trim()
+    || "Bien";
+}
+
 const AGENCY_BANK_DETAILS = {
   titulaire: "DWIRA KELIBIA",
   adresse: "Rue Ibn Khaldoun, Kelibia 8090, Nabeul",
@@ -609,8 +616,8 @@ export default function ReservationPaymentPage() {
             )}
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <InfoCard label="Demande" value={demand.bien_reference || demand.id} />
-              <InfoCard label="Bien" value={demand.bien_titre || "Bien"} />
+              <InfoCard label="Demande" value={demand.reservation_group_label || demand.bien_reference || demand.id} />
+              <InfoCard label="Bien" value={getDemandDisplayTitle(demand)} />
               <InfoCard label="Paiement reservation" value={summary?.reservationPaid ? `Regle le ${formatDateTime(demand.reservation_payment_paid_at)}` : formatMoney(summary?.reservationAmount)} />
               <InfoCard label="Paiement services" value={summary?.servicesPayable ? (summary?.servicesPaid ? `Regle le ${formatDateTime(demand.services_payment_paid_at)}` : formatMoney(summary?.servicesAmount)) : "Aucun devis a regler"} />
             </div>

@@ -134,6 +134,11 @@ export interface Property {
     exterieurJardin?: string[];
     confortEquipementsInterieurs?: string[];
   };
+  propertyGroupId?: string | null;
+  propertyGroupLabel?: string | null;
+  groupedPropertyIds?: string[];
+  groupedPropertyReferences?: string[];
+  isGroupCombination?: boolean;
   // Owner information
   proprietaire_id: string;
 }
