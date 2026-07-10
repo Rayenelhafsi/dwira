@@ -110,6 +110,8 @@ export npm_config_fund="false"
 export npm_config_progress="false"
 export npm_config_include="dev"
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=768}"
+PREBUILT_DIST_ARCHIVE="${PREBUILT_DIST_ARCHIVE:-}"
+SKIP_BUILD="${SKIP_BUILD:-0}"
 
 if [ -d "${APP_DIR}/dist" ]; then
   echo "[deploy] Ensure deploy user can replace dist"
@@ -138,7 +140,27 @@ if [ ! -x "${APP_DIR}/node_modules/.bin/vite" ]; then
   npm install --no-save --prefer-offline --include=dev vite @vitejs/plugin-react @tailwindcss/vite tailwindcss
 fi
 
-npm run build
+if [ -n "${PREBUILT_DIST_ARCHIVE}" ]; then
+  if [ ! -f "${PREBUILT_DIST_ARCHIVE}" ]; then
+    echo "[deploy] ERROR: PREBUILT_DIST_ARCHIVE not found: ${PREBUILT_DIST_ARCHIVE}"
+    exit 1
+  fi
+  echo "[deploy] Use prebuilt dist archive: ${PREBUILT_DIST_ARCHIVE}"
+  rm -rf "${APP_DIR}/dist.new"
+  mkdir -p "${APP_DIR}/dist.new"
+  tar -xzf "${PREBUILT_DIST_ARCHIVE}" -C "${APP_DIR}/dist.new"
+  rm -rf "${APP_DIR}/dist"
+  mv "${APP_DIR}/dist.new" "${APP_DIR}/dist"
+  sudo chown -R deploy:deploy "${APP_DIR}/dist"
+elif [ "${SKIP_BUILD}" = "1" ]; then
+  echo "[deploy] SKIP_BUILD=1 -> keep existing dist"
+  if [ ! -d "${APP_DIR}/dist" ]; then
+    echo "[deploy] ERROR: dist missing while SKIP_BUILD=1"
+    exit 1
+  fi
+else
+  npm run build
+fi
 
 apply_migrations
 

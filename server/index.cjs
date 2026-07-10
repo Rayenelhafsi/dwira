@@ -27365,6 +27365,7 @@ async function ensureReservationDemandSchema() {
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
       arrival_time VARCHAR(20) NULL,
+      departure_time VARCHAR(20) NULL,
       guests INT NOT NULL DEFAULT 1,
       adult_guests INT NOT NULL DEFAULT 1,
       child_guests INT NOT NULL DEFAULT 0,
@@ -27559,6 +27560,9 @@ async function ensureReservationDemandSchema() {
   }
   if (!(await columnExists('reservation_demands', 'arrival_time'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN arrival_time VARCHAR(20) NULL AFTER end_date');
+  }
+  if (!(await columnExists('reservation_demands', 'departure_time'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN departure_time VARCHAR(20) NULL AFTER arrival_time');
   }
   if (!(await columnExists('reservation_demands', 'partner_agency_validation_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN partner_agency_validation_at DATETIME NULL AFTER status');
