@@ -11679,6 +11679,58 @@ async function ensureAssignmentContractForReservationDemand(current, actorId = '
   return { contractId };
 }
 
+async function ensureAssignmentContractForHotelReservationDemand(current, actorId = 'admin') {
+  if (!current) return { contractId: null };
+  const demandId = String(current.id || '').trim();
+  const voucherUrl = String(current.voucher_url || '').trim();
+  const hotelId = String(current.hotel_id || '').trim();
+  if (!demandId) return { contractId: null };
+  if (!voucherUrl) {
+    throw new Error('Le voucher PDF doit etre genere avant affectation de cette demande hotel amicale');
+  }
+  if (!hotelId) {
+    throw new Error('Hotel introuvable pour affectation de la demande hotel amicale');
+  }
+
+  const clientEmail = normalizeEmailForCompare(current.client_email || '') || `${demandId}@dwira.local`;
+  const clientPhone = String(current.client_phone || current.amicale_phone || '').trim();
+  const clientName = String(current.client_name || current.amicale_name || 'Client amicale').trim();
+  const locataireId = await upsertLocataireFromReservationProfile({
+    userId: current.client_user_id ? String(current.client_user_id).trim() : null,
+    name: clientName,
+    email: clientEmail,
+    telephone: clientPhone,
+    cin: '',
+  });
+
+  const now = getAgencySqlDateTime();
+  const contractId = `c${Date.now()}`;
+  const amountDueNow = Number.isFinite(Number(current.amount_due_now)) && Number(current.amount_due_now) >= 0
+    ? Number(current.amount_due_now)
+    : 0;
+
+  await pool.query(
+    `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at, admin_note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      contractId,
+      `hotel:${hotelId}`,
+      locataireId,
+      current.check_in || null,
+      current.check_out || null,
+      amountDueNow,
+      voucherUrl,
+      null,
+      'automatique',
+      'actif',
+      now,
+      `Contrat technique hotel amicale cree pour affectation sous-admin depuis la demande ${demandId}`,
+    ]
+  );
+
+  return { contractId };
+}
+
 async function upsertPasskeyUser({ email, name }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Client';
@@ -26022,6 +26074,15 @@ async function ensureSubadminOperationsSchema() {
     await pool.query("UPDATE subadmin_contract_assignments SET updated_at = COALESCE(updated_at, created_at, NOW())");
     await pool.query("ALTER TABLE subadmin_contract_assignments MODIFY COLUMN updated_at DATETIME NOT NULL");
   }
+  if (!(await columnExists('subadmin_contract_assignments', 'reservation_demand_id'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN reservation_demand_id VARCHAR(100) NULL AFTER contract_id");
+  }
+  if (!(await columnExists('subadmin_contract_assignments', 'hotel_reservation_demand_id'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN hotel_reservation_demand_id VARCHAR(100) NULL AFTER reservation_demand_id");
+  }
+  if (!(await columnExists('subadmin_contract_assignments', 'assignment_source_kind'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN assignment_source_kind VARCHAR(20) NULL AFTER hotel_reservation_demand_id");
+  }
 
   if (!(await columnExists('subadmin_tasks', 'bien_id'))) {
     await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN bien_id VARCHAR(100) NULL AFTER subadmin_admin_id");
@@ -31933,6 +31994,7 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
   try {
     await ensureContractsSchema();
     await ensureReservationDemandSchema();
+    await ensureHotelReservationDemandSchema();
     await ensureZonesSchema();
     await ensureProprietairesSchema();
     await ensureSubadminOperationsSchema();
@@ -31961,6 +32023,8 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       hasDemandArrivalTime,
       hasDemandTotalAmount,
       hasDemandAmountDueNow,
+      hasHotelDemandTotalPrice,
+      hasHotelDemandAmountDueNow,
     ] = await Promise.all([
       columnExists('contrats', 'montant_donne_proprietaire'),
       columnExists('contrats', 'montant_total_proprietaire'),
@@ -31971,6 +32035,8 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       columnExists('reservation_demands', 'arrival_time'),
       columnExists('reservation_demands', 'total_amount'),
       columnExists('reservation_demands', 'amount_due_now'),
+      columnExists('hotel_reservation_demands', 'total_price'),
+      columnExists('hotel_reservation_demands', 'amount_due_now'),
     ]);
     const [rows] = await pool.query(
       `
@@ -31991,11 +32057,20 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
              ${hasOwnerPhone ? 'p.telephone' : 'NULL'} AS proprietaire_telephone,
              ${hasLocatairePhone ? 'l.telephone' : 'NULL'} AS locataire_telephone,
              d.id AS reservation_demand_id,
-             d.client_name,
-             d.client_phone,
-             ${hasDemandArrivalTime ? 'd.arrival_time' : 'NULL'} AS arrival_time,
-             ${hasDemandTotalAmount ? 'd.total_amount' : 'NULL'} AS total_amount,
-             ${hasDemandAmountDueNow ? 'd.amount_due_now' : 'NULL'} AS amount_due_now
+             d.client_name AS property_client_name,
+             d.client_phone AS property_client_phone,
+             ${hasDemandArrivalTime ? 'd.arrival_time' : 'NULL'} AS property_arrival_time,
+             ${hasDemandTotalAmount ? 'd.total_amount' : 'NULL'} AS property_total_amount,
+             ${hasDemandAmountDueNow ? 'd.amount_due_now' : 'NULL'} AS property_amount_due_now,
+             hd.id AS hotel_reservation_demand_id,
+             hd.hotel_id AS hotel_assignment_id,
+             hd.hotel_name AS hotel_assignment_name,
+             hd.client_name AS hotel_client_name,
+             hd.client_phone AS hotel_client_phone,
+             hd.check_in AS hotel_check_in,
+             hd.check_out AS hotel_check_out,
+             ${hasHotelDemandTotalPrice ? 'hd.total_price' : 'NULL'} AS hotel_total_price,
+             ${hasHotelDemandAmountDueNow ? 'hd.amount_due_now' : 'NULL'} AS hotel_amount_due_now
       FROM subadmin_contract_assignments a
       INNER JOIN administrateurs sa ON sa.id = a.subadmin_admin_id
       INNER JOIN contrats c ON c.id = a.contract_id
@@ -32006,10 +32081,11 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       LEFT JOIN reservation_demands d ON d.id = (
         SELECT rd.id
         FROM reservation_demands rd
-        WHERE rd.contract_id = c.id
+        WHERE rd.id = a.reservation_demand_id OR rd.contract_id = c.id
         ORDER BY rd.updated_at DESC
         LIMIT 1
       )
+      LEFT JOIN hotel_reservation_demands hd ON hd.id = a.hotel_reservation_demand_id
       ${whereSql}
       ORDER BY a.urgent DESC, a.updated_at DESC
       `,
@@ -32031,11 +32107,15 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
             });
           }
         }
-        const totalAmount = Number.isFinite(Number(row.total_amount)) ? Number(row.total_amount) : null;
-        const amountDueNow = Number.isFinite(Number(row.amount_due_now)) ? Number(row.amount_due_now) : null;
-        const ownerTotal = Number.isFinite(Number(row.montant_total_proprietaire))
-          ? Number(row.montant_total_proprietaire)
-          : null;
+          const isHotelAssignment = String(row.assignment_source_kind || '').trim() === 'hotel'
+            || Boolean(String(row.hotel_reservation_demand_id || '').trim());
+          const totalAmountRaw = isHotelAssignment ? row.hotel_total_price : row.property_total_amount;
+          const amountDueNowRaw = isHotelAssignment ? row.hotel_amount_due_now : row.property_amount_due_now;
+          const totalAmount = Number.isFinite(Number(totalAmountRaw)) ? Number(totalAmountRaw) : null;
+          const amountDueNow = Number.isFinite(Number(amountDueNowRaw)) ? Number(amountDueNowRaw) : null;
+          const ownerTotal = Number.isFinite(Number(row.montant_total_proprietaire))
+            ? Number(row.montant_total_proprietaire)
+            : null;
         const ownerPaid = Number.isFinite(Number(row.montant_donne_proprietaire))
           ? Number(row.montant_donne_proprietaire)
           : null;
@@ -32046,30 +32126,35 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
           subadmin_name: row.subadmin_name || null,
           subadmin_email: row.subadmin_email || null,
           urgent: Number(row.urgent || 0) === 1,
-          status: normalizeSubadminAssignmentStatus(row.status),
-          note: row.note || null,
-          bien_id: row.bien_id || null,
-          bien_reference: assignmentAutofill?.bien_reference || row.bien_reference || null,
-          bien_titre: assignmentAutofill?.bien_titre || row.bien_titre || null,
-          google_maps_url: assignmentAutofill?.google_maps_url || normalizeMapsOpenUrl(row.google_maps_url) || null,
-          property_url: assignmentAutofill?.property_url || buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference),
-          client_name: assignmentAutofill?.client_name || row.client_name || null,
-          client_phone: assignmentAutofill?.client_phone || row.client_phone || row.locataire_telephone || null,
-          arrival_time: assignmentAutofill?.arrival_time || row.arrival_time || null,
-          departure_time: assignmentAutofill?.departure_time || null,
-          url_pdf: assignmentAutofill?.url_pdf || resolvePublicAssetUrl(row.url_pdf || '') || null,
-          proprietaire_nom: assignmentAutofill?.proprietaire_nom || row.proprietaire_nom || null,
-          proprietaire_telephone: assignmentAutofill?.proprietaire_telephone || row.proprietaire_telephone || null,
+            status: normalizeSubadminAssignmentStatus(row.status),
+            note: row.note || null,
+            bien_id: isHotelAssignment ? (row.hotel_assignment_id || row.bien_id || null) : (row.bien_id || null),
+            bien_reference: assignmentAutofill?.bien_reference || (isHotelAssignment ? (row.hotel_assignment_id ? `HOTEL-${row.hotel_assignment_id}` : row.bien_reference) : row.bien_reference) || null,
+            bien_titre: assignmentAutofill?.bien_titre || (isHotelAssignment ? (row.hotel_assignment_name || row.bien_titre) : row.bien_titre) || null,
+            google_maps_url: assignmentAutofill?.google_maps_url || normalizeMapsOpenUrl(row.google_maps_url) || null,
+            property_url: assignmentAutofill?.property_url || (
+              isHotelAssignment
+                ? (row.hotel_assignment_id ? `/hotels/${encodeURIComponent(String(row.hotel_assignment_id).trim())}` : null)
+                : buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference)
+            ),
+            client_name: assignmentAutofill?.client_name || (isHotelAssignment ? row.hotel_client_name : row.property_client_name) || null,
+            client_phone: assignmentAutofill?.client_phone || (isHotelAssignment ? row.hotel_client_phone : row.property_client_phone) || row.locataire_telephone || null,
+            arrival_time: assignmentAutofill?.arrival_time || (isHotelAssignment ? row.hotel_check_in : row.property_arrival_time) || null,
+            departure_time: assignmentAutofill?.departure_time || (isHotelAssignment ? row.hotel_check_out : null),
+            url_pdf: assignmentAutofill?.url_pdf || resolvePublicAssetUrl(row.url_pdf || '') || null,
+            proprietaire_nom: assignmentAutofill?.proprietaire_nom || row.proprietaire_nom || null,
+            proprietaire_telephone: assignmentAutofill?.proprietaire_telephone || row.proprietaire_telephone || null,
           montant_total_contrat: totalAmount,
           montant_avance: amountDueNow,
           montant_a_encaisser: totalAmount === null ? null : Math.max(0, totalAmount - Number(amountDueNow || 0)),
           montant_donne_proprietaire: ownerPaid,
-          montant_total_proprietaire: ownerTotal,
-          reste_a_donner_proprietaire: ownerTotal === null ? null : Math.max(0, ownerTotal - Number(ownerPaid || 0)),
-          contract_start_date: assignmentAutofill?.contract_start_date || row.contract_start_date || null,
-          contract_end_date: assignmentAutofill?.contract_end_date || row.contract_end_date || null,
-          reservation_demand_id: row.reservation_demand_id || null,
-          resolved_template_vars: includeTemplateVars
+            montant_total_proprietaire: ownerTotal,
+            reste_a_donner_proprietaire: ownerTotal === null ? null : Math.max(0, ownerTotal - Number(ownerPaid || 0)),
+            contract_start_date: assignmentAutofill?.contract_start_date || row.contract_start_date || null,
+            contract_end_date: assignmentAutofill?.contract_end_date || row.contract_end_date || null,
+            reservation_demand_id: row.reservation_demand_id || null,
+            hotel_reservation_demand_id: row.hotel_reservation_demand_id || null,
+            resolved_template_vars: includeTemplateVars
             ? (assignmentAutofill?.resolved_template_vars || templateContext?.resolvedTemplateVars || null)
             : null,
           started_at: row.started_at || null,
@@ -32120,19 +32205,24 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     await ensureSubadminOperationsSchema();
     await ensureContractsSchema();
     await ensureReservationDemandSchema();
+    await ensureHotelReservationDemandSchema();
     let contractId = String(req.body?.contract_id || '').trim();
     const reservationDemandId = String(req.body?.reservation_demand_id || '').trim();
+    const hotelReservationDemandId = String(req.body?.hotel_reservation_demand_id || '').trim();
     const requestedSubadminId = resolveSubadminScopeId(req, req.body?.subadmin_id);
     const urgent = req.body?.urgent === true || req.body?.urgent === 1 || String(req.body?.urgent || '').trim() === 'true';
     const note = String(req.body?.note || '').trim() || null;
-    if ((!contractId && !reservationDemandId) || !requestedSubadminId) {
-      return res.status(400).json({ error: 'contract_id ou reservation_demand_id, et subadmin_id requis' });
+    if ((!contractId && !reservationDemandId && !hotelReservationDemandId) || !requestedSubadminId) {
+      return res.status(400).json({ error: 'contract_id ou demande amicale, et subadmin_id requis' });
     }
     if (!ensureSubadminAccess(req, res, requestedSubadminId)) return;
     const subadmin = await fetchSubadminAccountById(requestedSubadminId);
     if (!subadmin) {
       return res.status(404).json({ error: 'Sous-admin introuvable ou inactif' });
     }
+    let assignmentSourceKind = hotelReservationDemandId ? 'hotel' : (reservationDemandId ? 'property' : null);
+    let resolvedReservationDemandId = reservationDemandId || null;
+    let resolvedHotelReservationDemandId = hotelReservationDemandId || null;
     if (!contractId && reservationDemandId) {
       await ensureReservationDemandSchema();
       const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [reservationDemandId]);
@@ -32144,6 +32234,20 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
         return res.status(400).json({ error: 'Seules les demandes adherants peuvent etre affectees sans contrat existant' });
       }
       const ensured = await ensureAssignmentContractForReservationDemand(
+        demand,
+        String(req.authUser?.id || req.authUser?.email || 'admin')
+      );
+      contractId = String(ensured.contractId || '').trim();
+    } else if (!contractId && hotelReservationDemandId) {
+      const [hotelDemandRows] = await pool.query('SELECT * FROM hotel_reservation_demands WHERE id = ? LIMIT 1', [hotelReservationDemandId]);
+      const demand = hotelDemandRows?.[0] || null;
+      if (!demand) {
+        return res.status(404).json({ error: 'Demande hotel amicale introuvable' });
+      }
+      if (!isAmicaleDemand(demand)) {
+        return res.status(400).json({ error: 'Seules les demandes hotel amicales peuvent etre affectees sans contrat existant' });
+      }
+      const ensured = await ensureAssignmentContractForHotelReservationDemand(
         demand,
         String(req.authUser?.id || req.authUser?.email || 'admin')
       );
@@ -32165,16 +32269,38 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     if (existingId) {
       await pool.query(
         `UPDATE subadmin_contract_assignments
-         SET subadmin_admin_id = ?, urgent = ?, status = 'active', note = ?, assigned_by_admin_id = ?, started_at = NULL, completed_at = NULL, completed_by_admin_id = NULL, updated_at = ?
+         SET reservation_demand_id = ?, hotel_reservation_demand_id = ?, assignment_source_kind = ?, subadmin_admin_id = ?, urgent = ?, status = 'active', note = ?, assigned_by_admin_id = ?, started_at = NULL, completed_at = NULL, completed_by_admin_id = NULL, updated_at = ?
          WHERE id = ?`,
-        [requestedSubadminId, urgent ? 1 : 0, note, String(req.authUser?.id || '').trim() || null, now, assignmentId]
+        [
+          resolvedReservationDemandId,
+          resolvedHotelReservationDemandId,
+          assignmentSourceKind,
+          requestedSubadminId,
+          urgent ? 1 : 0,
+          note,
+          String(req.authUser?.id || '').trim() || null,
+          now,
+          assignmentId,
+        ]
       );
     } else {
       await pool.query(
         `INSERT INTO subadmin_contract_assignments
-         (id, contract_id, subadmin_admin_id, urgent, status, note, assigned_by_admin_id, started_at, completed_at, completed_by_admin_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'active', ?, ?, NULL, NULL, NULL, ?, ?)`,
-        [assignmentId, contractId, requestedSubadminId, urgent ? 1 : 0, note, String(req.authUser?.id || '').trim() || null, now, now]
+         (id, contract_id, reservation_demand_id, hotel_reservation_demand_id, assignment_source_kind, subadmin_admin_id, urgent, status, note, assigned_by_admin_id, started_at, completed_at, completed_by_admin_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL, NULL, NULL, ?, ?)`,
+        [
+          assignmentId,
+          contractId,
+          resolvedReservationDemandId,
+          resolvedHotelReservationDemandId,
+          assignmentSourceKind,
+          requestedSubadminId,
+          urgent ? 1 : 0,
+          note,
+          String(req.authUser?.id || '').trim() || null,
+          now,
+          now,
+        ]
       );
     }
     const pushResult = await pushToAdminDevices(requestedSubadminId, {

@@ -266,6 +266,8 @@ type PickerOption = {
   sourceBienId?: string;
   contractId?: string;
   reservationDemandId?: string;
+  hotelReservationDemandId?: string;
+  sourceKind?: "property" | "hotel";
   assignmentEventType?: "arrivee" | "depart";
   title: string;
   subtitle?: string;
@@ -284,6 +286,7 @@ type PickerOption = {
 };
 
 const RESERVATION_DEMAND_PICKER_PREFIX = "reservation-demand:";
+const HOTEL_RESERVATION_DEMAND_PICKER_PREFIX = "hotel-reservation-demand:";
 const TECHNICIAN_CONTRACT_PICKER_PREFIX = "technician-contract:";
 const TECHNICIAN_DEMAND_PICKER_PREFIX = "technician-demand:";
 
@@ -1045,7 +1048,10 @@ export default function SubAdminOperationsPanel({
       setAssignmentVariablesOpen(false);
       return;
     }
-    if (contractId.startsWith(RESERVATION_DEMAND_PICKER_PREFIX)) {
+    if (
+      contractId.startsWith(RESERVATION_DEMAND_PICKER_PREFIX)
+      || contractId.startsWith(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX)
+    ) {
       setAssignmentContractDetails(null);
       setAssignmentContractLoading(false);
       setAssignmentVariablesOpen(false);
@@ -1306,9 +1312,7 @@ export default function SubAdminOperationsPanel({
       })
       .flatMap((demand) => {
         const linkedContractId = String(demand.contract_id || "").trim();
-        const canAssignFromVoucher =
-          demand.source_kind === "property"
-          && Boolean(String(demand.voucher_url || "").trim());
+        const canAssignFromVoucher = Boolean(String(demand.voucher_url || "").trim());
         const hasLinkedContract = Boolean(linkedContractId);
         const canSelectForAssignment = hasLinkedContract || canAssignFromVoucher;
         const demandLabel = demand.source_kind === "hotel" ? "Demande hotel amicale" : "Demande bien amicale";
@@ -1323,7 +1327,16 @@ export default function SubAdminOperationsPanel({
 
         return buildDateOptions({
           baseId: demand.id,
-          selectValue: hasLinkedContract ? linkedContractId : canAssignFromVoucher ? `${RESERVATION_DEMAND_PICKER_PREFIX}${String(demand.demand_id || "").trim()}` : undefined,
+          selectValue: hasLinkedContract
+            ? linkedContractId
+            : canAssignFromVoucher
+              ? demand.source_kind === "hotel"
+                ? `${HOTEL_RESERVATION_DEMAND_PICKER_PREFIX}${String(demand.demand_id || "").trim()}`
+                : `${RESERVATION_DEMAND_PICKER_PREFIX}${String(demand.demand_id || "").trim()}`
+              : undefined,
+          sourceKind: demand.source_kind,
+          reservationDemandId: demand.source_kind === "property" ? demand.demand_id : undefined,
+          hotelReservationDemandId: demand.source_kind === "hotel" ? demand.demand_id : undefined,
           title: titleParts.length > 0 ? titleParts.join(" - ") : demand.demand_id,
           subtitle: [
             `Demande ${String(demand.demand_id || "").trim()}`,
@@ -1578,7 +1591,11 @@ export default function SubAdminOperationsPanel({
     const reservationDemandId = rawSelection.startsWith(RESERVATION_DEMAND_PICKER_PREFIX)
       ? rawSelection.slice(RESERVATION_DEMAND_PICKER_PREFIX.length).trim()
       : "";
-    const contractId = reservationDemandId ? "" : rawSelection;
+    const hotelReservationDemandId = rawSelection.startsWith(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX)
+      ? rawSelection.slice(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX.length).trim()
+      : "";
+    const selectedOption = selectedAssignmentContractPickerOption;
+    const contractId = reservationDemandId || hotelReservationDemandId ? "" : rawSelection;
     setSaving(true);
     try {
       const response = await fetch(buildApiUrl("/subadmin/contracts"), {
@@ -1588,7 +1605,8 @@ export default function SubAdminOperationsPanel({
         body: JSON.stringify({
           subadmin_id: assignmentDraft.subadminId,
           contract_id: contractId || null,
-          reservation_demand_id: reservationDemandId || null,
+          reservation_demand_id: reservationDemandId || String(selectedOption?.reservationDemandId || "").trim() || null,
+          hotel_reservation_demand_id: hotelReservationDemandId || String(selectedOption?.hotelReservationDemandId || "").trim() || null,
           urgent: assignmentDraft.urgent,
           note: assignmentDraft.note,
         }),
@@ -3150,7 +3168,8 @@ export default function SubAdminOperationsPanel({
                 ...option,
                 disabled:
                   option.disabled
-                  || String(option.selectValue || "").trim().startsWith(RESERVATION_DEMAND_PICKER_PREFIX),
+                  || String(option.selectValue || "").trim().startsWith(RESERVATION_DEMAND_PICKER_PREFIX)
+                  || String(option.selectValue || "").trim().startsWith(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX),
               }))
             : contractPickerOptions
         }
