@@ -32025,6 +32025,9 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       hasDemandAmountDueNow,
       hasHotelDemandTotalPrice,
       hasHotelDemandAmountDueNow,
+      hasAssignmentReservationDemandId,
+      hasAssignmentHotelReservationDemandId,
+      hasAssignmentSourceKind,
     ] = await Promise.all([
       columnExists('contrats', 'montant_donne_proprietaire'),
       columnExists('contrats', 'montant_total_proprietaire'),
@@ -32037,7 +32040,13 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       columnExists('reservation_demands', 'amount_due_now'),
       columnExists('hotel_reservation_demands', 'total_price'),
       columnExists('hotel_reservation_demands', 'amount_due_now'),
+      columnExists('subadmin_contract_assignments', 'reservation_demand_id'),
+      columnExists('subadmin_contract_assignments', 'hotel_reservation_demand_id'),
+      columnExists('subadmin_contract_assignments', 'assignment_source_kind'),
     ]);
+    const reservationDemandJoinCondition = hasAssignmentReservationDemandId
+      ? 'rd.id = a.reservation_demand_id OR rd.contract_id = c.id'
+      : 'rd.contract_id = c.id';
     const [rows] = await pool.query(
       `
       SELECT a.*,
@@ -32062,15 +32071,16 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
              ${hasDemandArrivalTime ? 'd.arrival_time' : 'NULL'} AS property_arrival_time,
              ${hasDemandTotalAmount ? 'd.total_amount' : 'NULL'} AS property_total_amount,
              ${hasDemandAmountDueNow ? 'd.amount_due_now' : 'NULL'} AS property_amount_due_now,
-             hd.id AS hotel_reservation_demand_id,
+             ${hasAssignmentHotelReservationDemandId ? 'hd.id' : 'NULL'} AS hotel_reservation_demand_id,
              hd.hotel_id AS hotel_assignment_id,
              hd.hotel_name AS hotel_assignment_name,
              hd.client_name AS hotel_client_name,
              hd.client_phone AS hotel_client_phone,
              hd.check_in AS hotel_check_in,
              hd.check_out AS hotel_check_out,
-             ${hasHotelDemandTotalPrice ? 'hd.total_price' : 'NULL'} AS hotel_total_price,
-             ${hasHotelDemandAmountDueNow ? 'hd.amount_due_now' : 'NULL'} AS hotel_amount_due_now
+             ${hasHotelDemandTotalPrice && hasAssignmentHotelReservationDemandId ? 'hd.total_price' : 'NULL'} AS hotel_total_price,
+             ${hasHotelDemandAmountDueNow && hasAssignmentHotelReservationDemandId ? 'hd.amount_due_now' : 'NULL'} AS hotel_amount_due_now,
+             ${hasAssignmentSourceKind ? 'a.assignment_source_kind' : 'NULL'} AS assignment_source_kind
       FROM subadmin_contract_assignments a
       INNER JOIN administrateurs sa ON sa.id = a.subadmin_admin_id
       INNER JOIN contrats c ON c.id = a.contract_id
@@ -32081,11 +32091,11 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       LEFT JOIN reservation_demands d ON d.id = (
         SELECT rd.id
         FROM reservation_demands rd
-        WHERE rd.id = a.reservation_demand_id OR rd.contract_id = c.id
+        WHERE ${reservationDemandJoinCondition}
         ORDER BY rd.updated_at DESC
         LIMIT 1
       )
-      LEFT JOIN hotel_reservation_demands hd ON hd.id = a.hotel_reservation_demand_id
+      LEFT JOIN hotel_reservation_demands hd ON ${hasAssignmentHotelReservationDemandId ? 'hd.id = a.hotel_reservation_demand_id' : '1 = 0'}
       ${whereSql}
       ORDER BY a.urgent DESC, a.updated_at DESC
       `,
@@ -32220,6 +32230,15 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     if (!subadmin) {
       return res.status(404).json({ error: 'Sous-admin introuvable ou inactif' });
     }
+    const [
+      hasAssignmentReservationDemandId,
+      hasAssignmentHotelReservationDemandId,
+      hasAssignmentSourceKind,
+    ] = await Promise.all([
+      columnExists('subadmin_contract_assignments', 'reservation_demand_id'),
+      columnExists('subadmin_contract_assignments', 'hotel_reservation_demand_id'),
+      columnExists('subadmin_contract_assignments', 'assignment_source_kind'),
+    ]);
     let assignmentSourceKind = hotelReservationDemandId ? 'hotel' : (reservationDemandId ? 'property' : null);
     let resolvedReservationDemandId = reservationDemandId || null;
     let resolvedHotelReservationDemandId = hotelReservationDemandId || null;
@@ -32267,40 +32286,89 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     ))?.[0]?.[0]?.id || '').trim();
     const assignmentId = existingId || `sca_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     if (existingId) {
+      const updateFields = [];
+      const updateValues = [];
+      if (hasAssignmentReservationDemandId) {
+        updateFields.push('reservation_demand_id = ?');
+        updateValues.push(resolvedReservationDemandId);
+      }
+      if (hasAssignmentHotelReservationDemandId) {
+        updateFields.push('hotel_reservation_demand_id = ?');
+        updateValues.push(resolvedHotelReservationDemandId);
+      }
+      if (hasAssignmentSourceKind) {
+        updateFields.push('assignment_source_kind = ?');
+        updateValues.push(assignmentSourceKind);
+      }
+      updateFields.push(
+        'subadmin_admin_id = ?',
+        'urgent = ?',
+        "status = 'active'",
+        'note = ?',
+        'assigned_by_admin_id = ?',
+        'started_at = NULL',
+        'completed_at = NULL',
+        'completed_by_admin_id = NULL',
+        'updated_at = ?'
+      );
+      updateValues.push(
+        requestedSubadminId,
+        urgent ? 1 : 0,
+        note,
+        String(req.authUser?.id || '').trim() || null,
+        now,
+        assignmentId
+      );
       await pool.query(
         `UPDATE subadmin_contract_assignments
-         SET reservation_demand_id = ?, hotel_reservation_demand_id = ?, assignment_source_kind = ?, subadmin_admin_id = ?, urgent = ?, status = 'active', note = ?, assigned_by_admin_id = ?, started_at = NULL, completed_at = NULL, completed_by_admin_id = NULL, updated_at = ?
+         SET ${updateFields.join(', ')}
          WHERE id = ?`,
-        [
-          resolvedReservationDemandId,
-          resolvedHotelReservationDemandId,
-          assignmentSourceKind,
-          requestedSubadminId,
-          urgent ? 1 : 0,
-          note,
-          String(req.authUser?.id || '').trim() || null,
-          now,
-          assignmentId,
-        ]
+        updateValues
       );
     } else {
+      const insertColumns = ['id', 'contract_id'];
+      const insertValues = [assignmentId, contractId];
+      if (hasAssignmentReservationDemandId) {
+        insertColumns.push('reservation_demand_id');
+        insertValues.push(resolvedReservationDemandId);
+      }
+      if (hasAssignmentHotelReservationDemandId) {
+        insertColumns.push('hotel_reservation_demand_id');
+        insertValues.push(resolvedHotelReservationDemandId);
+      }
+      if (hasAssignmentSourceKind) {
+        insertColumns.push('assignment_source_kind');
+        insertValues.push(assignmentSourceKind);
+      }
+      insertColumns.push(
+        'subadmin_admin_id',
+        'urgent',
+        'status',
+        'note',
+        'assigned_by_admin_id',
+        'started_at',
+        'completed_at',
+        'completed_by_admin_id',
+        'created_at',
+        'updated_at'
+      );
+      insertValues.push(
+        requestedSubadminId,
+        urgent ? 1 : 0,
+        'active',
+        note,
+        String(req.authUser?.id || '').trim() || null,
+        null,
+        null,
+        null,
+        now,
+        now
+      );
       await pool.query(
         `INSERT INTO subadmin_contract_assignments
-         (id, contract_id, reservation_demand_id, hotel_reservation_demand_id, assignment_source_kind, subadmin_admin_id, urgent, status, note, assigned_by_admin_id, started_at, completed_at, completed_by_admin_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL, NULL, NULL, ?, ?)`,
-        [
-          assignmentId,
-          contractId,
-          resolvedReservationDemandId,
-          resolvedHotelReservationDemandId,
-          assignmentSourceKind,
-          requestedSubadminId,
-          urgent ? 1 : 0,
-          note,
-          String(req.authUser?.id || '').trim() || null,
-          now,
-          now,
-        ]
+         (${insertColumns.join(', ')})
+         VALUES (${insertColumns.map(() => '?').join(', ')})`,
+        insertValues
       );
     }
     const pushResult = await pushToAdminDevices(requestedSubadminId, {
