@@ -2672,6 +2672,9 @@ export default function PropertiesPage() {
     const selectedSubTypeMatchKeys = normalizedSelectedCategories
       .flatMap((value) => getSelectedSubTypeMatchKeys(value, selectedMainTypes))
       .filter(Boolean);
+    const requestedMainTypesFromSelection = new Set<PropertyMainType>(
+      Array.from(selectedTypeTargetsByMainType.keys())
+    );
     const selectedGovernorates = new Set(
       selectedLocations
         .map((value) => extractSelectedGovernorate(value))
@@ -3146,15 +3149,28 @@ export default function PropertiesPage() {
         const requestedSPlusValues = requestedTypeSubTypeKeys.map((item) => getSPlusValue(item)).filter((value): value is number => Number.isFinite(value as number));
         const selectedRequestedSPlusValues = selectedRequestedSubTypeKeys.map((item) => getSPlusValue(item)).filter((value): value is number => Number.isFinite(value as number));
         const propertySPlusValue = getSPlusValue(propertySubTypeKey);
-        const hasBungalowVillaMainAlternative = !strictMainTypeMatch && (
-          (propertyMainType === "bungalow" && selectedMainTypes.includes("villa_maison"))
-          || (propertyMainType === "villa_maison" && selectedMainTypes.includes("bungalow"))
+        const bungalowAlternativeTargets = new Set<PropertyMainType>();
+        if (selectedMainTypes.includes("villa_maison") || requestedMainTypesFromSelection.has("villa_maison")) {
+          bungalowAlternativeTargets.add("villa_maison");
+        }
+        if (selectedMainTypes.includes("appartement") || requestedMainTypesFromSelection.has("appartement")) {
+          bungalowAlternativeTargets.add("appartement");
+        }
+        if (selectedMainTypes.includes("bungalow") || requestedMainTypesFromSelection.has("bungalow")) {
+          bungalowAlternativeTargets.add("bungalow");
+        }
+        const hasBungalowCrossMainAlternative = !strictMainTypeMatch && (
+          (propertyMainType === "bungalow" && (bungalowAlternativeTargets.has("villa_maison") || bungalowAlternativeTargets.has("appartement")))
+          || (propertyMainType === "villa_maison" && bungalowAlternativeTargets.has("bungalow"))
+          || (propertyMainType === "appartement" && bungalowAlternativeTargets.has("bungalow"))
         );
-        const hasCompatibleBungalowVillaSubType = !hasRequestedTypeSubFilter
-          || selectedRequestedSubTypeKeys.length === 0
-          || selectedRequestedSubTypeKeys.includes(propertySubTypeKey)
-          || selectedRequestedSPlusValues.some((requested) => propertySPlusValue !== null && propertySPlusValue === requested);
-        const hasTypeAlternative31 = hasBungalowVillaMainAlternative && hasCompatibleBungalowVillaSubType;
+        const hasCompatibleBungalowCrossSubType = selectedRequestedSPlusValues.length > 0
+          ? selectedRequestedSPlusValues.some((requested) => propertySPlusValue !== null && propertySPlusValue === requested)
+          : (
+              selectedRequestedSubTypeKeys.length === 0
+              || selectedRequestedSubTypeKeys.includes(propertySubTypeKey)
+            );
+        const hasTypeAlternative31 = hasBungalowCrossMainAlternative && hasCompatibleBungalowCrossSubType;
         const hasTypeAlternative32 = strictMainTypeMatch
           && requestedTypeSubTypeKeys.length === 1
           && !strictSubTypeMatch
