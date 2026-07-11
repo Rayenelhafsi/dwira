@@ -25978,6 +25978,8 @@ async function ensureSubadminOperationsSchema() {
       contract_id VARCHAR(100) NULL,
       reservation_demand_id VARCHAR(100) NULL,
       assignment_event_type VARCHAR(20) NULL,
+      checkin_time_hint VARCHAR(20) NULL,
+      checkout_time_hint VARCHAR(20) NULL,
       note TEXT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'active',
       assigned_by_admin_id VARCHAR(100) NULL,
@@ -26124,6 +26126,12 @@ async function ensureSubadminOperationsSchema() {
   }
   if (!(await columnExists('technician_property_assignments', 'assignment_event_type'))) {
     await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN assignment_event_type VARCHAR(20) NULL AFTER reservation_demand_id");
+  }
+  if (!(await columnExists('technician_property_assignments', 'checkin_time_hint'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN checkin_time_hint VARCHAR(20) NULL AFTER assignment_event_type");
+  }
+  if (!(await columnExists('technician_property_assignments', 'checkout_time_hint'))) {
+    await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN checkout_time_hint VARCHAR(20) NULL AFTER checkin_time_hint");
   }
   if (!(await columnExists('technician_property_assignments', 'status'))) {
     await pool.query("ALTER TABLE technician_property_assignments ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active' AFTER note");
@@ -26978,7 +26986,7 @@ async function notifyTechnicianAssignmentsForContractUpdate(req, contractId) {
   if (!normalizedContractId) return;
 
   const [assignmentRows] = await pool.query(
-    `SELECT a.id, a.technician_id, a.assignment_event_type, b.reference AS bien_reference, b.titre AS bien_titre
+    `SELECT a.id, a.technician_id, a.assignment_event_type, a.checkin_time_hint, a.checkout_time_hint, b.reference AS bien_reference, b.titre AS bien_titre
      FROM technician_property_assignments a
      INNER JOIN biens b ON b.id = a.bien_id
      WHERE a.contract_id = ?
@@ -27017,7 +27025,9 @@ async function notifyTechnicianAssignmentsForContractUpdate(req, contractId) {
       const eventType = String(row.assignment_event_type || '').trim().toLowerCase() === 'depart'
         ? 'depart'
         : 'arrivee';
-      const relevantTime = eventType === 'depart' ? departureTime : arrivalTime;
+      const relevantTime = eventType === 'depart'
+        ? String(row.checkout_time_hint || '').trim() || departureTime
+        : String(row.checkin_time_hint || '').trim() || arrivalTime;
       const label = eventType === 'depart' ? 'checkout' : 'checkin';
       const title = `Mise a jour affectation ${bienReference}`;
       const body = relevantTime
@@ -27158,11 +27168,13 @@ async function fetchTechnicianAssignmentsPayload(req, {
     }
     const contractStartDate = assignmentAutofill?.contract_start_date || row.contract_start_date || row.demand_start_date || null;
     const contractEndDate = assignmentAutofill?.contract_end_date || row.contract_end_date || row.demand_end_date || null;
-    const arrivalTime = assignmentAutofill?.arrival_time || row.arrival_time || null;
-    const departureTime = assignmentAutofill?.departure_time || row.departure_time || null;
     const assignmentEventType = String(row.assignment_event_type || '').trim().toLowerCase() === 'depart'
       ? 'depart'
       : 'arrivee';
+    const assignmentCheckinTimeHint = String(row.checkin_time_hint || '').trim() || null;
+    const assignmentCheckoutTimeHint = String(row.checkout_time_hint || '').trim() || null;
+    const arrivalTime = assignmentCheckinTimeHint || assignmentAutofill?.arrival_time || row.arrival_time || null;
+    const departureTime = assignmentCheckoutTimeHint || assignmentAutofill?.departure_time || row.departure_time || null;
     return {
       id: row.id,
       technician_id: row.technician_id,
@@ -32852,6 +32864,8 @@ app.post('/api/subadmin/technician-assignments', requireAdminSession, async (req
     const requestedContractId = String(req.body?.contract_id || '').trim();
     const requestedReservationDemandId = String(req.body?.reservation_demand_id || '').trim();
     const requestedEventType = String(req.body?.assignment_event_type || '').trim().toLowerCase();
+    const requestedArrivalTime = String(req.body?.arrival_time || '').trim() || null;
+    const requestedDepartureTime = String(req.body?.departure_time || '').trim() || null;
     const note = String(req.body?.note || '').trim() || null;
     if (!technicianId || !bienId) {
       return res.status(400).json({ error: 'technician_id et bien_id requis' });
@@ -32860,8 +32874,9 @@ app.post('/api/subadmin/technician-assignments', requireAdminSession, async (req
     if (!technician || !Number(technician.mobile_access_enabled || 0)) {
       return res.status(404).json({ error: 'Technicien introuvable ou sans acces application' });
     }
-    const [bienRows] = await pool.query('SELECT id FROM biens WHERE id = ? LIMIT 1', [bienId]);
-    if (!bienRows?.[0]) {
+    const [bienRows] = await pool.query('SELECT id, reference FROM biens WHERE id = ? LIMIT 1', [bienId]);
+    const bien = bienRows?.[0] || null;
+    if (!bien) {
       return res.status(404).json({ error: 'Bien introuvable' });
     }
     let contractId = null;
@@ -32902,24 +32917,31 @@ app.post('/api/subadmin/technician-assignments', requireAdminSession, async (req
     const now = getAgencySqlDateTime();
     await pool.query(
       `INSERT INTO technician_property_assignments
-       (id, technician_id, bien_id, contract_id, reservation_demand_id, assignment_event_type, note, status, assigned_by_admin_id, completed_at, completed_by_user_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)`,
-      [assignmentId, technicianId, bienId, contractId, reservationDemandId, assignmentEventType, note, String(req.authUser?.id || '').trim() || null, now, now]
+       (id, technician_id, bien_id, contract_id, reservation_demand_id, assignment_event_type, checkin_time_hint, checkout_time_hint, note, status, assigned_by_admin_id, completed_at, completed_by_user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)`,
+      [assignmentId, technicianId, bienId, contractId, reservationDemandId, assignmentEventType, requestedArrivalTime, requestedDepartureTime, note, String(req.authUser?.id || '').trim() || null, now, now]
     );
-    const pushResult = await pushToTechnicianDevice(technicianId, {
-      title: 'Nouvelle affectation technicien',
-      body: 'Un bien vous a ete affecte.',
-      data: {
-        kind: 'technician_assignment',
-        assignmentId,
-        bienId,
-      },
-    });
     const payload = await fetchTechnicianAssignmentsPayload(req, {
       technicianId,
       status: null,
     });
     const created = payload.find((item) => String(item.id || '').trim() === assignmentId) || { id: assignmentId };
+    const bienReference = String(created?.bien_reference || bien.reference || bienId).trim();
+    const relevantTime = assignmentEventType === 'depart'
+      ? String(created?.departure_time || created?.checkout_time_hint || requestedDepartureTime || '').trim()
+      : String(created?.arrival_time || created?.checkin_time_hint || requestedArrivalTime || '').trim();
+    const pushResult = await pushToTechnicianDevice(technicianId, {
+      title: `Nouvelle affectation ${bienReference}`,
+      body: relevantTime
+        ? `${bienReference}, ${assignmentEventType === 'depart' ? 'checkout' : 'checkin'} ${relevantTime}`
+        : `${bienReference}, un bien vous a ete affecte.`,
+      data: {
+        kind: 'technician_assignment',
+        assignmentId,
+        bienId,
+        eventType: assignmentEventType,
+      },
+    });
     res.status(201).json({ ...created, push: pushResult });
   } catch (error) {
     console.error('Error creating technician assignment:', error);
@@ -32939,6 +32961,8 @@ app.put('/api/subadmin/technician-assignments/:id', requireAdminSession, async (
     const requestedContractId = String(req.body?.contract_id || '').trim();
     const requestedReservationDemandId = String(req.body?.reservation_demand_id || '').trim();
     const requestedEventType = String(req.body?.assignment_event_type || '').trim().toLowerCase();
+    const requestedArrivalTime = String(req.body?.arrival_time || '').trim() || null;
+    const requestedDepartureTime = String(req.body?.departure_time || '').trim() || null;
     const note = String(req.body?.note || '').trim() || null;
     if (!assignmentId || !technicianId || !bienId) {
       return res.status(400).json({ error: 'id, technician_id et bien_id requis' });
@@ -33000,10 +33024,12 @@ app.put('/api/subadmin/technician-assignments/:id', requireAdminSession, async (
            contract_id = ?,
            reservation_demand_id = ?,
            assignment_event_type = ?,
+           checkin_time_hint = ?,
+           checkout_time_hint = ?,
            note = ?,
            updated_at = ?
        WHERE id = ?`,
-      [technicianId, bienId, contractId, reservationDemandId, assignmentEventType, note, now, assignmentId]
+      [technicianId, bienId, contractId, reservationDemandId, assignmentEventType, requestedArrivalTime, requestedDepartureTime, note, now, assignmentId]
     );
     const payload = await fetchTechnicianAssignmentsPayload(req, {
       technicianId,

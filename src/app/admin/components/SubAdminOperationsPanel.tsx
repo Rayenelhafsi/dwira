@@ -344,6 +344,8 @@ const initialTechnicianAssignmentDraft = {
   contractId: "",
   reservationDemandId: "",
   assignmentEventType: "",
+  arrivalTime: "",
+  departureTime: "",
   note: "",
 };
 
@@ -1807,6 +1809,8 @@ export default function SubAdminOperationsPanel({
           contract_id: technicianAssignmentDraft.contractId || null,
           reservation_demand_id: technicianAssignmentDraft.reservationDemandId || null,
           assignment_event_type: technicianAssignmentDraft.assignmentEventType || null,
+          arrival_time: technicianAssignmentDraft.arrivalTime || null,
+          departure_time: technicianAssignmentDraft.departureTime || null,
           note: technicianAssignmentDraft.note,
         }),
       });
@@ -2791,10 +2795,32 @@ export default function SubAdminOperationsPanel({
                         contractId: "",
                         reservationDemandId: "",
                         assignmentEventType: "",
+                        arrivalTime: "",
+                        departureTime: "",
                       }))
                     }
                     accent="emerald"
                   />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">Heure arrivee</p>
+                      <input
+                        type="time"
+                        value={technicianAssignmentDraft.arrivalTime}
+                        onChange={(event) => setTechnicianAssignmentDraft((prev) => ({ ...prev, arrivalTime: event.target.value }))}
+                        className="h-12 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100/70"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">Heure depart</p>
+                      <input
+                        type="time"
+                        value={technicianAssignmentDraft.departureTime}
+                        onChange={(event) => setTechnicianAssignmentDraft((prev) => ({ ...prev, departureTime: event.target.value }))}
+                        className="h-12 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100/70"
+                      />
+                    </div>
+                  </div>
                   <textarea
                     value={technicianAssignmentDraft.note}
                     onChange={(event) => setTechnicianAssignmentDraft((prev) => ({ ...prev, note: event.target.value }))}
@@ -2952,6 +2978,8 @@ export default function SubAdminOperationsPanel({
                                 contractId: assignment.contract_id || "",
                                 reservationDemandId: assignment.reservation_demand_id || "",
                                 assignmentEventType: assignment.assignment_event_type || "",
+                                arrivalTime: assignment.arrival_time || "",
+                                departureTime: assignment.departure_time || "",
                                 note: assignment.note || "",
                               })
                             }
@@ -3161,6 +3189,8 @@ export default function SubAdminOperationsPanel({
               contractId: String(option?.contractId || "").trim(),
               reservationDemandId: String(option?.reservationDemandId || "").trim(),
               assignmentEventType: String(option?.assignmentEventType || "").trim(),
+              arrivalTime: "",
+              departureTime: "",
             }));
           } else {
             setTaskDraft((prev) => ({ ...prev, bienId: id }));
