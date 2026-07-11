@@ -11368,6 +11368,7 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
   }
 
   const id = (normalizedUserId || `l_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`).slice(0, 40);
+  const generatedCin = normalizedCin || `AUTO-${id}`.slice(0, 80);
   try {
       await pool.query(
         `INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at)
@@ -11377,7 +11378,7 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
           normalizedName || 'Client',
           normalizedPhone || null,
           normalizedEmail || null,
-          normalizedCin || '',
+          generatedCin,
           5,
           getAgencySqlDateTime(),
         ]
