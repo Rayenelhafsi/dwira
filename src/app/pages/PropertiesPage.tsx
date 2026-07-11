@@ -31,7 +31,7 @@ import { buildPropertyPackPath, formatPackCombinationRequestLabel, getPackSearch
 import type { PropertyPack } from "../admin/types";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere";
-type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
+type PropertyMainType = "appartement" | "residence" | "villa_maison" | "bungalow" | "studio" | "immeuble" | "autre";
 type GroupedPropertySubType = {
   label: string;
   imageUrl: string;
@@ -58,7 +58,7 @@ type HomeComfortOptionKey =
 const SCOPED_CATEGORY_PREFIX = "__scoped__::";
 const parseScopedCategoryMainType = (value?: string | null): PropertyMainType | "" => {
   const raw = String(value || "").trim().toLowerCase();
-  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "studio" || raw === "immeuble" || raw === "autre") {
+  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "bungalow" || raw === "studio" || raw === "immeuble" || raw === "autre") {
     return raw;
   }
   return "";
@@ -139,6 +139,7 @@ const MAIN_TYPE_LABELS: Record<PropertyMainType, string> = {
   appartement: "Appartement",
   residence: "Residence",
   villa_maison: "Villa / Maison",
+  bungalow: "Bungalow",
   studio: "Studio",
   immeuble: "Immeuble",
   autre: "Autre",
@@ -147,6 +148,7 @@ const MAIN_TYPE_DISPLAY_ORDER: PropertyMainType[] = [
   "appartement",
   "residence",
   "villa_maison",
+  "bungalow",
   "studio",
   "immeuble",
   "autre",
@@ -476,7 +478,7 @@ const getMainTypeFromCategory = (category: string): PropertyMainType => {
   if (normalized.includes("appartement")) return "appartement";
   if (normalized.includes("residence")) return "residence";
   if (normalized.startsWith("s+")) return "appartement";
-  if (normalized.includes("bungalow")) return "villa_maison";
+  if (normalized.includes("bungalow")) return "bungalow";
   if (normalized.includes("villa")) return "villa_maison";
   if (normalized.includes("maison")) return "villa_maison";
   if (normalized.includes("studio")) return "studio";
@@ -522,7 +524,7 @@ const hasExplicitMainTypeInLabel = (value?: string | null) => {
 const getNormalizedMainTypeForMatchKey = (value?: string | null): PropertyMainType | "" => {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return "";
-  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "studio" || raw === "immeuble" || raw === "autre") {
+  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "bungalow" || raw === "studio" || raw === "immeuble" || raw === "autre") {
     return raw;
   }
   return getMainTypeFromCategory(raw);
@@ -659,6 +661,7 @@ const getResolvedPropertyCategoryLabel = (property: any): string => {
       appartement: "Appartement",
       residence: "Residence",
       villa_maison: "Villa / Maison",
+      bungalow: "Bungalow",
       studio: "Studio",
       immeuble: "Immeuble",
       autre: "Autre",
@@ -693,11 +696,12 @@ const getResolvedPropertyCategoryLabel = (property: any): string => {
     "villa maison",
     "bungalow",
   ].includes(normalizedPlainCategory);
-  const shouldInferSPlusSubtype = inferredMainType === "appartement" || inferredMainType === "residence" || inferredMainType === "villa_maison";
+  const shouldInferSPlusSubtype = inferredMainType === "appartement" || inferredMainType === "residence" || inferredMainType === "villa_maison" || inferredMainType === "bungalow";
   const mainLabelByType: Record<PropertyMainType, string> = {
     appartement: "Appartement",
     residence: "Residence",
     villa_maison: normalizedPlainCategory.includes("maison") && !normalizedPlainCategory.includes("villa") ? "Maison" : "Villa",
+    bungalow: "Bungalow",
     studio: "Studio",
     immeuble: "Immeuble",
     autre: "Autre",
@@ -1738,7 +1742,7 @@ export default function PropertiesPage() {
         && !hasExplicitMainTypeInLabel(displayCategory)
         && genericSubTypeKey
         && mainTypes.length > 1
-          ? mainTypes.filter((mainType) => ["appartement", "villa_maison", "residence"].includes(mainType))
+          ? mainTypes.filter((mainType) => ["appartement", "villa_maison", "bungalow", "residence"].includes(mainType))
           : [];
       if (multiTypeSubtypeScopes.length > 1) {
         multiTypeSubtypeScopes.forEach((mainType) => {
@@ -1747,6 +1751,8 @@ export default function PropertiesPage() {
               ? `Appartement ${displayCategory}`.trim()
               : mainType === "villa_maison"
                 ? `Villa / Maison ${displayCategory}`.trim()
+                : mainType === "bungalow"
+                  ? `Bungalow ${displayCategory}`.trim()
                 : (groupedCategoryMetadata.residenceCanonicalLabelBySubTypeKey.get(genericSubTypeKey) || `Appartement ${displayCategory}`.trim());
           const normalizedScopedCategory = encodeScopedCategory(mainType, scopedLabel);
           if (!normalizedScopedCategory || seenNormalizedCategories.has(normalizedScopedCategory)) return;

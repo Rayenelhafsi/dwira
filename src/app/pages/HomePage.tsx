@@ -42,7 +42,7 @@ import { getPropertyFlashOffers, type PropertyFlashOffer } from "../utils/flashO
 import { fetchAmicalesPublic } from "../utils/amicales";
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
-type PropertyMainType = "appartement" | "residence" | "villa_maison" | "studio" | "immeuble" | "autre";
+type PropertyMainType = "appartement" | "residence" | "villa_maison" | "bungalow" | "studio" | "immeuble" | "autre";
 type GroupedPropertySubType = {
   label: string;
   imageUrl: string;
@@ -69,7 +69,7 @@ type HomeComfortOptionKey =
 const SCOPED_CATEGORY_PREFIX = "__scoped__::";
 const parseScopedCategoryMainType = (value?: string | null): PropertyMainType | "" => {
   const raw = String(value || "").trim().toLowerCase();
-  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "studio" || raw === "immeuble" || raw === "autre") {
+  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "bungalow" || raw === "studio" || raw === "immeuble" || raw === "autre") {
     return raw;
   }
   return "";
@@ -126,6 +126,7 @@ const MAIN_TYPE_LABELS: Record<PropertyMainType, string> = {
   appartement: "Appartement",
   residence: "Residence",
   villa_maison: "Villa / Maison",
+  bungalow: "Bungalow",
   studio: "Studio",
   immeuble: "Immeuble",
   autre: "Autre",
@@ -134,6 +135,7 @@ const MAIN_TYPE_DISPLAY_ORDER: PropertyMainType[] = [
   "appartement",
   "residence",
   "villa_maison",
+  "bungalow",
   "studio",
   "immeuble",
   "autre",
@@ -517,7 +519,7 @@ const getMainTypeFromCategory = (category: string): PropertyMainType => {
   if (normalized.includes("appartement")) return "appartement";
   if (normalized.includes("residence")) return "residence";
   if (normalized.startsWith("s+")) return "appartement";
-  if (normalized.includes("bungalow")) return "villa_maison";
+  if (normalized.includes("bungalow")) return "bungalow";
   if (normalized.includes("villa")) return "villa_maison";
   if (normalized.includes("maison")) return "villa_maison";
   if (normalized.includes("studio")) return "studio";
@@ -563,7 +565,7 @@ const hasExplicitMainTypeInLabel = (value?: string | null) => {
 const getNormalizedMainTypeForMatchKey = (value?: string | null): PropertyMainType | "" => {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return "";
-  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "studio" || raw === "immeuble" || raw === "autre") {
+  if (raw === "appartement" || raw === "residence" || raw === "villa_maison" || raw === "bungalow" || raw === "studio" || raw === "immeuble" || raw === "autre") {
     return raw;
   }
   return getMainTypeFromCategory(raw);
@@ -706,6 +708,7 @@ const getResolvedPropertyCategoryLabel = (property: any): string => {
       appartement: "Appartement",
       residence: "Residence",
       villa_maison: "Villa / Maison",
+      bungalow: "Bungalow",
       studio: "Studio",
       immeuble: "Immeuble",
       autre: "Autre",
@@ -741,11 +744,12 @@ const getResolvedPropertyCategoryLabel = (property: any): string => {
     "villa maison",
     "bungalow",
   ].includes(normalizedPlainCategory);
-  const shouldInferSPlusSubtype = inferredMainType === "appartement" || inferredMainType === "residence" || inferredMainType === "villa_maison";
+  const shouldInferSPlusSubtype = inferredMainType === "appartement" || inferredMainType === "residence" || inferredMainType === "villa_maison" || inferredMainType === "bungalow";
   const mainLabelByType: Record<PropertyMainType, string> = {
     appartement: "Appartement",
     residence: "Residence",
     villa_maison: normalizedPlainCategory.includes("maison") && !normalizedPlainCategory.includes("villa") ? "Maison" : "Villa",
+    bungalow: "Bungalow",
     studio: "Studio",
     immeuble: "Immeuble",
     autre: "Autre",
@@ -2438,7 +2442,7 @@ export default function HomePage({
     return selectedGroup?.subTypes || [];
   }, [availableTypeOptions, groupedTypeOptions, draftMainType]);
   const multiPropertyGroups = useMemo(
-    () => groupedTypeOptions.filter((group) => ["appartement", "residence", "villa_maison", "studio"].includes(group.mainType)),
+    () => groupedTypeOptions.filter((group) => ["appartement", "residence", "villa_maison", "bungalow", "studio"].includes(group.mainType)),
     [groupedTypeOptions]
   );
   const selectedMultiPropertyGroups = useMemo(

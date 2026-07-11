@@ -1150,7 +1150,7 @@ export default function BiensPage() {
   const [isSavingPriorities, setIsSavingPriorities] = useState(false);
   const [typeImageMode, setTypeImageMode] = useState<BienMode>('location_saisonniere');
   const [typeImageScope, setTypeImageScope] = useState<'main' | 'sub'>('main');
-  const [typeImageMainType, setTypeImageMainType] = useState<'appartement' | 'villa_maison' | 'studio' | 'immeuble' | 'autre'>('appartement');
+  const [typeImageMainType, setTypeImageMainType] = useState<'appartement' | 'villa_maison' | 'bungalow' | 'studio' | 'immeuble' | 'autre'>('appartement');
   const [typeImageSubType, setTypeImageSubType] = useState<string>('S+1');
   const [typeImageFile, setTypeImageFile] = useState<File | null>(null);
   const [typeImagePreview, setTypeImagePreview] = useState<string>('');
@@ -1309,6 +1309,7 @@ export default function BiensPage() {
   const mainTypeOptions = [
     { value: 'appartement', label: 'Appartement' },
     { value: 'villa_maison', label: 'Villa / Maison' },
+    { value: 'bungalow', label: 'Bungalow' },
     { value: 'studio', label: 'Studio' },
     { value: 'immeuble', label: 'Immeuble' },
     { value: 'autre', label: 'Autre' },
@@ -1316,6 +1317,7 @@ export default function BiensPage() {
   const subTypeByMain: Record<string, string[]> = {
     appartement: ['S+1', 'S+2', 'S+3', 'S+4'],
     villa_maison: ['Villa'],
+    bungalow: ['S+1', 'S+2', 'S+3', 'S+4'],
     studio: ['Studio'],
     immeuble: ['Immeuble'],
     autre: ['Autre'],

@@ -142,6 +142,11 @@ type ContractApi = {
   url_pdf?: string;
 };
 
+function isReservationDemand(value: unknown): value is ReservationDemand {
+  if (!value || typeof value !== "object") return false;
+  return Boolean(String((value as Partial<ReservationDemand>).id || "").trim());
+}
+
 export default function MyReservationsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -156,6 +161,7 @@ export default function MyReservationsPage() {
   const [loadingContractId, setLoadingContractId] = useState<string | null>(null);
   const [cancellingDemandId, setCancellingDemandId] = useState<string | null>(null);
   const [cancellingHotelDemandId, setCancellingHotelDemandId] = useState<string | null>(null);
+  const safeReservations = useMemo(() => reservations.filter(isReservationDemand), [reservations]);
 
   const fetchReservations = useCallback(async () => {
     if (!user?.email) return;
@@ -172,12 +178,12 @@ export default function MyReservationsPage() {
       const response = await fetch(`${API_URL}/reservation-demands?${query.toString()}`, { credentials: "include" });
       const rows = await response.json().catch(() => []);
       if (!response.ok) throw new Error(String(rows?.error || "Impossible de charger vos reservations"));
-      setReservations(Array.isArray(rows) ? rows : []);
+      setReservations(Array.isArray(rows) ? rows.filter(isReservationDemand) : []);
       const hotelRows = await listHotelReservationDemands();
       setHotelReservations(Array.isArray(hotelRows) ? hotelRows : []);
     } catch (error) {
       const cachedRows = getReservationsFromCache({ clientUserId: user.id, clientEmail: user.email });
-      setReservations(cachedRows);
+      setReservations(Array.isArray(cachedRows) ? cachedRows.filter(isReservationDemand) : []);
       setHotelReservations([]);
       toast.error(
         cachedRows.length > 0
@@ -195,16 +201,16 @@ export default function MyReservationsPage() {
 
   useEffect(() => {
     if (!activePositiveDemandId) {
-      const demand = reservations.find((item) =>
+      const demand = safeReservations.find((item) =>
         item.status === "reponse_positive_attente_confirmation_client" &&
         !item.client_confirmation_clicked_at
       );
       if (demand) setActivePositiveDemandId(demand.id);
     }
-  }, [reservations, activePositiveDemandId]);
+  }, [safeReservations, activePositiveDemandId]);
 
   useEffect(() => {
-    for (const demand of reservations) {
+    for (const demand of safeReservations) {
       if (demand.status !== "contrat_realise" || !demand.contract_id) continue;
       const key = `dwira_contract_notice_${demand.id}_${demand.contract_id}`;
       if (!localStorage.getItem(key)) {
@@ -213,10 +219,10 @@ export default function MyReservationsPage() {
         break;
       }
     }
-  }, [reservations]);
+  }, [safeReservations]);
 
   useEffect(() => {
-    for (const demand of reservations) {
+    for (const demand of safeReservations) {
       if (
         demand.status !== "attente_envoi_coordonnees_contrat" ||
         demand.variable_services_quote_status !== "devis_envoye" ||
@@ -231,11 +237,11 @@ export default function MyReservationsPage() {
         break;
       }
     }
-  }, [reservations]);
+  }, [safeReservations]);
 
   useEffect(() => {
     if (activeRejectedDemandId) return;
-    for (const demand of reservations) {
+    for (const demand of safeReservations) {
       if (demand.status !== "demande_rejetee_admin") continue;
       const rejectionMessage = String(demand.client_note || "").trim();
       if (!rejectionMessage) continue;
@@ -246,11 +252,11 @@ export default function MyReservationsPage() {
         break;
       }
     }
-  }, [reservations, activeRejectedDemandId]);
+  }, [safeReservations, activeRejectedDemandId]);
 
 
   const reservationCards = useMemo(
-    () => reservations.map((reservation) => {
+    () => safeReservations.map((reservation) => {
       const property = properties.find((item) => String(item.id) === String(reservation.bien_id));
       const isPack = isPackReservation(reservation);
       const groupId = String(reservation.reservation_group_id || "").trim();
@@ -263,7 +269,7 @@ export default function MyReservationsPage() {
         ctaLabel: isPack ? "Voir le pack" : "Voir le bien",
       };
     }),
-    [properties, reservations]
+    [properties, safeReservations]
   );
 
   const updateReservationInState = (updated: ReservationDemand) => {
@@ -393,10 +399,10 @@ export default function MyReservationsPage() {
     return <Navigate to="/login" replace />;
   }
 
-  const activePositiveDemand = reservations.find((item) => item.id === activePositiveDemandId) || null;
-  const activeContractDemand = reservations.find((item) => item.id === activeContractDemandId) || null;
-  const activeServiceQuoteDemand = reservations.find((item) => item.id === activeServiceQuoteDemandId) || null;
-  const activeRejectedDemand = reservations.find((item) => item.id === activeRejectedDemandId) || null;
+  const activePositiveDemand = safeReservations.find((item) => item.id === activePositiveDemandId) || null;
+  const activeContractDemand = safeReservations.find((item) => item.id === activeContractDemandId) || null;
+  const activeServiceQuoteDemand = safeReservations.find((item) => item.id === activeServiceQuoteDemandId) || null;
+  const activeRejectedDemand = safeReservations.find((item) => item.id === activeRejectedDemandId) || null;
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbf9_0%,#ffffff_55%)] pt-28 pb-20">
