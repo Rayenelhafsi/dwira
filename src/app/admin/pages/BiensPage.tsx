@@ -9291,6 +9291,20 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                             Active: confirmation client -&gt; paiement direct. Date bloquee uniquement apres paiement reussi.
                           </p>
                         </div>
+                        <div className="rounded-lg border border-yellow-200 bg-yellow-50/70 p-3">
+                          <label className="flex items-center justify-between gap-2 text-xs font-semibold text-gray-700">
+                            <span>Reservation sur demande</span>
+                            <input
+                              type="checkbox"
+                              checked={formData.reservation_sur_demande === true}
+                              onChange={(e) => setFormData(prev => ({ ...prev, reservation_sur_demande: e.target.checked }))}
+                              className="h-4 w-4"
+                            />
+                          </label>
+                          <p className="mt-2 text-[11px] text-gray-500">
+                            Le client verra un bouton "Sur demande" a la place de "Reserver" sur le calendrier et la fiche publique.
+                          </p>
+                        </div>
                         <div className="rounded-lg border border-orange-100 bg-[linear-gradient(135deg,rgba(255,247,237,0.96),rgba(255,237,213,0.9))] p-3 sm:col-span-2">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>

@@ -209,6 +209,7 @@ export default function LocationPublicBienPageView({
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const [pulsePhase, setPulsePhase] = useState(0);
   const uiConfig: BienUiConfig = bien.ui_config || {};
+  const isReservationOnRequest = isTruthy(bien.reservation_sur_demande);
   const resolvedCapacity = useMemo(() => resolveBienCapacity({
     nbChambres: bien.nb_chambres,
     nbSalleBain: bien.nb_salle_bain,
@@ -890,7 +891,12 @@ out body 20;
                     <div><label className="block text-xs font-bold text-gray-700 uppercase mb-1">Depart</label><input type="text" value="jj/mm/aaaa" readOnly className="w-full p-3 border border-gray-200 rounded-lg text-sm text-gray-500" /></div>
                   </div>
                   <div><label className="block text-xs font-bold text-gray-700 uppercase mb-1">Voyageurs</label><div className="w-full p-3 border border-gray-200 rounded-lg text-sm text-gray-700">1 voyageur</div></div>
-                  <button type="button" className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-white font-semibold">Reserver</button>
+                  <button
+                    type="button"
+                    className={`w-full rounded-xl px-4 py-3 text-white font-semibold ${isReservationOnRequest ? 'bg-yellow-500' : 'bg-emerald-600'}`}
+                  >
+                    {isReservationOnRequest ? 'Sur demande' : 'Reserver'}
+                  </button>
                 </div>
               </div>
             </div>
