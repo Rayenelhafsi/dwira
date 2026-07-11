@@ -11338,18 +11338,18 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
   if (existingRows[0]) {
     const row = existingRows[0];
     try {
-      await pool.query(
-        `UPDATE locataires
-         SET nom = ?, telephone = ?, email = ?, cin = ?
-         WHERE id = ?`,
-        [
-          normalizedName || row.nom || 'Client',
-          normalizedPhone || row.telephone || null,
-          normalizedEmail || row.email || null,
-          normalizedCin || row.cin || null,
-          row.id,
-        ]
-      );
+        await pool.query(
+          `UPDATE locataires
+           SET nom = ?, telephone = ?, email = ?, cin = ?
+           WHERE id = ?`,
+          [
+            normalizedName || row.nom || 'Client',
+            normalizedPhone || row.telephone || null,
+            normalizedEmail || row.email || null,
+            normalizedCin || row.cin || '',
+            row.id,
+          ]
+        );
     } catch (error) {
       const [fallbackRows] = await pool.query(
         `SELECT id
@@ -11369,19 +11369,19 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
 
   const id = (normalizedUserId || `l_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`).slice(0, 40);
   try {
-    await pool.query(
-      `INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        normalizedName || 'Client',
-        normalizedPhone || null,
-        normalizedEmail || null,
-        normalizedCin || null,
-        5,
-        getAgencySqlDateTime(),
-      ]
-    );
+      await pool.query(
+        `INSERT INTO locataires (id, nom, telephone, email, cin, score_fiabilite, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          normalizedName || 'Client',
+          normalizedPhone || null,
+          normalizedEmail || null,
+          normalizedCin || '',
+          5,
+          getAgencySqlDateTime(),
+        ]
+      );
   } catch (error) {
     const message = String(error?.message || '').toLowerCase();
     if (message.includes('duplicate entry')) {
