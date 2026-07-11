@@ -2666,6 +2666,9 @@ export default function PropertiesPage() {
       .filter((value) => !hasExplicitMainTypeInLabel(getCategoryDisplayLabel(value)))
       .map((value) => getCanonicalSubTypeKey(value))
       .filter(Boolean);
+    const selectedRequestedSubTypeKeys = normalizedSelectedCategories
+      .map((value) => getCanonicalSubTypeKey(getCategoryDisplayLabel(value)))
+      .filter(Boolean);
     const selectedSubTypeMatchKeys = normalizedSelectedCategories
       .flatMap((value) => getSelectedSubTypeMatchKeys(value, selectedMainTypes))
       .filter(Boolean);
@@ -3141,8 +3144,17 @@ export default function PropertiesPage() {
           )
         );
         const requestedSPlusValues = requestedTypeSubTypeKeys.map((item) => getSPlusValue(item)).filter((value): value is number => Number.isFinite(value as number));
+        const selectedRequestedSPlusValues = selectedRequestedSubTypeKeys.map((item) => getSPlusValue(item)).filter((value): value is number => Number.isFinite(value as number));
         const propertySPlusValue = getSPlusValue(propertySubTypeKey);
-        const hasTypeAlternative31 = false;
+        const hasBungalowVillaMainAlternative = !strictMainTypeMatch && (
+          (propertyMainType === "bungalow" && selectedMainTypes.includes("villa_maison"))
+          || (propertyMainType === "villa_maison" && selectedMainTypes.includes("bungalow"))
+        );
+        const hasCompatibleBungalowVillaSubType = !hasRequestedTypeSubFilter
+          || selectedRequestedSubTypeKeys.length === 0
+          || selectedRequestedSubTypeKeys.includes(propertySubTypeKey)
+          || selectedRequestedSPlusValues.some((requested) => propertySPlusValue !== null && propertySPlusValue === requested);
+        const hasTypeAlternative31 = hasBungalowVillaMainAlternative && hasCompatibleBungalowVillaSubType;
         const hasTypeAlternative32 = strictMainTypeMatch
           && requestedTypeSubTypeKeys.length === 1
           && !strictSubTypeMatch

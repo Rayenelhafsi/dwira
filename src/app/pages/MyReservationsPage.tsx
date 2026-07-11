@@ -117,7 +117,8 @@ function isPackReservation(reservation: ReservationDemand) {
   return Boolean(groupId && groupId.startsWith("pack_"));
 }
 
-function getReservationDisplayTitle(reservation: ReservationDemand) {
+function getReservationDisplayTitle(reservation: ReservationDemand | null | undefined) {
+  if (!reservation) return "Bien";
   return String(reservation.reservation_group_label || "").trim()
     || String(reservation.bien_titre || "").trim()
     || "Bien";
