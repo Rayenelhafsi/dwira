@@ -11679,6 +11679,11 @@ async function ensureAssignmentContractForReservationDemand(current, actorId = '
   return { contractId };
 }
 
+function isAmicaleDemand(row) {
+  return String(row?.payment_mode || '').trim() === 'amicale'
+    || Boolean(String(row?.pricing_amicale_id || '').trim());
+}
+
 async function ensureAssignmentContractForHotelReservationDemand(current, actorId = 'admin') {
   if (!current) return { contractId: null };
   const demandId = String(current.id || '').trim();
