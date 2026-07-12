@@ -27,11 +27,11 @@ function normalizeAmount(value: unknown) {
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) / 100 : 0;
 }
 
-function rangesOverlap(startA: string, endA: string, startB: string, endB: string) {
-  return startA < endB && startB < endA;
+function rangeFullyContains(start: string, end: string, outerStart: string, outerEnd: string) {
+  return outerStart <= start && outerEnd >= end;
 }
 
-function isFlashAlreadyBooked(property: Property, start: string, end: string) {
+function isFlashEntirelyBooked(property: Property, start: string, end: string) {
   const unavailableDates = Array.isArray(property.unavailableDates) ? property.unavailableDates : [];
   return unavailableDates.some((range) => {
     const status = String(range?.status || "").trim().toLowerCase();
@@ -39,7 +39,7 @@ function isFlashAlreadyBooked(property: Property, start: string, end: string) {
     const bookedStart = String(range?.start || "").slice(0, 10);
     const bookedEnd = String(range?.end || "").slice(0, 10);
     if (!isValidDateOnly(bookedStart) || !isValidDateOnly(bookedEnd)) return false;
-    return rangesOverlap(start, end, bookedStart, bookedEnd);
+    return rangeFullyContains(start, end, bookedStart, bookedEnd);
   });
 }
 
@@ -105,7 +105,7 @@ export function getPropertyFlashOffers(property?: Property | null): PropertyFlas
   return rawOffers
     .map((offer, index) => normalizeFlashOfferCandidate(offer, `${property.id}-flash-${index}`))
     .filter((offer): offer is PropertyFlashOffer => Boolean(offer))
-    .filter((offer) => !isFlashAlreadyBooked(property, offer.start, offer.end));
+    .filter((offer) => !isFlashEntirelyBooked(property, offer.start, offer.end));
 }
 
 export function getPropertyFlashOffer(property?: Property | null): PropertyFlashOffer | null {
