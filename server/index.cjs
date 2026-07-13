@@ -18783,6 +18783,42 @@ app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
   }
 });
 
+app.get('/api/admin/biens-summary', requireAdminSession, async (_req, res) => {
+  try {
+    await ensurePaidServicesSchema();
+    await ensureSeasonalPricingSchema();
+    const [rows] = await pool.query(`
+      SELECT
+        b.id,
+        b.reference,
+        b.titre,
+        b.nom_bien_mobile,
+        b.description,
+        b.mode,
+        b.type,
+        b.prix_nuitee,
+        b.prix_semaine,
+        b.caution,
+        b.proprietaire_id,
+        p.nom AS proprietaire_nom,
+        b.location_saisonniere_config_json,
+        b.created_at,
+        b.updated_at
+      FROM biens b
+      LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+      ORDER BY b.created_at DESC
+    `);
+    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rows || []).map((row) => row.id));
+    res.json((rows || []).map((row) => ({
+      ...row,
+      pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
+    })));
+  } catch (error) {
+    console.error('Error fetching admin biens summary:', error);
+    res.status(500).json({ error: 'Failed to fetch admin biens summary' });
+  }
+});
+
 app.get('/api/property-groups', async (req, res) => {
   try {
     const requester = getSessionUserFromRequest(req);

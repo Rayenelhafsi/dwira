@@ -648,7 +648,7 @@ export default function ContratsPage() {
     const requestTs = Date.now();
     const [contratsResult, biensResult, locatairesResult] = await Promise.allSettled([
       fetch(`${API_URL}/contrats?_ts=${requestTs}`, { credentials: 'include', cache: 'no-store' }),
-      fetch(`${API_URL}/biens?_ts=${requestTs}`, { credentials: 'include', cache: 'no-store' }),
+      fetch(`${API_URL}/admin/biens-summary?_ts=${requestTs}`, { credentials: 'include', cache: 'no-store' }),
       fetch(`${API_URL}/locataires?_ts=${requestTs}`, { credentials: 'include', cache: 'no-store' }),
     ]);
 

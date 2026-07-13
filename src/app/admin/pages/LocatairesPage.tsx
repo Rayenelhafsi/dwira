@@ -525,7 +525,7 @@ export default function ClientelesPage() {
         fetch(`${API_URL}/proprietaires`, authFetchOptions),
         fetch(`${API_URL}/utilisateurs`, authFetchOptions),
         fetch(`${API_URL}/contrats`, authFetchOptions),
-        fetch(`${API_URL}/biens`, authFetchOptions),
+        fetch(`${API_URL}/admin/biens-summary`, authFetchOptions),
         fetch(`${API_URL}/paiements`, authFetchOptions),
         fetch(`${API_URL}/maintenance`, authFetchOptions),
         fetch(`${API_URL}/clienteles/profiles`, authFetchOptions),
