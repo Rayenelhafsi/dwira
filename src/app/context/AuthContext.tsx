@@ -27,7 +27,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   login: (user: User) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -185,10 +185,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('dwira_user', JSON.stringify(userData));
   };
 
-  const logout = () => {
+  const logout = async () => {
     setUser(null);
     localStorage.removeItem('dwira_user');
-    void logoutSession();
+    await logoutSession();
   };
 
   return (

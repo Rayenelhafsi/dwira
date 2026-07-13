@@ -263,8 +263,8 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
           </div>
         </div>
         <button
-          onClick={() => {
-            logout();
+          onClick={async () => {
+            await logout();
             window.location.href = '/';
           }}
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-600 hover:text-white"

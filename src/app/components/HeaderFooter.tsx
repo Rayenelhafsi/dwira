@@ -161,8 +161,8 @@ export function Header() {
   const partnerBrandLogoUrl = publicPartnerBrand?.logoUrl ? resolveMediaUrl(publicPartnerBrand.logoUrl) : null;
   const showPartnerBranding = Boolean(isPublicPartnerLanding && partnerBrandLogoUrl && routeMode !== "hotellerie");
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/');
   };
 
