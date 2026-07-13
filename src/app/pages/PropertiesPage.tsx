@@ -2874,6 +2874,7 @@ export default function PropertiesPage() {
         const hints: string[] = [];
         const missing: string[] = [];
         let exactDateAvailable = true;
+        let exactDateBookable = true;
         let stayDateAlternative:
           | { kind: "shorter" | "longer" | "shifted_week"; shiftDays?: number; nightDelta?: number; start: string; end: string }
           | null = null;
@@ -3066,15 +3067,33 @@ export default function PropertiesPage() {
             const exactRange = validStayRanges.find((range) => isPropertyStayRangeCalendarAvailable(property, range.start, range.end));
             exactDateAvailable = Boolean(exactRange);
             const exactBookableRange = validStayRanges.find((range) => evaluatePropertyStayBookability(property, range.start, range.end).ok);
+            exactDateBookable = Boolean(exactBookableRange);
             if (exactDateAvailable) {
-              score += 20;
-              if (!exactBookableRange) {
+              if (exactDateBookable) {
+                score += 20;
+              } else {
                 const exactAvailabilityRange = exactRange || validStayRanges[0];
                 if (exactAvailabilityRange) {
                   const stayValidation = evaluatePropertyStayBookability(property, exactAvailabilityRange.start, exactAvailabilityRange.end);
                   if (stayValidation.reason) {
                     dateFailureReason = stayValidation.reason;
                     dateRuleType = classifyDateRuleReason(stayValidation.reason);
+                  }
+                  const alternative = findBestStayRangeAlternative({
+                    startRaw: exactAvailabilityRange.start,
+                    endRaw: exactAvailabilityRange.end,
+                    isRangeValid: (candidateStart, candidateEnd) => evaluatePropertyStayBookability(property, candidateStart, candidateEnd).ok,
+                    maxShiftDays: 7,
+                    maxNightDelta: 7,
+                  });
+                  stayDateAlternative = alternative;
+                  if (alternative) {
+                    const altLabel = getStayAvailabilityAlternativeLabel(alternative);
+                    hints.push(
+                      `Alternative dates: ${formatDateLabel(alternative.start)} - ${formatDateLabel(alternative.end)}${altLabel ? ` (${altLabel})` : ""}`
+                    );
+                  } else {
+                    missing.push(stayValidation.reason || "Dates non disponibles");
                   }
                 }
               }
@@ -3207,10 +3226,11 @@ export default function PropertiesPage() {
           : genericComfortAlternative || hasComfortFallbackFromBeach || hasPoolAlternative;
         const hasDateRuleAlternative = Boolean(
           hasDateFilter
-          && !exactDateAvailable
+          && (!exactDateAvailable || !exactDateBookable)
           && (
             Boolean(stayDateAlternative)
             || dateRuleType === "min_max"
+            || dateRuleType === "weekday"
           )
         );
         return {
@@ -3220,6 +3240,7 @@ export default function PropertiesPage() {
           exactLocationMatch: selectedLocations.length === 0 || hasExactLocationMatch,
           exactSeasideMatch: selectedSeasideOptions.length === 0 || matchSeaside,
           exactDateAvailable,
+          exactDateBookable,
           stayDateAlternative,
           details: {
             amenitiesMatched: selectedFeatureNames.length > 0
@@ -3260,7 +3281,7 @@ export default function PropertiesPage() {
         && row.exactSeasideMatch
         && row.exactComfortMatch
         && (!requiresRdcComfortFallback || propertyMatchesComfortOption(row.property, "rdc"))
-        && (!hasDateFilter || row.exactDateAvailable)
+        && (!hasDateFilter || (row.exactDateAvailable && row.exactDateBookable))
     );
     const hasExplicitTypeFilter = selectedMainTypes.length > 0 || selectedSubTypeKeys.length > 0;
     const alternatives = rows.filter((row) => {
@@ -3281,7 +3302,7 @@ export default function PropertiesPage() {
       }
       if (hasDateFilter) {
         const hasDateAlternative = row.hasDateRuleAlternative;
-        const hasNonDateAlternativeWithExactDates = row.exactDateAvailable && hasNonDateAlternative;
+        const hasNonDateAlternativeWithExactDates = row.exactDateAvailable && row.exactDateBookable && hasNonDateAlternative;
         return hasDateAlternative || hasNonDateAlternativeWithExactDates;
       }
       return hasNonDateAlternative;
@@ -3297,7 +3318,7 @@ export default function PropertiesPage() {
           && row.exactLocationMatch
           && row.exactSeasideMatch
           && row.exactComfortMatch
-          && (!hasDateFilter || row.exactDateAvailable)
+          && (!hasDateFilter || (row.exactDateAvailable && row.exactDateBookable))
       );
     }
     if (

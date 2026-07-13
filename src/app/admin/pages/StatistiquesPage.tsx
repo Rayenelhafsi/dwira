@@ -1,5 +1,4 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
 import {
   Activity,
   BarChart3,
@@ -536,7 +535,6 @@ function EmptyChart({ message }: { message: string }) {
 }
 
 export default function StatistiquesPage() {
-  const navigate = useNavigate();
   const defaultRange = useMemo(() => getDefaultDateRange(), []);
   const [filters, setFilters] = useState<StatsFilters>({
     ...defaultRange,
@@ -554,6 +552,7 @@ export default function StatistiquesPage() {
   const [availabilityPressure, setAvailabilityPressure] = useState<AvailabilityPressureResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [authExpired, setAuthExpired] = useState(false);
+  const [partialErrors, setPartialErrors] = useState<string[]>([]);
   const [cleanupDaysInteractions, setCleanupDaysInteractions] = useState(90);
   const [cleaningInteractions, setCleaningInteractions] = useState(false);
   const [exportingSnapshot, setExportingSnapshot] = useState(false);
@@ -584,33 +583,77 @@ export default function StatistiquesPage() {
 
       if ([overviewResponse, timeseriesResponse, propertyResponse, stayResponse, channelsResponse, gaResponse, availabilityResponse].some((response) => response.status === 401)) {
         setAuthExpired(true);
-        toast.error('Session admin expiree. Reconnectez-vous.');
-        navigate('/connexion-admin-interne', { replace: true });
+        setPartialErrors([]);
+        toast.error('Session admin expiree. Reconnectez-vous pour relancer les statistiques.');
         return;
       }
 
-      if (!overviewResponse.ok) throw new Error(String(overviewData?.error || 'Impossible de charger les statistiques'));
-      if (!timeseriesResponse.ok) throw new Error(String(timeseriesData?.error || 'Impossible de charger les courbes'));
-      if (!propertyResponse.ok) throw new Error(String(propertyData?.error || 'Impossible de charger la performance des biens'));
-      if (!stayResponse.ok) throw new Error(String(stayData?.error || 'Impossible de charger la demande de sejour'));
-      if (!channelsResponse.ok) throw new Error(String(channelsData?.error || 'Impossible de charger les canaux'));
-      if (!gaResponse.ok) throw new Error(String(gaData?.error || 'Impossible de charger le statut GA4'));
-      if (!availabilityResponse.ok) throw new Error(String(availabilityData?.error || 'Impossible de charger la saturation calendrier'));
+      const nextPartialErrors: string[] = [];
 
-      setOverview(overviewData as OverviewResponse);
-      setTimeseries(timeseriesData as TimeSeriesResponse);
-      setPropertyPerformance(propertyData as PropertyPerformanceResponse);
-      setStayDemand(stayData as StayDemandResponse);
-      setChannels(channelsData as ChannelsResponse);
-      setGaStatus(gaData as GaStatusResponse);
-      setAvailabilityPressure(availabilityData as AvailabilityPressureResponse);
+      if (overviewResponse.ok) {
+        setOverview(overviewData as OverviewResponse);
+      } else {
+        nextPartialErrors.push(String(overviewData?.error || 'Vue d ensemble indisponible'));
+      }
+
+      if (timeseriesResponse.ok) {
+        setTimeseries(timeseriesData as TimeSeriesResponse);
+      } else {
+        nextPartialErrors.push(String(timeseriesData?.error || 'Courbes indisponibles'));
+      }
+
+      if (propertyResponse.ok) {
+        setPropertyPerformance(propertyData as PropertyPerformanceResponse);
+      } else {
+        nextPartialErrors.push(String(propertyData?.error || 'Performance des biens indisponible'));
+      }
+
+      if (stayResponse.ok) {
+        setStayDemand(stayData as StayDemandResponse);
+      } else {
+        nextPartialErrors.push(String(stayData?.error || 'Demande de sejour indisponible'));
+      }
+
+      if (channelsResponse.ok) {
+        setChannels(channelsData as ChannelsResponse);
+      } else {
+        nextPartialErrors.push(String(channelsData?.error || 'Canaux indisponibles'));
+      }
+
+      if (gaResponse.ok) {
+        setGaStatus(gaData as GaStatusResponse);
+      } else {
+        setGaStatus(null);
+        nextPartialErrors.push(String(gaData?.error || 'Statut GA4 indisponible'));
+      }
+
+      if (availabilityResponse.ok) {
+        setAvailabilityPressure(availabilityData as AvailabilityPressureResponse);
+      } else {
+        setAvailabilityPressure(null);
+        nextPartialErrors.push(String(availabilityData?.error || 'Saturation calendrier indisponible'));
+      }
+
+      const hasMainData =
+        overviewResponse.ok
+        || timeseriesResponse.ok
+        || propertyResponse.ok
+        || stayResponse.ok
+        || channelsResponse.ok;
+
+      if (!hasMainData && nextPartialErrors.length > 0) {
+        throw new Error(nextPartialErrors[0]);
+      }
+
+      setPartialErrors(nextPartialErrors);
       setAuthExpired(false);
     } catch (error) {
+      setPartialErrors([]);
       toast.error(error instanceof Error ? error.message : 'Statistiques indisponibles');
     } finally {
       setLoading(false);
     }
-  }, [filters, navigate]);
+  }, [filters]);
 
   useEffect(() => {
     void fetchStats();
@@ -752,6 +795,11 @@ export default function StatistiquesPage() {
         {authExpired ? (
           <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             Session admin expiree. Reconnexion requise pour recharger les statistiques et les listes annexes.
+          </div>
+        ) : null}
+        {!authExpired && partialErrors.length > 0 ? (
+          <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Certaines sections du cockpit n ont pas pu etre chargees: {partialErrors.join(' | ')}
           </div>
         ) : null}
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">

@@ -64,7 +64,7 @@ type SidebarReservationDemand = {
 };
 
 export function AdminSidebar({ onClose }: AdminSidebarProps) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [notificationAlertCount, setNotificationAlertCount] = useState(0);
@@ -97,6 +97,13 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     handleNavClick();
   };
 
+  const handleAdminAuthExpired = useCallback(() => {
+    if (authExpiredRef.current) return;
+    authExpiredRef.current = true;
+    setNotificationAlertCount(0);
+    setImportantAlertCount(0);
+  }, []);
+
   const fetchNotificationAlerts = useCallback(async () => {
     if (isFetchingAlertsRef.current || authExpiredRef.current) return;
     isFetchingAlertsRef.current = true;
@@ -107,10 +114,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
         fetch(`${API_URL}/mobile/admin/calendar-requests?statuses=pending`, { credentials: 'include' }),
       ]);
       if ([notificationsResponse, demandsResponse, pendingCalendarRequestsResponse].some((response) => response.status === 401)) {
-        authExpiredRef.current = true;
-        setNotificationAlertCount(0);
-        setImportantAlertCount(0);
-        navigate('/connexion-admin-interne', { replace: true });
+        handleAdminAuthExpired();
         return;
       }
       if (!notificationsResponse.ok || !demandsResponse.ok || !pendingCalendarRequestsResponse.ok) {
@@ -156,7 +160,7 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     } finally {
       isFetchingAlertsRef.current = false;
     }
-  }, []);
+  }, [handleAdminAuthExpired]);
 
   useEffect(() => {
     void fetchNotificationAlerts();
