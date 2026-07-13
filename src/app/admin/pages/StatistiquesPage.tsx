@@ -32,6 +32,14 @@ import { MapContainer, Popup, TileLayer, CircleMarker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const STATS_REQUEST_TIMEOUT_MS = 12000;
+
+type StatsEndpointResult<T> = {
+  ok: boolean;
+  status: number;
+  data: T | null;
+  error: string | null;
+};
 
 type StatsFilters = {
   dateFrom: string;
@@ -497,6 +505,36 @@ function getAvailabilityDayColor(remainingShare: number, unavailableProperties: 
   return 'bg-sky-100 text-sky-800';
 }
 
+async function fetchStatsEndpoint<T>(path: string): Promise<StatsEndpointResult<T>> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), STATS_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      credentials: 'include',
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => null);
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: data as T | null,
+      error: response.ok ? null : String((data as any)?.error || 'Erreur API'),
+    };
+  } catch (error) {
+    const message = error instanceof Error && error.name === 'AbortError'
+      ? 'Timeout de chargement'
+      : (error instanceof Error ? error.message : 'Erreur reseau');
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      error: message,
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 function KpiCard({
   title,
   value,
@@ -562,23 +600,13 @@ export default function StatistiquesPage() {
     try {
       const baseQuery = buildStatsQuery(filters);
       const [overviewResponse, timeseriesResponse, propertyResponse, stayResponse, channelsResponse, gaResponse, availabilityResponse] = await Promise.all([
-        fetch(`${API_URL}/statistiques/overview?${baseQuery}`, { credentials: 'include' }),
-        fetch(`${API_URL}/statistiques/timeseries?${baseQuery}`, { credentials: 'include' }),
-        fetch(`${API_URL}/statistiques/property-performance?${buildStatsQuery(filters, { limit: '24' })}`, { credentials: 'include' }),
-        fetch(`${API_URL}/statistiques/stay-demand?${buildStatsQuery(filters, { limit: '12' })}`, { credentials: 'include' }),
-        fetch(`${API_URL}/statistiques/channels?${baseQuery}`, { credentials: 'include' }),
-        fetch(`${API_URL}/statistiques/google-analytics/status`, { credentials: 'include' }),
-        fetch(`${API_URL}/statistiques/availability-pressure?${buildStatsQuery(filters, { limit: '12' })}`, { credentials: 'include' }),
-      ]);
-
-      const [overviewData, timeseriesData, propertyData, stayData, channelsData, gaData, availabilityData] = await Promise.all([
-        overviewResponse.json().catch(() => null),
-        timeseriesResponse.json().catch(() => null),
-        propertyResponse.json().catch(() => null),
-        stayResponse.json().catch(() => null),
-        channelsResponse.json().catch(() => null),
-        gaResponse.json().catch(() => null),
-        availabilityResponse.json().catch(() => null),
+        fetchStatsEndpoint<OverviewResponse>(`/statistiques/overview?${baseQuery}`),
+        fetchStatsEndpoint<TimeSeriesResponse>(`/statistiques/timeseries?${baseQuery}`),
+        fetchStatsEndpoint<PropertyPerformanceResponse>(`/statistiques/property-performance?${buildStatsQuery(filters, { limit: '24' })}`),
+        fetchStatsEndpoint<StayDemandResponse>(`/statistiques/stay-demand?${buildStatsQuery(filters, { limit: '12' })}`),
+        fetchStatsEndpoint<ChannelsResponse>(`/statistiques/channels?${baseQuery}`),
+        fetchStatsEndpoint<GaStatusResponse>(`/statistiques/google-analytics/status`),
+        fetchStatsEndpoint<AvailabilityPressureResponse>(`/statistiques/availability-pressure?${buildStatsQuery(filters, { limit: '12' })}`),
       ]);
 
       if ([overviewResponse, timeseriesResponse, propertyResponse, stayResponse, channelsResponse, gaResponse, availabilityResponse].some((response) => response.status === 401)) {
@@ -591,47 +619,52 @@ export default function StatistiquesPage() {
       const nextPartialErrors: string[] = [];
 
       if (overviewResponse.ok) {
-        setOverview(overviewData as OverviewResponse);
+        setOverview(overviewResponse.data as OverviewResponse);
       } else {
-        nextPartialErrors.push(String(overviewData?.error || 'Vue d ensemble indisponible'));
+        setOverview(null);
+        nextPartialErrors.push(String(overviewResponse.error || 'Vue d ensemble indisponible'));
       }
 
       if (timeseriesResponse.ok) {
-        setTimeseries(timeseriesData as TimeSeriesResponse);
+        setTimeseries(timeseriesResponse.data as TimeSeriesResponse);
       } else {
-        nextPartialErrors.push(String(timeseriesData?.error || 'Courbes indisponibles'));
+        setTimeseries(null);
+        nextPartialErrors.push(String(timeseriesResponse.error || 'Courbes indisponibles'));
       }
 
       if (propertyResponse.ok) {
-        setPropertyPerformance(propertyData as PropertyPerformanceResponse);
+        setPropertyPerformance(propertyResponse.data as PropertyPerformanceResponse);
       } else {
-        nextPartialErrors.push(String(propertyData?.error || 'Performance des biens indisponible'));
+        setPropertyPerformance(null);
+        nextPartialErrors.push(String(propertyResponse.error || 'Performance des biens indisponible'));
       }
 
       if (stayResponse.ok) {
-        setStayDemand(stayData as StayDemandResponse);
+        setStayDemand(stayResponse.data as StayDemandResponse);
       } else {
-        nextPartialErrors.push(String(stayData?.error || 'Demande de sejour indisponible'));
+        setStayDemand(null);
+        nextPartialErrors.push(String(stayResponse.error || 'Demande de sejour indisponible'));
       }
 
       if (channelsResponse.ok) {
-        setChannels(channelsData as ChannelsResponse);
+        setChannels(channelsResponse.data as ChannelsResponse);
       } else {
-        nextPartialErrors.push(String(channelsData?.error || 'Canaux indisponibles'));
+        setChannels(null);
+        nextPartialErrors.push(String(channelsResponse.error || 'Canaux indisponibles'));
       }
 
       if (gaResponse.ok) {
-        setGaStatus(gaData as GaStatusResponse);
+        setGaStatus(gaResponse.data as GaStatusResponse);
       } else {
         setGaStatus(null);
-        nextPartialErrors.push(String(gaData?.error || 'Statut GA4 indisponible'));
+        nextPartialErrors.push(String(gaResponse.error || 'Statut GA4 indisponible'));
       }
 
       if (availabilityResponse.ok) {
-        setAvailabilityPressure(availabilityData as AvailabilityPressureResponse);
+        setAvailabilityPressure(availabilityResponse.data as AvailabilityPressureResponse);
       } else {
         setAvailabilityPressure(null);
-        nextPartialErrors.push(String(availabilityData?.error || 'Saturation calendrier indisponible'));
+        nextPartialErrors.push(String(availabilityResponse.error || 'Saturation calendrier indisponible'));
       }
 
       const hasMainData =
