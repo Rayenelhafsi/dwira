@@ -880,6 +880,30 @@ export default function AmicalesPage() {
     }
   };
 
+  const handleVoucherRevert = async (demand: AmicaleDemandRow) => {
+    setSavingId(demand.id);
+    try {
+      const isHotel = String(demand.source_kind || "").trim() === "hotel";
+      const endpoint = isHotel
+        ? `${API_URL}/admin/hotel-reservation-demands/${encodeURIComponent(demand.id)}/revert-voucher`
+        : `${API_URL}/admin/reservation-demands/${encodeURIComponent(demand.id)}/revert-voucher`;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(String(data?.error || "Retour arriere impossible"));
+      }
+      toast.success("Demande retournee a l etape validation agence.");
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Retour arriere impossible");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   const handleDeleteDemand = async (demand: AmicaleDemandRow) => {
     const confirmed = window.confirm(`Supprimer definitivement la demande ${demand.id} de la base de donnees ?`);
     if (!confirmed) return;
@@ -2067,6 +2091,16 @@ export default function AmicalesPage() {
                                 Rejeter
                               </button>
                             </>
+                          ) : null}
+                          {["voucher_en_cours", "voucher_envoye"].includes(String(demand.status || "").trim()) ? (
+                            <button
+                              type="button"
+                              disabled={savingId === demand.id}
+                              onClick={() => void handleVoucherRevert(demand)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                            >
+                              Revenir et supprimer voucher
+                            </button>
                           ) : null}
                           {String(demand.source_kind || "") === "hotel" && ["voucher_en_cours", "voucher_envoye"].includes(String(demand.status || "").trim()) ? (
                             <>

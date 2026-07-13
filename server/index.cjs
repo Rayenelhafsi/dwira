@@ -7333,6 +7333,45 @@ app.post('/api/admin/hotel-reservation-demands/:id/regenerate-voucher', requireA
   }
 });
 
+app.post('/api/admin/hotel-reservation-demands/:id/revert-voucher', requireAdminSession, async (req, res) => {
+  try {
+    await ensureHotelReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande hotel introuvable' });
+    const current = await fetchHotelReservationDemandRow(demandId);
+    if (!current) return res.status(404).json({ error: 'Demande hotel introuvable' });
+    const currentStatus = String(current.status || '').trim();
+    if (!['voucher_en_cours', 'voucher_envoye'].includes(currentStatus)) {
+      return res.status(400).json({ error: 'Retour arriere autorise uniquement apres generation du voucher' });
+    }
+
+    await deleteLocalFileFromPublicUrl(current.voucher_url, path.join('contracts', 'hotel-vouchers'));
+    await deleteLocalFileFromPublicUrl(current.voucher_url, path.join('uploads', 'hotel-voucher-pdfs'));
+    await deleteLocalFileFromPublicUrl(current.voucher_qr_image_url, path.join('uploads', 'hotel-voucher-qrs'));
+
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE hotel_reservation_demands
+       SET status = ?,
+           agency_validation_at = NULL,
+           voucher_id = NULL,
+           voucher_number = NULL,
+           voucher_qr_payload = NULL,
+           voucher_qr_image_url = NULL,
+           voucher_url = NULL,
+           voucher_generated_at = NULL,
+           voucher_sent_at = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+      ['attente_validation_par_agence', now, demandId]
+    );
+    return res.json(await fetchHotelReservationDemandRow(demandId));
+  } catch (error) {
+    console.error('Error reverting admin hotel voucher:', error);
+    return res.status(500).json({ error: 'Impossible de revenir a l etape precedente pour la demande hotel' });
+  }
+});
+
 app.delete('/api/hotel-reservation-demands/:id', requireAdminSession, async (req, res) => {
   try {
     await ensureHotelReservationDemandSchema();
@@ -29531,6 +29570,62 @@ app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, r
   } catch (error) {
     console.error('Error fetching agent amicale vouchers:', error);
     res.status(500).json({ error: 'Impossible de charger les vouchers amicale' });
+  }
+});
+
+app.post('/api/admin/reservation-demands/:id/revert-voucher', requireAdminSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+    const current = await fetchReservationDemandDetailsById(demandId);
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    const isAmicaleDemand = String(current.payment_mode || '').trim() === 'amicale'
+      || Boolean(String(current.pricing_amicale_id || '').trim());
+    if (!isAmicaleDemand) {
+      return res.status(400).json({ error: 'Action reservee aux demandes adherants' });
+    }
+    const currentStatus = String(current.status || '').trim();
+    if (!['voucher_en_cours', 'voucher_envoye'].includes(currentStatus)) {
+      return res.status(400).json({ error: 'Retour arriere autorise uniquement apres generation du voucher' });
+    }
+
+    await deleteLocalFileFromPublicUrl(current.voucher_url, path.join('contracts', 'amicale-vouchers'));
+
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?,
+           agency_validation_at = NULL,
+           voucher_id = NULL,
+           voucher_number = NULL,
+           voucher_url = NULL,
+           voucher_generated_at = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+      ['attente_validation_par_agence', now, demandId]
+    );
+    if (current.unavailable_date_id) {
+      await pool.query(
+        `UPDATE unavailable_dates
+         SET status = ?, payment_deadline = NULL
+         WHERE id = ? AND reservation_demand_id = ?`,
+        ['pending', current.unavailable_date_id, demandId]
+      );
+    }
+    await appendReservationDemandHistory(
+      demandId,
+      'attente_validation_par_agence',
+      'admin',
+      String(req.user?.id || req.user?.email || 'admin').trim(),
+      'Admin retire le voucher et renvoie la demande a l etape validation agence',
+      now
+    );
+    await notifyChatbotReservationDemandChange(demandId);
+    return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+  } catch (error) {
+    console.error('Error reverting admin amicale voucher:', error);
+    return res.status(500).json({ error: 'Impossible de revenir a l etape precedente pour la demande' });
   }
 });
 
