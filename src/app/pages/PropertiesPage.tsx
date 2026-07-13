@@ -3222,8 +3222,9 @@ export default function PropertiesPage() {
           && (!exactDateAvailable || !exactDateBookable)
           && (
             Boolean(stayDateAlternative)
+            // Keep real stay-window alternatives, but do not surface
+            // check-in/check-out weekday rules as filtered-search alternatives.
             || dateRuleType === "min_max"
-            || dateRuleType === "weekday"
           )
         );
         return {
