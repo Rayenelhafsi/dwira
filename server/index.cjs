@@ -34151,41 +34151,115 @@ function deriveReferrerSource(row) {
   }
 }
 
-function buildPreparedStatsRows(rows, demandLookup = null) {
-  return (rows || []).map((row) => {
-    const metadata = parseClientInteractionMetadata(row.metadata_json);
-    const normalized = {
-      id: String(row.id || '').trim(),
-      clientUserId: String(row.client_user_id || '').trim(),
-      clientEmail: String(row.client_email || '').trim().toLowerCase(),
-      clientName: String(row.client_name || '').trim(),
-      type: String(row.type || '').trim().toLowerCase(),
-      bienId: String(row.bien_id || '').trim(),
-      propertyTitle: String(row.property_title || '').trim(),
-      source: String(row.source || '').trim() || 'site_public',
-      deviceId: String(row.device_id || '').trim(),
-      sessionId: String(row.session_id || '').trim(),
-      path: String(row.path || '').trim(),
-      channel: String(row.channel || '').trim(),
-      referrerSource: String(row.referrer_source || '').trim(),
-      viewDurationSeconds: Number(row.view_duration_seconds || 0),
-      scrollDepthPercent: Number(row.scroll_depth_percent || 0),
-      isBounce: row.is_bounce === null || row.is_bounce === undefined ? null : Boolean(row.is_bounce),
-      metadata,
-      eventAt: String(row.event_at || '').trim(),
-    };
-    const known = Boolean(normalized.clientUserId || normalized.clientEmail);
-    return {
-      ...normalized,
-      known,
-      channelKind: deriveChannelFromContext({ ...normalized, metadata }, demandLookup),
-      referrerKind: deriveReferrerSource({ ...normalized, metadata }),
-      sessionKey: normalized.sessionId || normalized.deviceId || normalized.clientUserId || normalized.clientEmail || normalized.id,
-      visitorKey: known
-        ? (normalized.clientUserId || normalized.clientEmail)
-        : (normalized.deviceId || normalized.sessionId || normalized.id),
-    };
+function buildPreparedStatsInteractionRow(row, demandLookup = null) {
+  const metadata = parseClientInteractionMetadata(row.metadata_json);
+  const id = String(row.id || '').trim();
+  const clientUserId = String(row.client_user_id || '').trim();
+  const clientEmail = String(row.client_email || '').trim().toLowerCase();
+  const type = String(row.type || '').trim().toLowerCase();
+  const bienId = String(row.bien_id || '').trim();
+  const propertyTitle = String(row.property_title || '').trim();
+  const source = String(row.source || '').trim() || 'site_public';
+  const deviceId = String(row.device_id || '').trim();
+  const sessionId = String(row.session_id || '').trim();
+  const path = String(row.path || '').trim();
+  const channel = String(row.channel || '').trim();
+  const eventAt = String(row.event_at || '').trim();
+  const viewDurationSeconds = Number(row.view_duration_seconds || 0);
+  const known = Boolean(clientUserId || clientEmail);
+  const sessionKey = sessionId || deviceId || clientUserId || clientEmail || id;
+  const visitorKey = known
+    ? (clientUserId || clientEmail)
+    : (deviceId || sessionId || id);
+
+  return {
+    id,
+    type,
+    bienId,
+    propertyTitle,
+    source,
+    path,
+    channel,
+    eventAt,
+    viewDurationSeconds,
+    known,
+    sessionKey,
+    visitorKey,
+    demandId: String(metadata?.demandId || metadata?.demand_id || '').trim(),
+    metadata: type === 'reservation_attempt'
+      ? {
+        startDate: normalizeStatsDateInput(metadata?.startDate || metadata?.start_date),
+        endDate: normalizeStatsDateInput(metadata?.endDate || metadata?.end_date),
+        paymentMode: String(metadata?.paymentMode || metadata?.payment_mode || '').trim(),
+        partnerAgencyId: String(metadata?.partnerAgencyId || metadata?.partner_agency_id || '').trim(),
+        pricingAmicaleId: String(
+          metadata?.pricingAmicaleId
+          || metadata?.pricing_amicale_id
+          || metadata?.amicaleId
+          || metadata?.amicale_id
+          || ''
+        ).trim(),
+      }
+      : {
+        paymentMode: String(metadata?.paymentMode || metadata?.payment_mode || '').trim(),
+        partnerAgencyId: String(metadata?.partnerAgencyId || metadata?.partner_agency_id || '').trim(),
+        pricingAmicaleId: String(
+          metadata?.pricingAmicaleId
+          || metadata?.pricing_amicale_id
+          || metadata?.amicaleId
+          || metadata?.amicale_id
+          || ''
+        ).trim(),
+      },
+    channelKind: '',
+  };
+}
+
+function finalizePreparedStatsInteractionRows(rows, demandLookup = null) {
+  return (rows || []).map((row) => ({
+    ...row,
+    channelKind: deriveChannelFromContext(row, demandLookup),
+    referrerKind: 'direct',
+  }));
+}
+
+async function fetchStatsDemandLookup(demandIds) {
+  if (!Array.isArray(demandIds) || demandIds.length === 0) {
+    return new Map();
+  }
+  const hasReservationPartnerAgencyId = await columnExists('reservation_demands', 'partner_agency_id');
+  const hasReservationAmicaleName = await columnExists('reservation_demands', 'amicale_name');
+  const placeholders = demandIds.map(() => '?').join(', ');
+  const [reservationRows] = await pool.query(
+    `SELECT
+       d.id,
+       CASE
+         WHEN ${hasReservationPartnerAgencyId ? "d.partner_agency_id IS NOT NULL AND d.partner_agency_id <> ''" : '0'} THEN 'partner'
+         WHEN d.pricing_amicale_id IS NOT NULL AND d.pricing_amicale_id <> '' THEN 'amicale'
+         WHEN ${hasReservationAmicaleName ? "d.amicale_name IS NOT NULL AND d.amicale_name <> ''" : '0'} THEN 'amicale'
+         ELSE 'direct'
+       END AS channel,
+       ${hasReservationAmicaleName
+         ? "COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, '')) AS amicale_name,"
+         : "COALESCE(NULLIF(a.name, ''), '') AS amicale_name,"}
+       ${hasReservationPartnerAgencyId
+         ? "COALESCE(NULLIF(pa.name, ''), NULLIF(pa.slug, '')) AS partner_name"
+         : "NULL AS partner_name"}
+     FROM reservation_demands d
+     LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+     ${hasReservationPartnerAgencyId ? 'LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id' : ''}
+     WHERE d.id IN (${placeholders})`,
+    demandIds
+  );
+  const demandLookup = new Map();
+  (reservationRows || []).forEach((row) => {
+    demandLookup.set(String(row.id || '').trim(), {
+      channel: normalizeTrackedChannel(row.channel) || 'direct',
+      amicaleName: String(row.amicale_name || '').trim(),
+      partnerName: String(row.partner_name || '').trim(),
+    });
   });
+  return demandLookup;
 }
 
 function filterPreparedStatsRows(rows, { segment = 'all', channel = 'all' } = {}) {
@@ -34339,48 +34413,48 @@ function getBucketDayCountWithinRange(bucketKey, granularity, range) {
 async function buildStatsPreparedRows({ range, propertyId = null }) {
   const cacheKey = `stats:prepared-rows:${JSON.stringify({ range, propertyId: propertyId || null })}`;
   return getCachedStatsComputation(cacheKey, 15000, async () => {
-    const rows = await fetchStatsInteractionRows({ range, propertyId });
+    const { where, params } = buildStatsInteractionWhereClause({ range, propertyId });
+    const preparedRows = [];
     const demandIds = new Set();
-    rows.forEach((row) => {
-      const metadata = parseClientInteractionMetadata(row.metadata_json);
-      const demandId = String(metadata?.demandId || metadata?.demand_id || '').trim();
-      if (demandId) demandIds.add(demandId);
-    });
-    const demandLookup = new Map();
-    if (demandIds.size > 0) {
-      const hasReservationPartnerAgencyId = await columnExists('reservation_demands', 'partner_agency_id');
-      const hasReservationAmicaleName = await columnExists('reservation_demands', 'amicale_name');
-      const placeholders = Array.from(demandIds).map(() => '?').join(', ');
-      const [reservationRows] = await pool.query(
+    const batchSize = 10000;
+    let lastId = '';
+
+    while (true) {
+      const [rows] = await pool.query(
         `SELECT
-           d.id,
-           CASE
-             WHEN ${hasReservationPartnerAgencyId ? "d.partner_agency_id IS NOT NULL AND d.partner_agency_id <> ''" : '0'} THEN 'partner'
-             WHEN d.pricing_amicale_id IS NOT NULL AND d.pricing_amicale_id <> '' THEN 'amicale'
-             WHEN ${hasReservationAmicaleName ? "d.amicale_name IS NOT NULL AND d.amicale_name <> ''" : '0'} THEN 'amicale'
-             ELSE 'direct'
-           END AS channel,
-           ${hasReservationAmicaleName
-             ? "COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, '')) AS amicale_name,"
-             : "COALESCE(NULLIF(a.name, ''), '') AS amicale_name,"}
-           ${hasReservationPartnerAgencyId
-             ? "COALESCE(NULLIF(pa.name, ''), NULLIF(pa.slug, '')) AS partner_name"
-             : "NULL AS partner_name"}
-         FROM reservation_demands d
-         LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
-         ${hasReservationPartnerAgencyId ? 'LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id' : ''}
-         WHERE d.id IN (${placeholders})`,
-        Array.from(demandIds)
+           id,
+           client_user_id,
+           client_email,
+           type,
+           bien_id,
+           property_title,
+           source,
+           device_id,
+           session_id,
+           path,
+           channel,
+           view_duration_seconds,
+           metadata_json,
+           DATE_FORMAT(event_at, '%Y-%m-%d %H:%i:%s') AS event_at
+         FROM client_interactions
+         WHERE ${where.join(' AND ')} ${lastId ? 'AND id > ?' : ''}
+         ORDER BY id ASC
+         LIMIT ?`,
+        lastId ? params.concat([lastId, batchSize]) : params.concat([batchSize])
       );
-      (reservationRows || []).forEach((row) => {
-        demandLookup.set(String(row.id || '').trim(), {
-          channel: normalizeTrackedChannel(row.channel) || 'direct',
-          amicaleName: String(row.amicale_name || '').trim(),
-          partnerName: String(row.partner_name || '').trim(),
-        });
+      if (!rows || rows.length === 0) break;
+      rows.forEach((row) => {
+        const prepared = buildPreparedStatsInteractionRow(row);
+        if (prepared.demandId) demandIds.add(prepared.demandId);
+        preparedRows.push(prepared);
       });
+      lastId = String(rows[rows.length - 1]?.id || '').trim();
+      if (!lastId) break;
+      if (rows.length < batchSize) break;
     }
-    return buildPreparedStatsRows(rows, demandLookup);
+
+    const demandLookup = await fetchStatsDemandLookup(Array.from(demandIds));
+    return finalizePreparedStatsInteractionRows(preparedRows, demandLookup);
   });
 }
 

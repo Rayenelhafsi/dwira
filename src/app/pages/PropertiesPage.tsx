@@ -855,15 +855,8 @@ const evaluatePropertyStayBookability = (property: any, startRaw: string, endRaw
     return { ok: false, reason: "Dates non disponibles." };
   }
 
-  const requiredMinStay = getReservationMinStayRequirement({
-    startDate: startRaw,
-    endDate: endRaw,
-    periods: stayRules?.pricingPeriods || property?.pricingPeriods || [],
-    fallbackMinStay: minStay,
-  });
-  if (nights < requiredMinStay) {
-    return { ok: false, reason: `Sejour minimum ${requiredMinStay} nuit(s).` };
-  }
+  // For search exact-match classification, do not downgrade a property only because
+  // the selected stay is below the minimum-night rule. Reservation pages still enforce it.
   if (nights > maxStay) {
     return { ok: false, reason: `Sejour maximum ${maxStay} nuit(s).` };
   }
