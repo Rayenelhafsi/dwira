@@ -252,6 +252,12 @@ export default function ReservationConfirmationPage() {
   }, [activePaidServices, draft, extraMattressMax, extraMattressPrice, hasCleaningFee, hasServiceFee, isAmicalePricingActive, isSitepAmicalePricing, maxAdultGuests, maxChildGuests, maxGuests, partnerAgencyMarginMultiplier, pricingAmicaleId, property, seasonalConfig]);
 
   useEffect(() => {
+    if (isAmicaleFlow) {
+      setAntiBotConfig({ enabled: false, siteKey: null });
+      setTurnstileToken('');
+      setTurnstileError(null);
+      return;
+    }
     let cancelled = false;
     const loadAntiBot = async () => {
       const config = await getAntiBotConfig();
@@ -263,7 +269,7 @@ export default function ReservationConfirmationPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isAmicaleFlow]);
 
   useEffect(() => {
     if (!antiBotConfig.enabled || !antiBotConfig.siteKey) return;

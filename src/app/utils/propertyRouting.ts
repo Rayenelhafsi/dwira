@@ -4,11 +4,13 @@ const normalizeRouteToken = (value?: string | null): string =>
   decodeURIComponent(String(value || "").trim()).toLowerCase();
 
 const normalizeReferenceToken = (value?: string | null): string => {
-  const normalized = normalizeRouteToken(value).replace(/[^a-z0-9]/g, "");
+  const raw = normalizeRouteToken(value);
+  if (!raw) return "";
+  const normalized = raw.replace(/[^a-z0-9]/g, "");
   if (!normalized) return "";
-  if (normalized.startsWith("ref")) {
-    const digits = normalized.slice(3).replace(/[^0-9]/g, "");
-    if (digits) return `ref${digits}`;
+  const simpleNumericRefMatch = raw.match(/^ref(?:[\s_-]*)(\d+)$/i);
+  if (simpleNumericRefMatch?.[1]) {
+    return `ref${simpleNumericRefMatch[1]}`;
   }
   return normalized;
 };
@@ -17,7 +19,7 @@ export const getPropertyRouteToken = (property: Pick<Property, "reference" | "sl
   const reference = String(property.reference || "").trim();
   if (reference) {
     const compact = normalizeReferenceToken(reference);
-    if (/^ref\d+$/i.test(compact)) return compact.toUpperCase();
+    if (/^ref\d+$/i.test(compact) && /^ref(?:[\s_-]*)(\d+)$/i.test(reference)) return compact.toUpperCase();
     return reference;
   }
   const slug = String(property.slug || "").trim();

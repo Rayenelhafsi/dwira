@@ -22594,7 +22594,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       }
     }
 
-    if (requester?.role !== 'admin') {
+    if (requester?.role !== 'admin' && !isAmicaleFlow) {
       const antiBotCheck = await verifyTurnstileToken(turnstileToken, getClientIp(req));
       if (antiBotCheck.enabled && !antiBotCheck.success) {
         void logSecurityEvent({
