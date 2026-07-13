@@ -18237,6 +18237,7 @@ app.get('/api/biens-lite', async (req, res) => {
   try {
     await ensurePaidServicesSchema();
     await ensureSeasonalPricingSchema();
+    await ensureReservationDemandSchema();
     const [rows] = await pool.query(`
       SELECT
         id, reference, titre, nom_bien_mobile, description, mode, type, nb_chambres, nb_salle_bain,
@@ -18256,6 +18257,7 @@ app.get('/api/biens-lite', async (req, res) => {
     `);
     const rowsWithCaracteristiques = await enrichBiensWithCaracteristiques(rows || []);
     const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
+    const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
       let config = null;
@@ -18274,6 +18276,7 @@ app.get('/api/biens-lite', async (req, res) => {
         nom_bien_mobile: String(nextConfig?.nom_bien_mobile || row.nom_bien_mobile || '').trim() || null,
         location_saisonniere_config_json: JSON.stringify(nextConfig),
         pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
+        unavailable_dates_json: JSON.stringify(unavailableDatesByBienId.get(row.id) || []),
       };
     });
     res.json(enrichedRows);
