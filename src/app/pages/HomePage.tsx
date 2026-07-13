@@ -14,7 +14,7 @@ import logo from "../../../logo dwira.jpg";
 import titaTravelLogo from "../../../logo Tita travel.jpg";
 import ComingSoonState from "../components/ComingSoonState";
 import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
-import type { HotelCity, HotelSummary } from "../services/hotels";
+import type { HotelCity, HotelPromoLabel, HotelSummary } from "../services/hotels";
 import { extractHotelBoardingNames, extractHotelMinPrice, flattenHotelRoomOffers, getHotelCardDescription, getHotelFacilityTitles, pickHotelDisplayedPrice } from "../utils/hotelHelpers";
 import { buildApiUrl } from "../utils/api";
 import { clearAuthPendingLogin, isAuthPendingLogin, markAuthPendingLogin, saveAuthReturnTo } from "../utils/pendingReservation";
@@ -1052,6 +1052,51 @@ function hasHotelPromotion(hotel: HotelSummary) {
   );
 }
 
+function isHotelPromotionLabel(label?: HotelPromoLabel | null) {
+  if (!label || typeof label !== "object") return false;
+  const libelle = String(label.libelle || "").trim().toLowerCase();
+  return Number(label.codeType || 0) === 6 || libelle === "promotion";
+}
+
+function getHotelLabelPrimaryText(label?: HotelPromoLabel | null) {
+  if (!label || typeof label !== "object") return "";
+  const configs = label.configs && typeof label.configs === "object" ? label.configs : null;
+  const titre1 = String(configs?.TITRE_1 || "").trim();
+  const titre3 = String(configs?.TITRE_3 || "").trim();
+  const libelle = String(label.libelle || "").trim();
+  if (isHotelPromotionLabel(label)) {
+    return titre1 || titre3 || libelle || "Promotion";
+  }
+  return libelle || titre1 || titre3;
+}
+
+function getHotelLabelSecondaryText(label?: HotelPromoLabel | null) {
+  if (!label || typeof label !== "object") return "";
+  const configs = label.configs && typeof label.configs === "object" ? label.configs : null;
+  const secondary = [
+    String(configs?.TITRE_2 || "").trim(),
+    String(configs?.TITRE_4 || "").trim(),
+  ].filter(Boolean);
+  if (secondary.length > 0) return secondary.join(" • ");
+  const debut = String(label.debut || "").trim();
+  const fin = String(label.fin || "").trim();
+  if (debut && fin) return `Du ${debut} au ${fin}`;
+  return "";
+}
+
+function getHotelCardLabels(hotel: HotelSummary, fetchedLabels?: { etiquettes?: HotelPromoLabel[]; etiquettesSaison?: HotelPromoLabel[] } | null) {
+  const primarySource = Array.isArray(fetchedLabels?.etiquettes) && fetchedLabels.etiquettes.length > 0
+    ? fetchedLabels.etiquettes
+    : Array.isArray(hotel.Etiquettes)
+      ? hotel.Etiquettes
+      : Array.isArray(hotel.EtiquettesSaison)
+        ? hotel.EtiquettesSaison
+        : [];
+  return primarySource
+    .filter((label) => label && typeof label === "object")
+    .sort((left, right) => Number(left?.ordre ?? 999) - Number(right?.ordre ?? 999));
+}
+
 type HomePageProps = {
   forcedAmicaleId?: string | null;
   forcedPartnerAgencyId?: string | null;
@@ -1172,6 +1217,7 @@ export default function HomePage({
   const [hotelProviderError, setHotelProviderError] = useState("");
   const [hotelCities, setHotelCities] = useState<HotelCity[]>([]);
   const [hotelResults, setHotelResults] = useState<HotelSummary[]>([]);
+  const [hotelLabelsById, setHotelLabelsById] = useState<Record<number, { etiquettes?: HotelPromoLabel[]; etiquettesSaison?: HotelPromoLabel[] }>>({});
   const [hotelResultsSearchTerm, setHotelResultsSearchTerm] = useState(() => String(searchParams.get("hotelListQ") || "").trim());
   const [hotelResultsSort, setHotelResultsSort] = useState<HotelResultsSort>(() => {
     const raw = String(searchParams.get("hotelSort") || "").trim();
@@ -1435,6 +1481,11 @@ export default function HomePage({
     }
     return params;
   };
+  const buildHotelModePath = useCallback((params?: URLSearchParams | null) => {
+    const nextParams = applyAmicaleParam(new URLSearchParams(params ? params.toString() : searchParams.toString()));
+    nextParams.set("mode", "hotellerie");
+    return `/hotels${nextParams.toString() ? `?${nextParams.toString()}` : ""}`;
+  }, [applyAmicaleParam, searchParams]);
   useEffect(() => {
     if (!activeAmicaleId) return;
     let cancelled = false;
@@ -1713,6 +1764,31 @@ export default function HomePage({
     () => sortedHotelResults.slice(0, hotelResultsPageSize),
     [sortedHotelResults, hotelResultsPageSize]
   );
+  useEffect(() => {
+    if (!isHotelMode || visibleHotelResults.length === 0) return;
+    const missingHotelIds = visibleHotelResults
+      .map((hotel) => Number(hotel?.Id || 0))
+      .filter((hotelId) => hotelId > 0 && !hotelLabelsById[hotelId]);
+    if (missingHotelIds.length === 0) return;
+    let cancelled = false;
+    void loadHotelsService()
+      .then(({ getHotelLabels }) => getHotelLabels(missingHotelIds))
+      .then((payload) => {
+        if (cancelled) return;
+        const nextEntries = Object.entries(payload?.labelsByHotelId || {}).reduce<Record<number, { etiquettes?: HotelPromoLabel[]; etiquettesSaison?: HotelPromoLabel[] }>>((accumulator, [hotelId, labels]) => {
+          const numericHotelId = Number(hotelId || 0);
+          if (numericHotelId <= 0 || !labels || typeof labels !== "object") return accumulator;
+          accumulator[numericHotelId] = labels;
+          return accumulator;
+        }, {});
+        if (Object.keys(nextEntries).length === 0) return;
+        setHotelLabelsById((prev) => ({ ...prev, ...nextEntries }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [hotelLabelsById, isHotelMode, visibleHotelResults]);
   const hotelSearchPeriodLabel = useMemo(() => {
     try {
       if (!hotelCheckIn || !hotelCheckOut) return "";
@@ -3253,6 +3329,22 @@ export default function HomePage({
     setHotelDestinationOpen(true);
   };
 
+  const syncHotelDestinationTabForInput = useCallback((rawValue: string) => {
+    const hasQuery = Boolean(String(rawValue || "").trim());
+    if (!hasQuery) {
+      setHotelCityId(0);
+      setSelectedHotelId(0);
+      setHotelDestinationScopeConfirmed(false);
+      setHotelDestinationTab("destinations");
+      return;
+    }
+    if (selectedHotelId > 0 || hotelCityId > 0 || hotelDestinationTab === "hotels") {
+      setHotelDestinationTab("hotels");
+      return;
+    }
+    setHotelDestinationTab("villes");
+  }, [hotelCityId, hotelDestinationTab, selectedHotelId]);
+
   const selectHotelDestinationCity = (city: HotelCity) => {
     setHotelCityId(Number(city.Id) || 0);
     setHotelDestinationQuery(String(city.Name || "").trim());
@@ -3515,6 +3607,7 @@ export default function HomePage({
     if (checkingAvailabilityHotelId !== null) return;
     const resolvedCityId = Number(hotelCityId || hotel.City?.Id || 0);
     if (!resolvedCityId) {
+      toast.error("Ville de l'hotel introuvable. Rechargez la recherche puis reessayez.");
       return;
     }
     if (!hotelCheckIn || !hotelCheckOut) {
@@ -3536,34 +3629,41 @@ export default function HomePage({
     setHotelCriteriaGlowTarget(null);
     setCheckingAvailabilityHotelId(hotelId);
     try {
-      const refreshedHotels = await runHotelSearch({ replace: true, scroll: false });
-      if (!Array.isArray(refreshedHotels) || refreshedHotels.length === 0) {
+      const { searchHotels } = await loadHotelsService();
+      const refreshedHotels = await searchHotels({
+        cityId: resolvedCityId,
+        hotelIds: [hotelId],
+        checkIn: hotelCheckIn,
+        checkOut: hotelCheckOut,
+        adults: totalSelectedAdults,
+        childAges: travellerContext.childAges,
+        onlyAvailable: true,
+      });
+      const refreshedHotel = Array.isArray(refreshedHotels)
+        ? refreshedHotels.find((entry) => Number(entry?.Id || 0) === hotelId) || null
+        : null;
+      if (!refreshedHotel) {
         setHotelCriteriaGlowTarget("chambres");
         toast.error("Aucune disponibilité pour ce choix. Modifiez vos critères puis revérifiez.");
         return;
       }
-      setHotelAvailabilitySignatureByHotel((prev) => {
-        const next = { ...prev };
-        refreshedHotels.forEach((visibleHotel) => {
-          const visibleHotelId = Number(visibleHotel?.Id || 0);
-          if (visibleHotelId <= 0) return;
-          const visibleRoomSelections = Array.isArray(localRoomSelectionsByHotel[visibleHotelId]) ? localRoomSelectionsByHotel[visibleHotelId] : [];
-          next[visibleHotelId] = buildHotelAvailabilitySignature({
-            hotelId: visibleHotelId,
-            hotelCityId,
-            hotelDestinationQuery,
-            selectedHotelId,
-            checkIn: hotelCheckIn,
-            checkOut: hotelCheckOut,
-            roomCount: travellerContext.roomCount,
-            roomTravellers: travellerContext.roomTravellers,
-            roomSelections: visibleRoomSelections,
-          });
-        });
-        return next;
-      });
+      setHotelResults((prev) => prev.map((entry) => (Number(entry?.Id || 0) === hotelId ? refreshedHotel : entry)));
+      setHotelAvailabilitySignatureByHotel((prev) => ({
+        ...prev,
+        [hotelId]: buildHotelAvailabilitySignature({
+          hotelId,
+          hotelCityId,
+          hotelDestinationQuery,
+          selectedHotelId,
+          checkIn: hotelCheckIn,
+          checkOut: hotelCheckOut,
+          roomCount: travellerContext.roomCount,
+          roomTravellers: travellerContext.roomTravellers,
+          roomSelections,
+        }),
+      }));
       setHotelCriteriaGlowTarget(null);
-      toast.success("Disponibilité vérifiée pour les hôtels affichés.");
+      toast.success("Disponibilité vérifiée pour cet hôtel.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Vérification de disponibilité impossible.");
     } finally {
@@ -4139,7 +4239,8 @@ export default function HomePage({
     selectedHotelResultStars.forEach((value) => nextParams.append("hotelStar", value));
     nextParams.delete("hotelFacility");
     selectedHotelResultFacilities.forEach((value) => nextParams.append("hotelFacility", value));
-    const relativeUrl = `${window.location.pathname}${nextParams.toString() ? `?${nextParams.toString()}` : ""}`;
+    nextParams.set("mode", "hotellerie");
+    const relativeUrl = buildHotelModePath(nextParams);
     let shareUrl = `${window.location.origin}${relativeUrl}`;
 
     try {
@@ -4631,13 +4732,7 @@ export default function HomePage({
                                   setHotelDestinationQuery(nextValue);
                                   setSelectedHotelId(0);
                                   setHotelDestinationScopeConfirmed(false);
-                                  if (nextValue.trim()) setHotelDestinationTab("villes");
-                                  if (!nextValue.trim()) {
-                                    setHotelCityId(0);
-                                    setSelectedHotelId(0);
-                                    setHotelDestinationScopeConfirmed(false);
-                                    setHotelDestinationTab("destinations");
-                                  }
+                                  syncHotelDestinationTabForInput(nextValue);
                                 }}
                                 placeholder="ex. ville, nom hotel"
                                 className="w-full border-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
@@ -6258,6 +6353,9 @@ export default function HomePage({
                     const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow) !== null) || roomOffers[0] || null;
                     const leadOfferPrice = leadOffer ? pickHotelDisplayedPrice(leadOffer.room, activeAmicaleHotelMarkupPercent, isAmicaleHotelFlow) : null;
                     const hasPromotion = hasHotelPromotion(hotel);
+                    const hotelFetchedLabels = hotelLabelsById[hotelId];
+                    const hotelCardLabels = getHotelCardLabels(hotel, hotelFetchedLabels);
+                    const hotelSpecialLabels = hotelCardLabels.filter((label) => !isHotelPromotionLabel(label)).slice(0, 2);
                     const hasRefundableOffer = roomOffers.some((offer) => !offer.room?.NotRefundable);
                     const hasOnRequestOffer = roomOffers.some((offer) => Boolean(offer.room?.OnRequest || offer.room?.StopReservation));
                     const boardings = extractHotelBoardingNames(hotel).slice(0, 3);
@@ -6380,7 +6478,7 @@ export default function HomePage({
                     } else if (activePartnerAgencyId) {
                       detailParams.set("partner", activePartnerAgencyId);
                     }
-                    detailParams.set("returnTo", `${routerLocation.pathname}${routerLocation.search}`);
+                    detailParams.set("returnTo", buildHotelModePath(searchParams));
                     const linkTo = `/hotels/${encodeURIComponent(String(hotel.Id))}${detailParams.toString() ? `?${detailParams.toString()}` : ""}`;
                     return (
                       <article
@@ -6405,6 +6503,35 @@ export default function HomePage({
                                 {Array.from({ length: hotelStarCount }).map((_, starIndex) => (
                                   <Star key={`${hotel.Id}-cover-star-${starIndex}`} size={12} className="fill-current" />
                                 ))}
+                              </div>
+                            ) : null}
+                            {hotelSpecialLabels.length > 0 ? (
+                              <div className={`absolute left-4 z-10 flex max-w-[74%] flex-col gap-2 ${hotelStarCount > 0 ? "top-14" : "top-4"}`}>
+                                {hotelSpecialLabels.map((label, labelIndex) => {
+                                  const primaryText = getHotelLabelPrimaryText(label);
+                                  const secondaryText = getHotelLabelSecondaryText(label);
+                                  if (!primaryText) return null;
+                                  return (
+                                    <div
+                                      key={`${hotel.Id}-label-${labelIndex}-${primaryText}`}
+                                      className="rounded-2xl px-3 py-2 text-white shadow-[0_12px_28px_rgba(15,23,42,0.28)] ring-1 ring-white/20 backdrop-blur-sm"
+                                      style={{
+                                        background: label.color2 && label.color
+                                          ? `linear-gradient(135deg, ${label.color} 0%, ${label.color2} 100%)`
+                                          : label.color || "#16a34a",
+                                      }}
+                                    >
+                                      <p className="text-[11px] font-extrabold tracking-tight sm:text-xs">
+                                        {primaryText}
+                                      </p>
+                                      {secondaryText ? (
+                                        <p className="mt-1 text-[10px] font-medium text-white/90 sm:text-[11px]">
+                                          {secondaryText}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             ) : null}
                             {hasPromotion && (
@@ -7184,13 +7311,7 @@ export default function HomePage({
                       setHotelDestinationQuery(nextValue);
                       setSelectedHotelId(0);
                       setHotelDestinationScopeConfirmed(false);
-                      if (nextValue.trim()) setHotelDestinationTab("villes");
-                      if (!nextValue.trim()) {
-                        setHotelCityId(0);
-                        setSelectedHotelId(0);
-                        setHotelDestinationScopeConfirmed(false);
-                        setHotelDestinationTab("destinations");
-                      }
+                      syncHotelDestinationTabForInput(nextValue);
                     }}
                     placeholder="ex. ville, nom hotel"
                     className="w-full border-0 bg-transparent text-[14px] text-slate-900 outline-none placeholder:text-slate-400"

@@ -93,6 +93,23 @@ export type HotelImage = {
   Description?: string | null;
 };
 
+export type HotelPromoLabel = {
+  libelle?: string | null;
+  media?: string | null;
+  color?: string | null;
+  color2?: string | null;
+  ordre?: number | string | null;
+  codeType?: string | number | null;
+  configs?: Record<string, string | null> | null;
+  icon?: string | null;
+  hasCountDown?: boolean | null;
+  countdownDate?: unknown;
+  age?: number | string | null;
+  numEnf?: string | null;
+  debut?: string | null;
+  fin?: string | null;
+};
+
 export type HotelSummary = {
   Token?: string | null;
   Id: number;
@@ -111,6 +128,8 @@ export type HotelSummary = {
   Source?: string | number | null;
   Recommended?: number | null;
   Promotion?: { Title?: string | null; Description?: string | null; Rate?: string | number | null } | null;
+  Etiquettes?: HotelPromoLabel[] | null;
+  EtiquettesSaison?: HotelPromoLabel[] | null;
   Price?: HotelPriceNode | null;
 };
 
@@ -432,6 +451,17 @@ export async function getHotelDetail(hotelId: number | string): Promise<HotelDet
     throw new Error("Hotel introuvable.");
   }
   return payload.hotel;
+}
+
+export async function getHotelLabels(hotelIds: Array<number | string>) {
+  const ids = hotelIds
+    .map((value) => Number(value || 0))
+    .filter((value, index, values) => Number.isInteger(value) && value > 0 && values.indexOf(value) === index);
+  if (ids.length === 0) {
+    return { labelsByHotelId: {} as Record<string, { etiquettes?: HotelPromoLabel[]; etiquettesSaison?: HotelPromoLabel[] }> };
+  }
+  const response = await fetch(buildApiUrl(`/hotels/labels?ids=${ids.join(",")}`));
+  return readApiResponse<{ labelsByHotelId?: Record<string, { etiquettes?: HotelPromoLabel[]; etiquettesSaison?: HotelPromoLabel[] }> }>(response);
 }
 
 export async function prebookHotel(request: HotelPrebookRequest) {

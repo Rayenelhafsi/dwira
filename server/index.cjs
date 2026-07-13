@@ -39,6 +39,9 @@ const OWNER_APP_PLAY_STORE_URL = String(process.env.OWNER_APP_PLAY_STORE_URL || 
 const MYGO_HOTEL_API_BASE_URL = String(process.env.MYGO_HOTEL_API_BASE_URL || 'https://admin.mygo.co/api/hotel').trim().replace(/\/+$/, '');
 const MYGO_HOTEL_LOGIN = String(process.env.MYGO_HOTEL_LOGIN || '').trim();
 const MYGO_HOTEL_PASSWORD = String(process.env.MYGO_HOTEL_PASSWORD || '').trim();
+const MYGO_WEB_BASE_URL = String(process.env.MYGO_WEB_BASE_URL || 'https://mygo.co').trim().replace(/\/+$/, '');
+const MYGO_WEB_LOGIN = String(process.env.MYGO_WEB_LOGIN || '').trim();
+const MYGO_WEB_PASSWORD = String(process.env.MYGO_WEB_PASSWORD || '').trim();
 const FLOUCI_API_BASE_URL = String(process.env.FLOUCI_API_BASE_URL || 'https://developers.flouci.com/api/v2').trim().replace(/\/+$/, '');
 const FLOUCI_PUBLIC_KEY = String(process.env.FLOUCI_PUBLIC_KEY || '').trim();
 const FLOUCI_PRIVATE_KEY = String(process.env.FLOUCI_PRIVATE_KEY || '').trim();
@@ -1264,6 +1267,231 @@ function extractCloudflareErrorDetail(payload, fallbackMessage) {
 
 function isMyGoHotelConfigured() {
   return Boolean(MYGO_HOTEL_API_BASE_URL && MYGO_HOTEL_LOGIN && MYGO_HOTEL_PASSWORD);
+}
+
+function isMyGoWebConfigured() {
+  return Boolean(MYGO_WEB_BASE_URL && MYGO_WEB_LOGIN && MYGO_WEB_PASSWORD);
+}
+
+const myGoWebSessionCache = {
+  cookieHeader: '',
+  expiresAt: 0,
+};
+
+const myGoHotelLabelsCache = new Map();
+
+function extractFetchSetCookies(response) {
+  if (!response?.headers) return [];
+  if (typeof response.headers.getSetCookie === 'function') {
+    return response.headers.getSetCookie().filter(Boolean);
+  }
+  const fallback = response.headers.get('set-cookie');
+  return fallback ? [fallback] : [];
+}
+
+function mergeCookiePairs(...cookieGroups) {
+  const cookieMap = new Map();
+  cookieGroups.forEach((group) => {
+    const values = Array.isArray(group) ? group : [];
+    values.forEach((value) => {
+      const pair = String(value || '').split(';')[0].trim();
+      const separatorIndex = pair.indexOf('=');
+      if (separatorIndex <= 0) return;
+      const name = pair.slice(0, separatorIndex).trim();
+      const cookieValue = pair.slice(separatorIndex + 1).trim();
+      if (!name) return;
+      cookieMap.set(name, cookieValue);
+    });
+  });
+  return Array.from(cookieMap.entries()).map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
+function normalizeMyGoWebsiteEtiquettes(rawEtiquettes) {
+  const source = Array.isArray(rawEtiquettes)
+    ? rawEtiquettes
+    : rawEtiquettes && typeof rawEtiquettes === 'object'
+      ? Object.values(rawEtiquettes)
+      : [];
+  return source
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry) => ({
+      ...entry,
+      libelle: String(entry.libelle || '').trim() || null,
+      color: String(entry.color || '').trim() || null,
+      color2: String(entry.color2 || '').trim() || null,
+      codeType: entry.codeType ?? null,
+      icon: String(entry.icon || '').trim() || null,
+      media: String(entry.media || '').trim() || null,
+      debut: String(entry.debut || '').trim() || null,
+      fin: String(entry.fin || '').trim() || null,
+      numEnf: String(entry.numEnf || '').trim() || null,
+      configs: entry.configs && typeof entry.configs === 'object' ? { ...entry.configs } : null,
+    }))
+    .sort((left, right) => Number(left?.ordre ?? 999) - Number(right?.ordre ?? 999));
+}
+
+async function getMyGoWebSessionCookieHeader({ forceRefresh = false } = {}) {
+  if (!isMyGoWebConfigured()) return '';
+  if (!forceRefresh && myGoWebSessionCache.cookieHeader && myGoWebSessionCache.expiresAt > Date.now()) {
+    return myGoWebSessionCache.cookieHeader;
+  }
+
+  const defaultHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  };
+
+  const loginPageResponse = await fetch(`${MYGO_WEB_BASE_URL}/login`, {
+    headers: defaultHeaders,
+  }).catch((error) => {
+    throw createMyGoHotelError(`Connexion MyGo web impossible: ${error?.message || error}`, {
+      status: 502,
+      code: 'MYGO_WEB_NETWORK_ERROR',
+    });
+  });
+  const loginPageHtml = await loginPageResponse.text().catch(() => '');
+  const csrfMatch = loginPageHtml.match(/name="_csrf_token"\s+value="([^"]+)"/i);
+  const csrfToken = csrfMatch?.[1] ? String(csrfMatch[1]).trim() : '';
+  if (!csrfToken) {
+    throw createMyGoHotelError('Token CSRF MyGo web introuvable.', {
+      status: 502,
+      code: 'MYGO_WEB_CSRF_MISSING',
+    });
+  }
+
+  const loginPageCookies = extractFetchSetCookies(loginPageResponse);
+  const initialCookieHeader = mergeCookiePairs(loginPageCookies);
+  const loginBody = new URLSearchParams({
+    _username: MYGO_WEB_LOGIN,
+    _password: MYGO_WEB_PASSWORD,
+    _csrf_token: csrfToken,
+  });
+
+  const loginResponse = await fetch(`${MYGO_WEB_BASE_URL}/login`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: {
+      ...defaultHeaders,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: initialCookieHeader,
+      Origin: MYGO_WEB_BASE_URL,
+      Referer: `${MYGO_WEB_BASE_URL}/login`,
+    },
+    body: loginBody,
+  }).catch((error) => {
+    throw createMyGoHotelError(`Authentification MyGo web impossible: ${error?.message || error}`, {
+      status: 502,
+      code: 'MYGO_WEB_LOGIN_NETWORK_ERROR',
+    });
+  });
+
+  const loginCookies = extractFetchSetCookies(loginResponse);
+  const mergedCookieHeader = mergeCookiePairs(loginPageCookies, loginCookies);
+  const redirectLocation = String(loginResponse.headers.get('location') || '').trim() || `${MYGO_WEB_BASE_URL}/`;
+
+  const homeResponse = await fetch(redirectLocation, {
+    headers: {
+      ...defaultHeaders,
+      Cookie: mergedCookieHeader,
+      Referer: `${MYGO_WEB_BASE_URL}/login`,
+    },
+  }).catch((error) => {
+    throw createMyGoHotelError(`Validation session MyGo web impossible: ${error?.message || error}`, {
+      status: 502,
+      code: 'MYGO_WEB_SESSION_NETWORK_ERROR',
+    });
+  });
+
+  const finalCookieHeader = mergeCookiePairs(
+    loginPageCookies,
+    loginCookies,
+    extractFetchSetCookies(homeResponse),
+  );
+
+  if (!finalCookieHeader || !finalCookieHeader.includes('PHPSESSID=')) {
+    throw createMyGoHotelError('Session MyGo web invalide.', {
+      status: 502,
+      code: 'MYGO_WEB_SESSION_INVALID',
+    });
+  }
+
+  myGoWebSessionCache.cookieHeader = finalCookieHeader;
+  myGoWebSessionCache.expiresAt = Date.now() + (45 * 60 * 1000);
+  return finalCookieHeader;
+}
+
+async function fetchMyGoHotelLabelsForHotel(hotelId) {
+  const normalizedHotelId = Number(hotelId || 0);
+  if (!Number.isInteger(normalizedHotelId) || normalizedHotelId <= 0) {
+    return { etiquettes: [], etiquettesSaison: [] };
+  }
+  const cachedEntry = myGoHotelLabelsCache.get(normalizedHotelId);
+  if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+    return cachedEntry.value;
+  }
+  if (!isMyGoWebConfigured()) {
+    return { etiquettes: [], etiquettesSaison: [] };
+  }
+
+  const requestHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    Accept: 'application/json,text/plain,*/*',
+    'X-Requested-With': 'XMLHttpRequest',
+    Referer: `${MYGO_WEB_BASE_URL}/`,
+  };
+
+  const runFetch = async (cookieHeader) => {
+    const response = await fetch(`${MYGO_WEB_BASE_URL}/hotel/tarifs-hotel-journalier/${encodeURIComponent(String(normalizedHotelId))}`, {
+      headers: {
+        ...requestHeaders,
+        Cookie: cookieHeader,
+      },
+    }).catch((error) => {
+      throw createMyGoHotelError(`Lecture etiquettes MyGo impossible: ${error?.message || error}`, {
+        status: 502,
+        code: 'MYGO_WEB_LABELS_NETWORK_ERROR',
+      });
+    });
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    const rawText = await response.text().catch(() => '');
+    if (!response.ok) {
+      throw createMyGoHotelError(`Etiquettes MyGo indisponibles (HTTP ${response.status})`, {
+        status: 502,
+        code: 'MYGO_WEB_LABELS_HTTP_ERROR',
+      });
+    }
+    if (!contentType.includes('application/json')) {
+      throw createMyGoHotelError('Etiquettes MyGo non JSON.', {
+        status: 502,
+        code: 'MYGO_WEB_LABELS_INVALID_RESPONSE',
+      });
+    }
+    return rawText ? JSON.parse(rawText) : {};
+  };
+
+  let cookieHeader = await getMyGoWebSessionCookieHeader();
+  let payload;
+  try {
+    payload = await runFetch(cookieHeader);
+  } catch (error) {
+    const retryableCode = error?.code;
+    if (retryableCode === 'MYGO_WEB_LABELS_INVALID_RESPONSE') {
+      cookieHeader = await getMyGoWebSessionCookieHeader({ forceRefresh: true });
+      payload = await runFetch(cookieHeader);
+    } else {
+      throw error;
+    }
+  }
+
+  const normalizedValue = {
+    etiquettes: normalizeMyGoWebsiteEtiquettes(payload?.etiquettes),
+    etiquettesSaison: normalizeMyGoWebsiteEtiquettes(payload?.etiquettesSaison),
+  };
+  myGoHotelLabelsCache.set(normalizedHotelId, {
+    expiresAt: Date.now() + (20 * 60 * 1000),
+    value: normalizedValue,
+  });
+  return normalizedValue;
 }
 
 function createMyGoHotelError(message, options = {}) {
@@ -6499,6 +6727,44 @@ app.get('/api/hotels/list', async (req, res) => {
       error: error?.message || 'Chargement des hotels impossible',
       code: error?.code || 'MYGO_HOTEL_ERROR',
       providerCode: error?.providerCode ?? null,
+    });
+  }
+});
+
+app.get('/api/hotels/labels', async (req, res) => {
+  try {
+    const ids = String(req.query?.ids || '')
+      .split(',')
+      .map((value) => Number(String(value || '').trim()))
+      .filter((value) => Number.isInteger(value) && value > 0)
+      .slice(0, 24);
+    if (ids.length === 0) {
+      return res.json({ labelsByHotelId: {} });
+    }
+    const entries = await Promise.all(
+      ids.map(async (hotelId) => {
+        try {
+          const labels = await fetchMyGoHotelLabelsForHotel(hotelId);
+          return [String(hotelId), labels];
+        } catch (error) {
+          return [
+            String(hotelId),
+            {
+              etiquettes: [],
+              etiquettesSaison: [],
+              error: error?.message || 'Etiquettes indisponibles',
+            },
+          ];
+        }
+      })
+    );
+    return res.json({
+      labelsByHotelId: Object.fromEntries(entries),
+    });
+  } catch (error) {
+    return res.status(Number(error?.status) || 502).json({
+      error: error?.message || 'Chargement des etiquettes hotel impossible',
+      code: error?.code || 'MYGO_HOTEL_LABELS_ERROR',
     });
   }
 });
