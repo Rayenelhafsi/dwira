@@ -34009,61 +34009,67 @@ async function fetchStatsInteractionRows({ range, propertyId = null }) {
 }
 
 async function fetchStatsReservationDemandRows({ range, propertyId = null }) {
-  const hasReservationAmicaleName = await columnExists('reservation_demands', 'amicale_name');
-  const { where, params } = buildStatsDemandWhereClause({ range, propertyId });
-  const [rows] = await pool.query(
-    `SELECT
-       d.id,
-       d.bien_id,
-       COALESCE(NULLIF(d.client_email, ''), NULLIF(d.client_user_id, '')) AS client_identity,
-       ${hasReservationAmicaleName
-         ? `COALESCE(NULLIF(d.pricing_amicale_id, ''), NULLIF(d.amicale_name, '')) AS amicale_key,
-       COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, ''), 'Amicale') AS amicale_name,`
-         : `COALESCE(NULLIF(d.pricing_amicale_id, ''), NULLIF(a.name, '')) AS amicale_key,
-       COALESCE(NULLIF(a.name, ''), 'Amicale') AS amicale_name,`}
-       COALESCE(NULLIF(d.partner_agency_id, ''), NULLIF(pa.slug, ''), NULLIF(pa.name, '')) AS partner_key,
-       COALESCE(NULLIF(pa.name, ''), 'Agence partenaire') AS partner_name,
-       d.payment_mode,
-       d.start_date,
-       d.end_date,
-       d.status,
-       DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
-     FROM reservation_demands d
-     LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
-     LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id
-     WHERE ${where.join(' AND ')}
-     ORDER BY d.created_at ASC`,
-    params
-  );
-  return rows || [];
+  const cacheKey = `stats:reservation-demands:${JSON.stringify({ range, propertyId: propertyId || null })}`;
+  return getCachedStatsComputation(cacheKey, 15000, async () => {
+    const hasReservationAmicaleName = await columnExists('reservation_demands', 'amicale_name');
+    const { where, params } = buildStatsDemandWhereClause({ range, propertyId });
+    const [rows] = await pool.query(
+      `SELECT
+         d.id,
+         d.bien_id,
+         COALESCE(NULLIF(d.client_email, ''), NULLIF(d.client_user_id, '')) AS client_identity,
+         ${hasReservationAmicaleName
+           ? `COALESCE(NULLIF(d.pricing_amicale_id, ''), NULLIF(d.amicale_name, '')) AS amicale_key,
+         COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, ''), 'Amicale') AS amicale_name,`
+           : `COALESCE(NULLIF(d.pricing_amicale_id, ''), NULLIF(a.name, '')) AS amicale_key,
+         COALESCE(NULLIF(a.name, ''), 'Amicale') AS amicale_name,`}
+         COALESCE(NULLIF(d.partner_agency_id, ''), NULLIF(pa.slug, ''), NULLIF(pa.name, '')) AS partner_key,
+         COALESCE(NULLIF(pa.name, ''), 'Agence partenaire') AS partner_name,
+         d.payment_mode,
+         d.start_date,
+         d.end_date,
+         d.status,
+         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM reservation_demands d
+       LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+       LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY d.created_at ASC`,
+      params
+    );
+    return rows || [];
+  });
 }
 
 async function fetchStatsHotelDemandRows({ range }) {
-  const hasHotelPartnerAgencyId = await columnExists('hotel_reservation_demands', 'partner_agency_id');
-  const [rows] = await pool.query(
-    `SELECT
-       d.id,
-       COALESCE(NULLIF(d.client_email, ''), NULLIF(d.client_user_id, '')) AS client_identity,
-       COALESCE(NULLIF(d.pricing_amicale_id, ''), NULLIF(d.amicale_name, '')) AS amicale_key,
-       COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, ''), 'Amicale') AS amicale_name,
-       ${hasHotelPartnerAgencyId
-         ? `COALESCE(NULLIF(d.partner_agency_id, ''), NULLIF(pa.slug, ''), NULLIF(pa.name, '')) AS partner_key,
-       COALESCE(NULLIF(pa.name, ''), 'Agence partenaire') AS partner_name,`
-         : `NULL AS partner_key,
-       NULL AS partner_name,`}
-       d.payment_mode,
-       d.check_in,
-       d.check_out,
-       d.status,
-       DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
-     FROM hotel_reservation_demands d
-     LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
-     ${hasHotelPartnerAgencyId ? 'LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id' : ''}
-     WHERE d.created_at BETWEEN ? AND ?
-     ORDER BY d.created_at ASC`,
-    [range.sqlFrom, range.sqlTo]
-  );
-  return rows || [];
+  const cacheKey = `stats:hotel-demands:${JSON.stringify({ range })}`;
+  return getCachedStatsComputation(cacheKey, 15000, async () => {
+    const hasHotelPartnerAgencyId = await columnExists('hotel_reservation_demands', 'partner_agency_id');
+    const [rows] = await pool.query(
+      `SELECT
+         d.id,
+         COALESCE(NULLIF(d.client_email, ''), NULLIF(d.client_user_id, '')) AS client_identity,
+         COALESCE(NULLIF(d.pricing_amicale_id, ''), NULLIF(d.amicale_name, '')) AS amicale_key,
+         COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, ''), 'Amicale') AS amicale_name,
+         ${hasHotelPartnerAgencyId
+           ? `COALESCE(NULLIF(d.partner_agency_id, ''), NULLIF(pa.slug, ''), NULLIF(pa.name, '')) AS partner_key,
+         COALESCE(NULLIF(pa.name, ''), 'Agence partenaire') AS partner_name,`
+           : `NULL AS partner_key,
+         NULL AS partner_name,`}
+         d.payment_mode,
+         d.check_in,
+         d.check_out,
+         d.status,
+         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM hotel_reservation_demands d
+       LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+       ${hasHotelPartnerAgencyId ? 'LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id' : ''}
+       WHERE d.created_at BETWEEN ? AND ?
+       ORDER BY d.created_at ASC`,
+      [range.sqlFrom, range.sqlTo]
+    );
+    return rows || [];
+  });
 }
 
 function normalizeTrackedChannel(value) {
@@ -34199,6 +34205,37 @@ function deriveDemandChannelKind(row) {
   return 'direct';
 }
 
+const statsComputationCache = new Map();
+
+async function getCachedStatsComputation(cacheKey, ttlMs, loader) {
+  const now = Date.now();
+  const existing = statsComputationCache.get(cacheKey);
+  if (existing && existing.expiresAt > now) {
+    return existing.promise;
+  }
+  const promise = Promise.resolve()
+    .then(loader)
+    .then((value) => {
+      statsComputationCache.set(cacheKey, {
+        expiresAt: Date.now() + ttlMs,
+        promise: Promise.resolve(value),
+      });
+      return value;
+    })
+    .catch((error) => {
+      const current = statsComputationCache.get(cacheKey);
+      if (current?.promise === promise) {
+        statsComputationCache.delete(cacheKey);
+      }
+      throw error;
+    });
+  statsComputationCache.set(cacheKey, {
+    expiresAt: now + ttlMs,
+    promise,
+  });
+  return promise;
+}
+
 function filterStatsDemandRows(rows, { segment = 'all', channel = 'all' } = {}) {
   return (rows || []).filter((row) => {
     const known = Boolean(String(row?.client_identity || '').trim());
@@ -34300,74 +34337,80 @@ function getBucketDayCountWithinRange(bucketKey, granularity, range) {
 }
 
 async function buildStatsPreparedRows({ range, propertyId = null }) {
-  const rows = await fetchStatsInteractionRows({ range, propertyId });
-  const demandIds = new Set();
-  rows.forEach((row) => {
-    const metadata = parseClientInteractionMetadata(row.metadata_json);
-    const demandId = String(metadata?.demandId || metadata?.demand_id || '').trim();
-    if (demandId) demandIds.add(demandId);
-  });
-  const demandLookup = new Map();
-  if (demandIds.size > 0) {
-    const hasReservationPartnerAgencyId = await columnExists('reservation_demands', 'partner_agency_id');
-    const hasReservationAmicaleName = await columnExists('reservation_demands', 'amicale_name');
-    const placeholders = Array.from(demandIds).map(() => '?').join(', ');
-    const [reservationRows] = await pool.query(
-      `SELECT
-         d.id,
-         CASE
-           WHEN ${hasReservationPartnerAgencyId ? "d.partner_agency_id IS NOT NULL AND d.partner_agency_id <> ''" : '0'} THEN 'partner'
-           WHEN d.pricing_amicale_id IS NOT NULL AND d.pricing_amicale_id <> '' THEN 'amicale'
-           WHEN ${hasReservationAmicaleName ? "d.amicale_name IS NOT NULL AND d.amicale_name <> ''" : '0'} THEN 'amicale'
-           ELSE 'direct'
-         END AS channel,
-         ${hasReservationAmicaleName
-           ? "COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, '')) AS amicale_name,"
-           : "COALESCE(NULLIF(a.name, ''), '') AS amicale_name,"}
-         ${hasReservationPartnerAgencyId
-           ? "COALESCE(NULLIF(pa.name, ''), NULLIF(pa.slug, '')) AS partner_name"
-           : "NULL AS partner_name"}
-       FROM reservation_demands d
-       LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
-       ${hasReservationPartnerAgencyId ? 'LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id' : ''}
-       WHERE d.id IN (${placeholders})`,
-      Array.from(demandIds)
-    );
-    (reservationRows || []).forEach((row) => {
-      demandLookup.set(String(row.id || '').trim(), {
-        channel: normalizeTrackedChannel(row.channel) || 'direct',
-        amicaleName: String(row.amicale_name || '').trim(),
-        partnerName: String(row.partner_name || '').trim(),
-      });
+  const cacheKey = `stats:prepared-rows:${JSON.stringify({ range, propertyId: propertyId || null })}`;
+  return getCachedStatsComputation(cacheKey, 15000, async () => {
+    const rows = await fetchStatsInteractionRows({ range, propertyId });
+    const demandIds = new Set();
+    rows.forEach((row) => {
+      const metadata = parseClientInteractionMetadata(row.metadata_json);
+      const demandId = String(metadata?.demandId || metadata?.demand_id || '').trim();
+      if (demandId) demandIds.add(demandId);
     });
-  }
-  return buildPreparedStatsRows(rows, demandLookup);
+    const demandLookup = new Map();
+    if (demandIds.size > 0) {
+      const hasReservationPartnerAgencyId = await columnExists('reservation_demands', 'partner_agency_id');
+      const hasReservationAmicaleName = await columnExists('reservation_demands', 'amicale_name');
+      const placeholders = Array.from(demandIds).map(() => '?').join(', ');
+      const [reservationRows] = await pool.query(
+        `SELECT
+           d.id,
+           CASE
+             WHEN ${hasReservationPartnerAgencyId ? "d.partner_agency_id IS NOT NULL AND d.partner_agency_id <> ''" : '0'} THEN 'partner'
+             WHEN d.pricing_amicale_id IS NOT NULL AND d.pricing_amicale_id <> '' THEN 'amicale'
+             WHEN ${hasReservationAmicaleName ? "d.amicale_name IS NOT NULL AND d.amicale_name <> ''" : '0'} THEN 'amicale'
+             ELSE 'direct'
+           END AS channel,
+           ${hasReservationAmicaleName
+             ? "COALESCE(NULLIF(a.name, ''), NULLIF(d.amicale_name, '')) AS amicale_name,"
+             : "COALESCE(NULLIF(a.name, ''), '') AS amicale_name,"}
+           ${hasReservationPartnerAgencyId
+             ? "COALESCE(NULLIF(pa.name, ''), NULLIF(pa.slug, '')) AS partner_name"
+             : "NULL AS partner_name"}
+         FROM reservation_demands d
+         LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+         ${hasReservationPartnerAgencyId ? 'LEFT JOIN partner_agencies pa ON pa.id = d.partner_agency_id' : ''}
+         WHERE d.id IN (${placeholders})`,
+        Array.from(demandIds)
+      );
+      (reservationRows || []).forEach((row) => {
+        demandLookup.set(String(row.id || '').trim(), {
+          channel: normalizeTrackedChannel(row.channel) || 'direct',
+          amicaleName: String(row.amicale_name || '').trim(),
+          partnerName: String(row.partner_name || '').trim(),
+        });
+      });
+    }
+    return buildPreparedStatsRows(rows, demandLookup);
+  });
 }
 
 async function fetchStatsPropertyMeta(bienIds) {
-  const ids = Array.from(new Set((Array.isArray(bienIds) ? bienIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
-  const byBienId = new Map();
-  if (ids.length === 0) return byBienId;
-  const placeholders = ids.map(() => '?').join(', ');
-  const [rows] = await pool.query(
-    `SELECT id, titre, reference
-     FROM biens
-     WHERE id IN (${placeholders})`,
-    ids
-  );
-  const mediaByBienId = await listMediaForBienIds(ids);
-  (rows || []).forEach((row) => {
-    const bienId = String(row?.id || '').trim();
-    if (!bienId) return;
-    const coverImageUrl = (mediaByBienId.get(bienId) || []).find((media) => media?.type === 'image' && String(media?.url || '').trim())?.url || null;
-    byBienId.set(bienId, {
-      bienId,
-      propertyTitle: String(row?.titre || '').trim() || bienId,
-      propertyReference: String(row?.reference || '').trim() || null,
-      coverImageUrl,
+  const ids = Array.from(new Set((Array.isArray(bienIds) ? bienIds : []).map((id) => String(id || '').trim()).filter(Boolean))).sort();
+  const cacheKey = `stats:property-meta:${ids.join(',')}`;
+  return getCachedStatsComputation(cacheKey, 20000, async () => {
+    const byBienId = new Map();
+    if (ids.length === 0) return byBienId;
+    const placeholders = ids.map(() => '?').join(', ');
+    const [rows] = await pool.query(
+      `SELECT id, titre, reference
+       FROM biens
+       WHERE id IN (${placeholders})`,
+      ids
+    );
+    const mediaByBienId = await listMediaForBienIds(ids);
+    (rows || []).forEach((row) => {
+      const bienId = String(row?.id || '').trim();
+      if (!bienId) return;
+      const coverImageUrl = (mediaByBienId.get(bienId) || []).find((media) => media?.type === 'image' && String(media?.url || '').trim())?.url || null;
+      byBienId.set(bienId, {
+        bienId,
+        propertyTitle: String(row?.titre || '').trim() || bienId,
+        propertyReference: String(row?.reference || '').trim() || null,
+        coverImageUrl,
+      });
     });
+    return byBienId;
   });
-  return byBienId;
 }
 
 function parseMapsLatLng(rawValue) {
@@ -34534,79 +34577,85 @@ function getDateOverlapDays({ startDate, endDate, rangeStart, rangeEndInclusive 
 }
 
 async function fetchStatsAvailabilityInventoryRows({ propertyId = null }) {
-  const params = [];
-  let whereClause = `WHERE COALESCE(NULLIF(b.mode, ''), 'location_saisonniere') = 'location_saisonniere'`;
-  if (propertyId) {
-    whereClause += ' AND b.id = ?';
-    params.push(propertyId);
-  } else {
-    whereClause += ' AND COALESCE(b.visible_sur_site, 1) = 1';
-  }
-  const [rows] = await pool.query(
-    `SELECT
-       b.id,
-       b.reference,
-       b.titre,
-       b.type,
-       b.residence_unit_sub_type,
-       b.location_saisonniere_config_json,
-       b.zone_id,
-       z.nom AS zone_nom,
-       z.quartier AS zone_quartier,
-       z.region AS zone_region,
-       z.gouvernerat AS zone_gouvernerat,
-       z.pays AS zone_pays,
-       z.google_maps_url
-     FROM biens b
-     LEFT JOIN zones z ON z.id = b.zone_id
-     ${whereClause}
-     ORDER BY b.created_at ASC, b.id ASC`,
-    params
-  );
-  return rows || [];
+  const cacheKey = `stats:availability-inventory:${propertyId || 'all'}`;
+  return getCachedStatsComputation(cacheKey, 20000, async () => {
+    const params = [];
+    let whereClause = `WHERE COALESCE(NULLIF(b.mode, ''), 'location_saisonniere') = 'location_saisonniere'`;
+    if (propertyId) {
+      whereClause += ' AND b.id = ?';
+      params.push(propertyId);
+    } else {
+      whereClause += ' AND COALESCE(b.visible_sur_site, 1) = 1';
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         b.id,
+         b.reference,
+         b.titre,
+         b.type,
+         b.residence_unit_sub_type,
+         b.location_saisonniere_config_json,
+         b.zone_id,
+         z.nom AS zone_nom,
+         z.quartier AS zone_quartier,
+         z.region AS zone_region,
+         z.gouvernerat AS zone_gouvernerat,
+         z.pays AS zone_pays,
+         z.google_maps_url
+       FROM biens b
+       LEFT JOIN zones z ON z.id = b.zone_id
+       ${whereClause}
+       ORDER BY b.created_at ASC, b.id ASC`,
+      params
+    );
+    return rows || [];
+  });
 }
 
 async function fetchStatsAvailabilityRows({ range, propertyId = null }) {
-  const params = [range.dateTo, range.dateFrom];
-  let propertyWhere = '';
-  if (propertyId) {
-    propertyWhere = ' AND ud.bien_id = ?';
-    params.push(propertyId);
-  } else {
-    propertyWhere = ` AND COALESCE(b.visible_sur_site, 1) = 1`;
-  }
-  const [rows] = await pool.query(
-    `SELECT
-       ud.id,
-       ud.bien_id,
-       DATE_FORMAT(ud.start_date, '%Y-%m-%d') AS start_date,
-       DATE_FORMAT(ud.end_date, '%Y-%m-%d') AS end_date,
-       LOWER(TRIM(COALESCE(ud.status, 'blocked'))) AS status,
-       ud.sync_source,
-       b.titre,
-       b.reference,
-       b.type,
-       b.residence_unit_sub_type,
-       b.location_saisonniere_config_json,
-       b.zone_id,
-       z.nom AS zone_nom,
-       z.quartier AS zone_quartier,
-       z.region AS zone_region,
-       z.gouvernerat AS zone_gouvernerat,
-       z.pays AS zone_pays,
-       z.google_maps_url
-     FROM unavailable_dates ud
-     INNER JOIN biens b ON b.id = ud.bien_id
-     LEFT JOIN zones z ON z.id = b.zone_id
-     WHERE COALESCE(NULLIF(b.mode, ''), 'location_saisonniere') = 'location_saisonniere'
-       AND ud.start_date <= ?
-       AND ud.end_date >= ?
-       AND LOWER(TRIM(COALESCE(ud.status, 'blocked'))) IN ('blocked', 'booked', 'pending')
-       ${propertyWhere}
-     ORDER BY ud.start_date ASC, ud.end_date ASC`,
-    params
-  );
-  return rows || [];
+  const cacheKey = `stats:availability-rows:${JSON.stringify({ range, propertyId: propertyId || null })}`;
+  return getCachedStatsComputation(cacheKey, 15000, async () => {
+    const params = [range.dateTo, range.dateFrom];
+    let propertyWhere = '';
+    if (propertyId) {
+      propertyWhere = ' AND ud.bien_id = ?';
+      params.push(propertyId);
+    } else {
+      propertyWhere = ` AND COALESCE(b.visible_sur_site, 1) = 1`;
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         ud.id,
+         ud.bien_id,
+         DATE_FORMAT(ud.start_date, '%Y-%m-%d') AS start_date,
+         DATE_FORMAT(ud.end_date, '%Y-%m-%d') AS end_date,
+         LOWER(TRIM(COALESCE(ud.status, 'blocked'))) AS status,
+         ud.sync_source,
+         b.titre,
+         b.reference,
+         b.type,
+         b.residence_unit_sub_type,
+         b.location_saisonniere_config_json,
+         b.zone_id,
+         z.nom AS zone_nom,
+         z.quartier AS zone_quartier,
+         z.region AS zone_region,
+         z.gouvernerat AS zone_gouvernerat,
+         z.pays AS zone_pays,
+         z.google_maps_url
+       FROM unavailable_dates ud
+       INNER JOIN biens b ON b.id = ud.bien_id
+       LEFT JOIN zones z ON z.id = b.zone_id
+       WHERE COALESCE(NULLIF(b.mode, ''), 'location_saisonniere') = 'location_saisonniere'
+         AND ud.start_date <= ?
+         AND ud.end_date >= ?
+         AND LOWER(TRIM(COALESCE(ud.status, 'blocked'))) IN ('blocked', 'booked', 'pending')
+         ${propertyWhere}
+       ORDER BY ud.start_date ASC, ud.end_date ASC`,
+      params
+    );
+    return rows || [];
+  });
 }
 
 function createAvailabilityBucketEntry(key, granularity) {

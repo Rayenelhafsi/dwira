@@ -22,7 +22,7 @@ import {
   Users,
 } from "lucide-react";
 import { SmartImage } from "../components/SmartImage";
-import { getHotelConfig, listHotelCities, listHotels, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
+import { getHotelConfig, getHotelLabels, listHotelCities, listHotels, searchHotels, type HotelCity, type HotelSummary } from "../services/hotels";
 import { fetchAmicalesPublic } from "../utils/amicales";
 import {
   extractHotelBoardingNames,
@@ -33,6 +33,7 @@ import {
   getHotelFacilityTitles,
   pickHotelDisplayedPrice,
 } from "../utils/hotelHelpers";
+import type { HotelPromoLabel } from "../services/hotels";
 
 const HOTEL_FALLBACK_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1280 720'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23dbeafe'/%3E%3Cstop offset='100%25' stop-color='%23fde68a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1280' height='720' fill='url(%23g)'/%3E%3Cpath d='M0 530h1280v190H0z' fill='%230f766e' fill-opacity='0.18'/%3E%3Cpath d='M220 500V280l170-90 170 90v220H220zm410 0V230l120-70 120 70v270H630zm330 0V320l95-50 95 50v180H960z' fill='%23ffffff' fill-opacity='0.72'/%3E%3C/svg%3E";
@@ -97,6 +98,46 @@ function hasHotelPromotion(hotel: HotelSummary) {
   );
 }
 
+function isHotelPromotionLabel(label?: HotelPromoLabel | null) {
+  if (!label || typeof label !== "object") return false;
+  const libelle = String(label.libelle || "").trim().toLowerCase();
+  return Number(label.codeType || 0) === 6 || libelle === "promotion";
+}
+
+function getHotelLabelPrimaryText(label?: HotelPromoLabel | null) {
+  if (!label || typeof label !== "object") return "";
+  const configs = label.configs && typeof label.configs === "object" ? label.configs : null;
+  const titre1 = String(configs?.TITRE_1 || "").trim();
+  const titre3 = String(configs?.TITRE_3 || "").trim();
+  const libelle = String(label.libelle || "").trim();
+  if (isHotelPromotionLabel(label)) return titre1 || titre3 || libelle || "Promotion";
+  return libelle || titre1 || titre3;
+}
+
+function getHotelLabelSecondaryText(label?: HotelPromoLabel | null) {
+  if (!label || typeof label !== "object") return "";
+  const configs = label.configs && typeof label.configs === "object" ? label.configs : null;
+  const secondary = [String(configs?.TITRE_2 || "").trim(), String(configs?.TITRE_4 || "").trim()].filter(Boolean);
+  if (secondary.length > 0) return secondary.join(" • ");
+  const debut = String(label.debut || "").trim();
+  const fin = String(label.fin || "").trim();
+  if (debut && fin) return `Du ${debut} au ${fin}`;
+  return "";
+}
+
+function getHotelCardLabels(hotel: HotelSummary, fetchedLabels?: { etiquettes?: HotelPromoLabel[]; etiquettesSaison?: HotelPromoLabel[] } | null) {
+  const primarySource = Array.isArray(fetchedLabels?.etiquettes) && fetchedLabels.etiquettes.length > 0
+    ? fetchedLabels.etiquettes
+    : Array.isArray(hotel.Etiquettes)
+      ? hotel.Etiquettes
+      : Array.isArray(hotel.EtiquettesSaison)
+        ? hotel.EtiquettesSaison
+        : [];
+  return primarySource
+    .filter((label) => label && typeof label === "object")
+    .sort((left, right) => Number(left?.ordre ?? 999) - Number(right?.ordre ?? 999));
+}
+
 function isValidHotelDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
 }
@@ -134,6 +175,7 @@ export default function HotelsPage() {
   const [providerError, setProviderError] = useState("");
   const [cities, setCities] = useState<HotelCity[]>([]);
   const [results, setResults] = useState<HotelSummary[]>([]);
+  const [hotelLabelsById, setHotelLabelsById] = useState<Record<number, { etiquettes?: HotelPromoLabel[]; etiquettesSaison?: HotelPromoLabel[] }>>({});
   const [searchFallbackNotice, setSearchFallbackNotice] = useState("");
   const [loadingCities, setLoadingCities] = useState(true);
   const [loadingResults, setLoadingResults] = useState(false);
@@ -366,6 +408,31 @@ export default function HotelsPage() {
     }),
     [hotelAmicaleMarkupPercent, isAmicaleHotelFlow, results]
   );
+  useEffect(() => {
+    if (sortedResults.length === 0) return;
+    const missingHotelIds = sortedResults
+      .map((hotel) => Number(hotel?.Id || 0))
+      .filter((hotelId) => hotelId > 0 && !hotelLabelsById[hotelId])
+      .slice(0, 24);
+    if (missingHotelIds.length === 0) return;
+    let cancelled = false;
+    void getHotelLabels(missingHotelIds)
+      .then((payload) => {
+        if (cancelled) return;
+        const nextEntries = Object.entries(payload?.labelsByHotelId || {}).reduce<Record<number, { etiquettes?: HotelPromoLabel[]; etiquettesSaison?: HotelPromoLabel[] }>>((accumulator, [hotelId, labels]) => {
+          const numericHotelId = Number(hotelId || 0);
+          if (numericHotelId <= 0 || !labels || typeof labels !== "object") return accumulator;
+          accumulator[numericHotelId] = labels;
+          return accumulator;
+        }, {});
+        if (Object.keys(nextEntries).length === 0) return;
+        setHotelLabelsById((prev) => ({ ...prev, ...nextEntries }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [hotelLabelsById, sortedResults]);
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eff6ff_35%,#ffffff_100%)]">
@@ -711,6 +778,7 @@ export default function HotelsPage() {
           {!loadingResults && sortedResults.length > 0 && (
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
               {sortedResults.map((hotel) => {
+                const hotelId = Number(hotel.Id || 0);
                 const minPrice = extractHotelMinPrice(hotel, hotelAmicaleMarkupPercent, isAmicaleHotelFlow);
                 const roomOffers = flattenHotelRoomOffers(hotel);
                 const leadOffer = roomOffers.find((offer) => pickHotelDisplayedPrice(offer.room, hotelAmicaleMarkupPercent, isAmicaleHotelFlow) !== null) || roomOffers[0] || null;
@@ -718,6 +786,9 @@ export default function HotelsPage() {
                 const boardings = extractHotelBoardingNames(hotel).slice(0, 2);
                 const facilities = getHotelFacilityTitles(hotel.Facilities, 5);
                 const hasPromotion = hasHotelPromotion(hotel);
+                const hotelFetchedLabels = hotelLabelsById[hotelId];
+                const hotelCardLabels = getHotelCardLabels(hotel, hotelFetchedLabels);
+                const hotelSpecialLabels = hotelCardLabels.filter((label) => !isHotelPromotionLabel(label)).slice(0, 2);
                 const hasRefundableOffer = roomOffers.some((offer) => !offer.room?.NotRefundable);
                 const totalAvailability = roomOffers.reduce((sum, offer) => sum + Math.max(0, Number(offer.room?.Quantity || 0)), 0);
 
@@ -751,6 +822,35 @@ export default function HotelsPage() {
                           <Star size={13} className="fill-current" />
                           {formatHotelStarLabel(hotel.Star)}
                         </div>
+                        {hotelSpecialLabels.length > 0 ? (
+                          <div className="absolute left-4 top-14 z-10 flex max-w-[74%] flex-col gap-2">
+                            {hotelSpecialLabels.map((label, labelIndex) => {
+                              const primaryText = getHotelLabelPrimaryText(label);
+                              const secondaryText = getHotelLabelSecondaryText(label);
+                              if (!primaryText) return null;
+                              return (
+                                <div
+                                  key={`${hotel.Id}-label-${labelIndex}-${primaryText}`}
+                                  className="rounded-2xl px-3 py-2 text-white shadow-[0_12px_28px_rgba(15,23,42,0.28)] ring-1 ring-white/20 backdrop-blur-sm"
+                                  style={{
+                                    background: label.color2 && label.color
+                                      ? `linear-gradient(135deg, ${label.color} 0%, ${label.color2} 100%)`
+                                      : label.color || "#16a34a",
+                                  }}
+                                >
+                                  <p className="text-[11px] font-extrabold tracking-tight sm:text-xs">
+                                    {primaryText}
+                                  </p>
+                                  {secondaryText ? (
+                                    <p className="mt-1 text-[10px] font-medium text-white/90 sm:text-[11px]">
+                                      {secondaryText}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                         {hasPromotion && (
                           <div className="absolute right-4 top-4 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-400/95 px-3 py-1 text-xs font-semibold text-slate-950 shadow-md">
                             <Sparkles size={13} />

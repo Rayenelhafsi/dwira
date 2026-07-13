@@ -32,7 +32,7 @@ import { MapContainer, Popup, TileLayer, CircleMarker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
-const STATS_REQUEST_TIMEOUT_MS = 12000;
+const STATS_REQUEST_TIMEOUT_MS = 25000;
 
 type StatsEndpointResult<T> = {
   ok: boolean;
