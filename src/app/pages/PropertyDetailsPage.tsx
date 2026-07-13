@@ -971,6 +971,15 @@ export default function PropertyDetailsPage() {
   }, [activeLockedFlashOffer, findMatchingPreviewFlashRange, selectedEnd, selectedStart]);
   const activePreviewFlashRange = selectedPreviewFlashRange || primaryPreviewFlashRange;
   const activePreviewFlashOffer = activePreviewFlashRange?.offer || null;
+  const selectedEffectiveFlashRange = useMemo(() => {
+    if (!selectedStart || !selectedEnd) return null;
+    const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
+    const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
+    const startKey = format(start, "yyyy-MM-dd");
+    const endKey = format(end, "yyyy-MM-dd");
+    return findMatchingLockedFlashRange(startKey, endKey) || findMatchingPreviewFlashRange(startKey, endKey) || null;
+  }, [findMatchingLockedFlashRange, findMatchingPreviewFlashRange, selectedEnd, selectedStart]);
+  const selectedEffectiveFlashOffer = selectedEffectiveFlashRange?.offer || null;
   const [adultGuests, setAdultGuests] = useState(1);
   const [childGuests, setChildGuests] = useState(0);
   const [includeCleaningFee, setIncludeCleaningFee] = useState(false);
@@ -3043,7 +3052,8 @@ out body 40;
       endDate: string;
     }> = [];
     let discountedAccommodationTotal = accommodationTotal;
-    if (flashOfferEnabled && effectiveLockedFlashRanges.length > 0) {
+    const applicableFlashRanges = flashOfferEnabled ? effectiveLockedFlashRanges : previewFlashRanges;
+    if (applicableFlashRanges.length > 0) {
       const reservationStart = selectedStart < selectedEnd ? selectedStart : selectedEnd;
       let activeSegment: null | {
         key: string;
@@ -3058,7 +3068,7 @@ out body 40;
       for (let offset = 0; offset < nights; offset += 1) {
         const nightDate = addDays(reservationStart, offset);
         const nightKey = format(nightDate, "yyyy-MM-dd");
-        const matchingRange = effectiveLockedFlashRanges.find((item) => nightKey >= item.start && nightKey < item.end) || null;
+        const matchingRange = applicableFlashRanges.find((item) => nightKey >= item.start && nightKey < item.end) || null;
         const baseNightly = Number(nightlyPriceByDay.get(nightKey) || accommodationPricing.averageNightlyPrice || property!.pricePerNight || 0);
         const computedNightly = matchingRange?.offer
           ? getFlashNightlyAmount(baseNightly, matchingRange.offer)
@@ -3370,14 +3380,14 @@ out body 40;
       includeServiceFee,
       extraMattresses,
       selectedPaidServiceIds,
-      flashOffer: activeLockedFlashOffer ? {
-        title: activeLockedFlashOffer.title,
-        start: activeLockedFlashOffer.start,
-        end: activeLockedFlashOffer.end,
-        mode: activeLockedFlashOffer.mode,
-        discountPercent: activeLockedFlashOffer.discountPercent,
-        fixedNightlyAmount: activeLockedFlashOffer.fixedNightlyAmount,
-        minimumNights: activeLockedFlashOffer.minimumNights,
+      flashOffer: selectedEffectiveFlashOffer ? {
+        title: selectedEffectiveFlashOffer.title,
+        start: selectedEffectiveFlashOffer.start,
+        end: selectedEffectiveFlashOffer.end,
+        mode: selectedEffectiveFlashOffer.mode,
+        discountPercent: selectedEffectiveFlashOffer.discountPercent,
+        fixedNightlyAmount: selectedEffectiveFlashOffer.fixedNightlyAmount,
+        minimumNights: selectedEffectiveFlashOffer.minimumNights,
       } : null,
       paymentMode,
       partnerAgencyId: partnerAgencyId || undefined,

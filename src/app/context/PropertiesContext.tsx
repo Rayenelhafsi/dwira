@@ -1160,15 +1160,15 @@ async function fetchBiensResilient(apiUrl: string): Promise<Response> {
   const endpointPrimary = `${apiUrl}/biens-lite`;
   const endpointFallback = `${apiUrl}/biens`;
   const requestInit: RequestInit = { credentials: 'include', cache: 'no-store' };
-  const primaryTimeoutMs = 10000;
+  const primaryTimeoutMs = 20000;
   try {
     return await fetchWithTimeout(endpointPrimary, requestInit, primaryTimeoutMs);
   } catch {
     try {
-      return await fetchWithTimeout(endpointFallback, { credentials: 'include', cache: 'reload' }, 7000);
+      return await fetchWithTimeout(endpointFallback, { credentials: 'include', cache: 'reload' }, 15000);
     } catch {
       // Final short fallback for Safari edge-cases without cookies.
-      return await fetchWithTimeout(endpointFallback, { credentials: 'omit', cache: 'no-store' }, 7000);
+      return await fetchWithTimeout(endpointFallback, { credentials: 'omit', cache: 'no-store' }, 12000);
     }
   }
 }

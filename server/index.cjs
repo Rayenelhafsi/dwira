@@ -17947,20 +17947,11 @@ app.get('/api/biens-lite', async (req, res) => {
         distance_plage_m, proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer,
         gaz_ville, cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
       FROM biens
-      ORDER BY date_ajout DESC
+      ORDER BY created_at DESC
     `);
     const rowsWithCaracteristiques = await enrichBiensWithCaracteristiques(rows || []);
     const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
     const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const mediaByBienId = await listMediaForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const residenceUnitsByParentId = buildResidenceUnitsViewFromRows(
-      (rowsWithCaracteristiques || []).filter((row) => normalizeBienType(row?.type) === 'residence' && !String(row?.residence_parent_bien_id || '').trim()),
-      (rowsWithCaracteristiques || []).filter((row) => String(row?.residence_parent_bien_id || '').trim()),
-      mediaByBienId,
-      pricingPeriodsByBienId,
-      unavailableDatesByBienId
-    );
     const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
       let config = null;
       try {
@@ -17978,10 +17969,6 @@ app.get('/api/biens-lite', async (req, res) => {
         nom_bien_mobile: String(nextConfig?.nom_bien_mobile || row.nom_bien_mobile || '').trim() || null,
         location_saisonniere_config_json: JSON.stringify(nextConfig),
         pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
-        unavailableDates: unavailableDatesByBienId.get(row.id) || [],
-        residence_units_json: normalizeBienType(row?.type) === 'residence' && !String(row?.residence_parent_bien_id || '').trim()
-          ? JSON.stringify(residenceUnitsByParentId.get(String(row?.id || '').trim()) || [])
-          : row.residence_units_json,
       };
     });
     res.json(enrichedRows);
