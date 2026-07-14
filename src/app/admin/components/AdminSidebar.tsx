@@ -64,7 +64,7 @@ type SidebarReservationDemand = {
 };
 
 export function AdminSidebar({ onClose }: AdminSidebarProps) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [notificationAlertCount, setNotificationAlertCount] = useState(0);
