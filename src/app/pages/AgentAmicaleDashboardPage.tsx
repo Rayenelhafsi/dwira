@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type { ReservationDemand, ReservationDemandStatus } from "../admin/types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
+const AMICALE_GROSS_STORAGE_KEY = "dwira_admin_amicales_en_gros_v1";
 
 type AgentSession = {
   userId: string;
@@ -20,6 +21,21 @@ type AgentTab = "demandes" | "vouchers" | "comptabilite";
 type AgentDemandRow = ReservationDemand & {
   amicale_name?: string | null;
   amicale_logo_url?: string | null;
+};
+
+type AgentAmicaleGrossRow = {
+  id: string;
+  amicaleId: string;
+  amicaleName: string;
+  bienId: string;
+  bienReference: string;
+  bienTitle: string;
+  arrivalDate: string;
+  departureDate: string;
+  rentalTotalAmount: number;
+  agentNote: string;
+  submittedAt: string | null;
+  updatedAt: string;
 };
 
 const hiddenVoucherStatuses = new Set([
@@ -67,6 +83,47 @@ function formatCurrency(value?: number | string | null) {
   return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(num)} DT`;
 }
 
+function formatCurrencyTtc(value?: number | string | null) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return "0 TTC DT";
+  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(num)} TTC DT`;
+}
+
+function loadSubmittedAmicaleGrossRows(amicaleId?: string | null) {
+  if (typeof window === "undefined") return [] as AgentAmicaleGrossRow[];
+  const targetAmicaleId = String(amicaleId || "").trim();
+  if (!targetAmicaleId) return [];
+  try {
+    const raw = window.localStorage.getItem(AMICALE_GROSS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => ({
+        id: String(entry?.id || "").trim(),
+        amicaleId: String(entry?.amicaleId || "").trim(),
+        amicaleName: String(entry?.amicaleName || "").trim(),
+        bienId: String(entry?.bienId || "").trim(),
+        bienReference: String(entry?.bienReference || "").trim(),
+        bienTitle: String(entry?.bienTitle || "").trim(),
+        arrivalDate: String(entry?.arrivalDate || "").trim(),
+        departureDate: String(entry?.departureDate || "").trim(),
+        rentalTotalAmount: Number(entry?.rentalTotalAmount || 0) || 0,
+        agentNote: String(entry?.agentNote || "").trim(),
+        submittedAt: entry?.submittedAt ? String(entry.submittedAt).trim() : null,
+        updatedAt: String(entry?.updatedAt || entry?.createdAt || "").trim(),
+      }))
+      .filter((entry) => entry.id && entry.amicaleId === targetAmicaleId && entry.submittedAt)
+      .sort((a, b) => {
+        const da = new Date(String(a.submittedAt || a.updatedAt || "")).getTime();
+        const db = new Date(String(b.submittedAt || b.updatedAt || "")).getTime();
+        return db - da;
+      });
+  } catch {
+    return [];
+  }
+}
+
 function resolveAssetUrl(url?: string | null) {
   const value = String(url || "").trim();
   if (!value) return "";
@@ -99,6 +156,7 @@ export default function AgentAmicaleDashboardPage() {
   const [tab, setTab] = useState<AgentTab>("demandes");
   const [demandRows, setDemandRows] = useState<AgentDemandRow[]>([]);
   const [voucherRows, setVoucherRows] = useState<AgentDemandRow[]>([]);
+  const [grossRows, setGrossRows] = useState<AgentAmicaleGrossRow[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const navigate = useNavigate();
@@ -137,6 +195,10 @@ export default function AgentAmicaleDashboardPage() {
     }
   }, []);
 
+  const refreshGrossRows = useCallback((amicaleId?: string | null) => {
+    setGrossRows(loadSubmittedAmicaleGrossRows(amicaleId));
+  }, []);
+
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
@@ -148,6 +210,7 @@ export default function AgentAmicaleDashboardPage() {
           return;
         }
         setSession(data?.session || null);
+        setGrossRows(loadSubmittedAmicaleGrossRows(data?.session?.amicaleId));
       } finally {
         setIsLoading(false);
       }
@@ -158,19 +221,37 @@ export default function AgentAmicaleDashboardPage() {
   useEffect(() => {
     if (!session) return;
     void loadData();
+    refreshGrossRows(session.amicaleId);
     const intervalId = window.setInterval(() => {
       void loadData();
+      refreshGrossRows(session.amicaleId);
     }, 15000);
     return () => window.clearInterval(intervalId);
-  }, [loadData, session]);
+  }, [loadData, refreshGrossRows, session]);
+
+  useEffect(() => {
+    if (!session) return;
+    const handleFocus = () => refreshGrossRows(session.amicaleId);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key && event.key !== AMICALE_GROSS_STORAGE_KEY) return;
+      refreshGrossRows(session.amicaleId);
+    };
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [refreshGrossRows, session]);
 
   const summary = useMemo(() => {
     const waitingAmicale = demandRows.filter((row) => row.status === "attente_validation_amicale").length;
     const waitingAgency = demandRows.filter((row) => row.status === "attente_validation_par_agence").length;
     const vouchers = voucherRows.length;
     const totalHt = voucherRows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
-    return { waitingAmicale, waitingAgency, vouchers, totalHt };
-  }, [demandRows, voucherRows]);
+    const grossCount = grossRows.length;
+    return { waitingAmicale, waitingAgency, vouchers, totalHt, grossCount };
+  }, [demandRows, grossRows, voucherRows]);
 
   const comptabiliteRows = useMemo(() => {
     return demandRows
@@ -223,6 +304,22 @@ export default function AgentAmicaleDashboardPage() {
       { total: 0 }
     );
   }, [comptabiliteRows]);
+
+  const grossTotalTtc = useMemo(() => grossRows.reduce((sum, row) => sum + Number(row.rentalTotalAmount || 0), 0), [grossRows]);
+
+  const filteredGrossRows = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return grossRows;
+    return grossRows.filter((row) => {
+      const bag = [
+        row.amicaleName,
+        row.bienReference,
+        row.bienTitle,
+        row.agentNote,
+      ].map((value) => String(value || "").toLowerCase());
+      return bag.some((value) => value.includes(needle));
+    });
+  }, [grossRows, searchTerm]);
 
   const filteredDemandRows = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
@@ -387,11 +484,83 @@ export default function AgentAmicaleDashboardPage() {
                 placeholder="Filtrer: matricule, nom/prenom, tel, reference logement, statut..."
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               />
-              {filteredDemandRows.length === 0 ? (
+              {filteredGrossRows.length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <StatCard label="Demandes en gros" value={filteredGrossRows.length} tone="indigo" />
+                  <StatCard label="Total TTC agent amicale" value={Math.round(grossTotalTtc * 100) / 100} tone="sky" currency />
+                </div>
+              ) : null}
+              {filteredGrossRows.length > 0 ? (
+                <div className="rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-emerald-50 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">Demandes amicales en gros</h3>
+                      <p className="mt-1 text-sm text-slate-500">Saisies soumises par l administration pour votre amicale.</p>
+                    </div>
+                    <span className="rounded-full border border-cyan-200 bg-white px-3 py-1 text-xs font-semibold text-cyan-700">
+                      {filteredGrossRows.length} element{filteredGrossRows.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid gap-4">
+                    {filteredGrossRows.map((entry) => (
+                      <article key={`gross-demand-${entry.id}`} className="rounded-xl border border-gray-200 bg-white p-4">
+                        <div className="grid gap-3 lg:grid-cols-3">
+                          <div className="space-y-2 text-sm">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-cyan-600 px-2.5 py-1 text-xs font-semibold text-white">
+                                {entry.amicaleName || session.amicaleName}
+                              </span>
+                              <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                                {entry.bienReference || "Hors catalogue"}
+                              </span>
+                              {entry.submittedAt ? (
+                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+                                  Soumis le {formatDateTime(entry.submittedAt)}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="space-y-1">
+                              <p className="font-semibold text-gray-900">{entry.bienTitle || "Reservation sans bien du site"}</p>
+                              <p className="text-gray-600">
+                                {formatDateOnly(entry.arrivalDate)} au {formatDateOnly(entry.departureDate)}
+                              </p>
+                            </div>
+                            {entry.bienId ? (
+                              <Link
+                                to={entry.bienReference ? `/properties/${encodeURIComponent(entry.bienReference)}` : `/properties/${encodeURIComponent(entry.bienId)}`}
+                                className="mt-1 inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                Consulter
+                              </Link>
+                            ) : null}
+                          </div>
+                          <div className="space-y-2">
+                            <div className="inline-flex rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.22em]">Total</p>
+                                <p className="mt-1 text-xl font-bold">{formatCurrencyTtc(entry.rentalTotalAmount)}</p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 px-4 py-3 text-sm text-slate-700">
+                              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-700">Note</p>
+                              <p className="mt-2 whitespace-pre-wrap">{entry.agentNote || "-"}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {filteredDemandRows.length === 0 && filteredGrossRows.length === 0 ? (
                 <p className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
                   Aucune demande amicale pour cette amicale.
                 </p>
-              ) : (
+              ) : filteredDemandRows.length > 0 ? (
                 <div className="space-y-3">
                   {filteredDemandRows.map((demand) => {
                     const consultPath = buildPropertyPath(demand);
@@ -473,7 +642,7 @@ export default function AgentAmicaleDashboardPage() {
                     );
                   })}
                 </div>
-              )}
+              ) : null}
             </div>
           )}
 
@@ -547,9 +716,68 @@ export default function AgentAmicaleDashboardPage() {
                 placeholder="Filtrer: matricule, nom/prenom, tel, reference logement, statut..."
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               />
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <StatCard label="Demandes totales" value={demandRows.length} tone="emerald" />
                 <StatCard label="Total TTC" value={Math.round(comptabiliteTotals.total * 100) / 100} tone="sky" currency />
+                <StatCard label="Amicales en gros TTC" value={Math.round(grossTotalTtc * 100) / 100} tone="indigo" currency />
+              </div>
+
+              <div className="rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-emerald-50 p-4 sm:p-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">Amicales en gros</h3>
+                    <p className="mt-1 text-sm text-slate-500">Saisies soumises par l administration pour votre amicale.</p>
+                  </div>
+                  <span className="rounded-full border border-cyan-200 bg-white px-3 py-1 text-xs font-semibold text-cyan-700">
+                    {filteredGrossRows.length} element{filteredGrossRows.length > 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                {filteredGrossRows.length === 0 ? (
+                  <p className="mt-4 rounded-xl border border-dashed border-cyan-200 bg-white px-4 py-6 text-sm text-slate-500">
+                    Aucune saisie en gros soumise pour cette amicale.
+                  </p>
+                ) : (
+                  <div className="mt-4 grid gap-4">
+                    {filteredGrossRows.map((entry) => (
+                      <article key={`gross-${entry.id}`} className="rounded-[26px] border border-cyan-200 bg-white p-5 shadow-[0_18px_45px_-34px_rgba(8,145,178,0.4)]">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-cyan-600 px-3 py-1 text-xs font-semibold text-white">
+                                {entry.amicaleName || session.amicaleName}
+                              </span>
+                              <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+                                {entry.bienReference || "Hors catalogue"}
+                              </span>
+                              {entry.submittedAt ? (
+                                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+                                  Soumis le {formatDateTime(entry.submittedAt)}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div>
+                              <p className="text-xl font-semibold text-slate-900">{entry.bienTitle || "Reservation sans bien du site"}</p>
+                              <p className="mt-1 text-sm text-slate-500">
+                                {formatDateOnly(entry.arrivalDate)} au {formatDateOnly(entry.departureDate)}
+                              </p>
+                            </div>
+                            <div className="inline-flex rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.22em]">Prix TTC</p>
+                                <p className="mt-1 text-2xl font-bold">{formatCurrencyTtc(entry.rentalTotalAmount)}</p>
+                              </div>
+                            </div>
+                            <div className="rounded-2xl border border-cyan-200 bg-cyan-50/70 px-4 py-4 text-sm text-slate-700">
+                              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-700">Note</p>
+                              <p className="mt-2 whitespace-pre-wrap">{entry.agentNote || "-"}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {filteredComptabiliteRows.length === 0 ? (

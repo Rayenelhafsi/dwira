@@ -30,8 +30,10 @@ type AmicaleGrossManualEntry = {
   departureDate: string;
   ownerAdvanceAmount: number;
   rentalTotalAmount: number;
-  note: string;
+  internalNote: string;
+  agentNote: string;
   benefitAmount: number;
+  submittedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -55,7 +57,8 @@ type AmicaleGrossDraft = {
   departureDate: string;
   ownerAdvanceAmount: string;
   rentalTotalAmount: string;
-  note: string;
+  internalNote: string;
+  agentNote: string;
   benefitAmount: string;
 };
 
@@ -135,6 +138,12 @@ function formatCurrency(value?: number | string | null) {
   return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(num)} DT`;
 }
 
+function formatCurrencyTtc(value?: number | string | null) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return "0 TTC DT";
+  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(num)} TTC DT`;
+}
+
 function createLocalId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -205,8 +214,10 @@ function loadAmicaleGrossEntries() {
       departureDate: String(entry?.departureDate || "").trim(),
       ownerAdvanceAmount: Number(entry?.ownerAdvanceAmount || 0) || 0,
       rentalTotalAmount: Number(entry?.rentalTotalAmount || 0) || 0,
-      note: String(entry?.note || "").trim(),
+      internalNote: String(entry?.internalNote || entry?.note || "").trim(),
+      agentNote: String(entry?.agentNote || "").trim(),
       benefitAmount: Number(entry?.benefitAmount || 0) || 0,
+      submittedAt: entry?.submittedAt ? String(entry.submittedAt).trim() : null,
       createdAt: String(entry?.createdAt || new Date().toISOString()).trim(),
       updatedAt: String(entry?.updatedAt || entry?.createdAt || new Date().toISOString()).trim(),
     })) as AmicaleGrossManualEntry[];
@@ -224,7 +235,8 @@ function buildEmptyAmicaleGrossDraft(): AmicaleGrossDraft {
     departureDate: "",
     ownerAdvanceAmount: "",
     rentalTotalAmount: "",
-    note: "",
+    internalNote: "",
+    agentNote: "",
     benefitAmount: "",
   };
 }
@@ -1027,7 +1039,8 @@ export default function AmicalesPage() {
     const ownerAdvanceAmount = parseOptionalAmount(amicaleGrossDraft.ownerAdvanceAmount);
     const rentalTotalAmount = parseOptionalAmount(amicaleGrossDraft.rentalTotalAmount);
     const benefitAmount = parseOptionalAmount(amicaleGrossDraft.benefitAmount);
-    const note = String(amicaleGrossDraft.note || "").trim();
+    const internalNote = String(amicaleGrossDraft.internalNote || "").trim();
+    const agentNote = String(amicaleGrossDraft.agentNote || "").trim();
     const amicale = amicales.find((item) => String(item.id || "").trim() === selectedAmicaleId) || null;
     const bien = selectedBienId
       ? (biens.find((item) => String(item.id || "").trim() === selectedBienId) || null)
@@ -1044,9 +1057,9 @@ export default function AmicalesPage() {
       ownerAdvanceAmount === null || !Number.isFinite(ownerAdvanceAmount)
       || rentalTotalAmount === null || !Number.isFinite(rentalTotalAmount)
       || benefitAmount === null || !Number.isFinite(benefitAmount)
-      || !note
+      || !internalNote
     ) {
-      toast.error("Saisissez les 4 variables manuelles: avance, location totale, note et benefice.");
+      toast.error("Saisissez les 4 variables manuelles: avance, location totale, note interne et benefice.");
       return;
     }
 
@@ -1065,8 +1078,10 @@ export default function AmicalesPage() {
       departureDate,
       ownerAdvanceAmount,
       rentalTotalAmount,
-      note,
+      internalNote,
+      agentNote,
       benefitAmount,
+      submittedAt: previousEntry?.submittedAt || null,
       createdAt: amicaleGrossDraft.entryId
         ? (amicaleGrossEntries.find((entry) => entry.id === amicaleGrossDraft.entryId)?.createdAt || nowIso)
         : nowIso,
@@ -1101,9 +1116,35 @@ export default function AmicalesPage() {
       departureDate: entry.departureDate,
       ownerAdvanceAmount: String(entry.ownerAdvanceAmount),
       rentalTotalAmount: String(entry.rentalTotalAmount),
-      note: entry.note,
+      internalNote: entry.internalNote,
+      agentNote: entry.agentNote,
       benefitAmount: String(entry.benefitAmount),
     });
+  };
+
+  const handleSubmitAmicaleGrossEntry = async (entryId: string) => {
+    const targetEntry = amicaleGrossEntries.find((entry) => entry.id === entryId) || null;
+    if (!targetEntry) return;
+    if (!String(targetEntry.agentNote || "").trim()) {
+      toast.error("Ajoutez la note agent amicale avant de soumettre.");
+      return;
+    }
+    setSavingAmicaleGross(true);
+    try {
+      const submittedAt = new Date().toISOString();
+      setAmicaleGrossEntries((current) => current.map((entry) => (
+        entry.id === entryId
+          ? {
+              ...entry,
+              submittedAt,
+              updatedAt: submittedAt,
+            }
+          : entry
+      )));
+      toast.success(targetEntry.submittedAt ? "Saisie amicale en gros re-soumise." : "Saisie amicale en gros soumise a l agent.");
+    } finally {
+      setSavingAmicaleGross(false);
+    }
   };
 
   const handleDeleteAmicaleGrossEntry = async (entryId: string) => {
@@ -1714,13 +1755,23 @@ export default function AmicalesPage() {
                   />
                 </label>
                 <label className="space-y-2 md:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Note</span>
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Note interne admin</span>
                   <textarea
-                    value={amicaleGrossDraft.note}
-                    onChange={(event) => setAmicaleGrossDraft((prev) => ({ ...prev, note: event.target.value }))}
+                    value={amicaleGrossDraft.internalNote}
+                    onChange={(event) => setAmicaleGrossDraft((prev) => ({ ...prev, internalNote: event.target.value }))}
                     placeholder="Note interne admin"
                     rows={4}
                     className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                  />
+                </label>
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Note agent amicale</span>
+                  <textarea
+                    value={amicaleGrossDraft.agentNote}
+                    onChange={(event) => setAmicaleGrossDraft((prev) => ({ ...prev, agentNote: event.target.value }))}
+                    placeholder="Note visible cote agent amicale"
+                    rows={4}
+                    className="w-full rounded-2xl border border-cyan-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100"
                   />
                 </label>
                 <label className="space-y-2">
@@ -1775,12 +1826,27 @@ export default function AmicalesPage() {
                         </div>
                         <div className="grid gap-2 sm:grid-cols-3">
                           <InfoPill label="Avance proprietaire" value={formatCurrency(entry.ownerAdvanceAmount)} />
-                          <InfoPill label="Location totale" value={formatCurrency(entry.rentalTotalAmount)} />
+                          <InfoPill label="Location totale TTC" value={formatCurrencyTtc(entry.rentalTotalAmount)} />
                           <InfoPill label="Benefice" value={formatCurrency(entry.benefitAmount)} />
                         </div>
                         <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Note</p>
-                          <p className="mt-2 whitespace-pre-wrap">{entry.note || "-"}</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Note interne</p>
+                          <p className="mt-2 whitespace-pre-wrap">{entry.internalNote || "-"}</p>
+                        </div>
+                        <div className="rounded-xl border border-cyan-200 bg-cyan-50/60 px-4 py-3 text-sm text-gray-700">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Note agent amicale</p>
+                            {entry.submittedAt ? (
+                              <span className="rounded-full border border-cyan-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-cyan-700">
+                                Soumise le {formatDateTime(entry.submittedAt)}
+                              </span>
+                            ) : (
+                              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                                Non soumise
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-2 whitespace-pre-wrap">{entry.agentNote || "-"}</p>
                         </div>
                       </div>
                       <div className="flex shrink-0 flex-wrap gap-2">
@@ -1790,6 +1856,14 @@ export default function AmicalesPage() {
                           className="rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
                         >
                           Modifier
+                        </button>
+                        <button
+                          type="button"
+                          disabled={savingAmicaleGross}
+                          onClick={() => void handleSubmitAmicaleGrossEntry(entry.id)}
+                          className="rounded-lg border border-cyan-200 px-3 py-2 text-sm font-medium text-cyan-700 hover:bg-cyan-50 disabled:opacity-60"
+                        >
+                          {entry.submittedAt ? "Re-soumettre" : "Soumettre"}
                         </button>
                         <button
                           type="button"
