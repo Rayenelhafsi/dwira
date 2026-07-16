@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { format as formatDateFn } from "date-fns";
@@ -11,8 +11,6 @@ import { resolveMediaUrl } from "../../utils/media";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const AMICALE_GROSS_STORAGE_KEY = "dwira_admin_amicales_en_gros_v1";
-const AMICALE_GROSS_UNAVAILABLE_COLOR = "#6b7280";
-const AMICALE_GROSS_SYNC_SOURCE = "amicale_gross";
 const BIEN_IMAGE_FALLBACK = "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=900&q=80";
 
 type AdminAmicaleTab = "amicales" | "en_gros" | "demandes";
@@ -36,17 +34,6 @@ type AmicaleGrossManualEntry = {
   submittedAt: string | null;
   createdAt: string;
   updatedAt: string;
-};
-
-type UnavailableDateApiRow = {
-  id?: string;
-  bien_id?: string;
-  start_date?: string;
-  end_date?: string;
-  status?: string;
-  color?: string | null;
-  sync_source?: string | null;
-  sync_uid?: string | null;
 };
 
 type AmicaleGrossDraft = {
@@ -196,7 +183,7 @@ function parseOptionalAmount(value: string): number | null {
   return Math.round(numeric * 100) / 100;
 }
 
-function loadAmicaleGrossEntries() {
+function loadLegacyAmicaleGrossEntries() {
   if (typeof window === "undefined") return [] as AmicaleGrossManualEntry[];
   try {
     const raw = window.localStorage.getItem(AMICALE_GROSS_STORAGE_KEY);
@@ -223,6 +210,59 @@ function loadAmicaleGrossEntries() {
     })) as AmicaleGrossManualEntry[];
   } catch {
     return [];
+  }
+}
+
+async function fetchAdminAmicaleGrossEntries() {
+  const response = await fetch(`${API_URL}/admin/amicale-gross-entries`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(String(payload?.error || "Chargement amicales en gros impossible"));
+  }
+  const rows = await response.json().catch(() => []);
+  return Array.isArray(rows) ? rows as AmicaleGrossManualEntry[] : [];
+}
+
+async function saveAdminAmicaleGrossEntry(entry: AmicaleGrossManualEntry, mode: "create" | "update") {
+  const response = await fetch(
+    `${API_URL}/admin/amicale-gross-entries${mode === "update" ? `/${encodeURIComponent(entry.id)}` : ""}`,
+    {
+      method: mode === "update" ? "PUT" : "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    }
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(String(payload?.error || "Enregistrement amicale en gros impossible"));
+  }
+  return await response.json().catch(() => null) as AmicaleGrossManualEntry | null;
+}
+
+async function submitAdminAmicaleGrossEntry(entryId: string) {
+  const response = await fetch(`${API_URL}/admin/amicale-gross-entries/${encodeURIComponent(entryId)}/submit`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(String(payload?.error || "Soumission amicale en gros impossible"));
+  }
+  return await response.json().catch(() => null) as AmicaleGrossManualEntry | null;
+}
+
+async function deleteAdminAmicaleGrossEntry(entryId: string) {
+  const response = await fetch(`${API_URL}/admin/amicale-gross-entries/${encodeURIComponent(entryId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(String(payload?.error || "Suppression amicale en gros impossible"));
   }
 }
 
@@ -457,18 +497,20 @@ export default function AmicalesPage() {
   const [savingFinancialDemandId, setSavingFinancialDemandId] = useState<string | null>(null);
   const [savingAmicaleGross, setSavingAmicaleGross] = useState(false);
   const [amicaleGrossDraft, setAmicaleGrossDraft] = useState<AmicaleGrossDraft>(() => buildEmptyAmicaleGrossDraft());
-  const [amicaleGrossEntries, setAmicaleGrossEntries] = useState<AmicaleGrossManualEntry[]>(() => loadAmicaleGrossEntries());
+  const [amicaleGrossEntries, setAmicaleGrossEntries] = useState<AmicaleGrossManualEntry[]>([]);
   const [amicaleGrossPropertySearch, setAmicaleGrossPropertySearch] = useState("");
+  const legacyGrossMigrationAttemptedRef = useRef(false);
 
   const loadData = useCallback(async (options?: { background?: boolean }) => {
     if (!options?.background) setLoading(true);
     try {
-      const [amicalesResponse, biensResponse, proprietairesResponse, demandsResponse, hotelDemandsResponse] = await Promise.all([
+      const [amicalesResponse, biensResponse, proprietairesResponse, demandsResponse, hotelDemandsResponse, grossEntriesResponse] = await Promise.all([
         fetchAmicalesAdmin(),
         fetch(`${API_URL}/biens`, { credentials: "include", cache: "no-store" }),
         fetch(`${API_URL}/proprietaires`, { credentials: "include", cache: "no-store" }),
         fetch(`${API_URL}/reservation-demands`, { credentials: "include" }),
         fetch(`${API_URL}/hotel-reservation-demands`, { credentials: "include" }),
+        fetchAdminAmicaleGrossEntries(),
       ]);
       const biensJson = biensResponse.ok ? await biensResponse.json().catch(() => []) : [];
       const proprietairesJson = proprietairesResponse.ok ? await proprietairesResponse.json().catch(() => []) : [];
@@ -477,6 +519,7 @@ export default function AmicalesPage() {
       setAmicales(Array.isArray(amicalesResponse) ? amicalesResponse : []);
       setBiens(Array.isArray(biensJson) ? biensJson : []);
       setProprietaires(Array.isArray(proprietairesJson) ? proprietairesJson : []);
+      setAmicaleGrossEntries(Array.isArray(grossEntriesResponse) ? grossEntriesResponse : []);
       setDemandRows(sortAmicaleDemandRows(
         [
           ...(Array.isArray(demandJson) ? demandJson : []),
@@ -495,6 +538,29 @@ export default function AmicalesPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (legacyGrossMigrationAttemptedRef.current) return;
+    if (typeof window === "undefined") return;
+    if (loading) return;
+    legacyGrossMigrationAttemptedRef.current = true;
+    const legacyEntries = loadLegacyAmicaleGrossEntries();
+    if (!legacyEntries.length) return;
+    const knownIds = new Set(amicaleGrossEntries.map((entry) => entry.id));
+    const missingEntries = legacyEntries.filter((entry) => entry.id && !knownIds.has(entry.id));
+    if (!missingEntries.length) return;
+    void (async () => {
+      try {
+        for (const entry of missingEntries) {
+          await saveAdminAmicaleGrossEntry(entry, "create");
+        }
+        toast.success(`${missingEntries.length} saisie(s) locale(s) amicale en gros migree(s) vers le serveur.`);
+        await loadData({ background: true });
+      } catch (error) {
+        console.warn("Legacy amicale gross migration failed:", error);
+      }
+    })();
+  }, [amicaleGrossEntries, loadData, loading]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -553,11 +619,6 @@ export default function AmicalesPage() {
       cancelled = true;
     };
   }, [biens]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(AMICALE_GROSS_STORAGE_KEY, JSON.stringify(amicaleGrossEntries));
-  }, [amicaleGrossEntries]);
 
   const amicaleCounts = useMemo(() => {
     const waitingAmicale = demandRows.filter((row) => row.status === "attente_validation_amicale").length;
@@ -976,92 +1037,6 @@ export default function AmicalesPage() {
     setAmicaleGrossDraft(buildEmptyAmicaleGrossDraft());
   };
 
-  const fetchUnavailableDatesForBien = useCallback(async (bienId: string) => {
-    const normalizedBienId = String(bienId || "").trim();
-    if (!normalizedBienId) return [] as UnavailableDateApiRow[];
-    const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(normalizedBienId)}`, {
-      credentials: "include",
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      throw new Error("Impossible de charger les indisponibilites du bien");
-    }
-    const rows = await response.json().catch(() => []);
-    return Array.isArray(rows) ? (rows as UnavailableDateApiRow[]) : [];
-  }, []);
-
-  const deleteUnavailableDateById = useCallback(async (id: string) => {
-    const normalizedId = String(id || "").trim();
-    if (!normalizedId) return;
-    const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(normalizedId)}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error("Impossible de supprimer l indisponibilite amicale en gros");
-    }
-  }, []);
-
-  const syncAmicaleGrossUnavailableDate = useCallback(async (
-    entry: AmicaleGrossManualEntry,
-    previousEntry?: AmicaleGrossManualEntry | null
-  ) => {
-    const syncUid = String(entry.id || "").trim();
-    if (!syncUid) {
-      throw new Error("Identifiant amicale en gros manquant");
-    }
-    const bienIds = Array.from(new Set([
-      String(entry.bienId || "").trim(),
-      String(previousEntry?.bienId || "").trim(),
-    ].filter(Boolean)));
-
-    for (const bienId of bienIds) {
-      const rows = await fetchUnavailableDatesForBien(bienId);
-      const matchingRows = rows.filter((row) =>
-        String(row?.sync_source || "").trim() === AMICALE_GROSS_SYNC_SOURCE
-        && String(row?.sync_uid || "").trim() === syncUid
-      );
-      for (const row of matchingRows) {
-        await deleteUnavailableDateById(String(row.id || "").trim());
-      }
-    }
-
-    if (String(entry.bienId || "").trim()) {
-      const createResponse = await fetch(`${API_URL}/unavailable-dates`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          bien_id: entry.bienId,
-          start_date: entry.arrivalDate,
-          end_date: entry.departureDate,
-          status: "blocked",
-          color: AMICALE_GROSS_UNAVAILABLE_COLOR,
-          sync_source: AMICALE_GROSS_SYNC_SOURCE,
-          sync_uid: syncUid,
-        }),
-      });
-      if (!createResponse.ok) {
-        const data = await createResponse.json().catch(() => null);
-        throw new Error(String(data?.error || "Impossible d enregistrer l indisponibilite amicale en gros"));
-      }
-    }
-  }, [deleteUnavailableDateById, fetchUnavailableDatesForBien]);
-
-  const removeAmicaleGrossUnavailableDate = useCallback(async (entry: AmicaleGrossManualEntry) => {
-    const bienId = String(entry?.bienId || "").trim();
-    const syncUid = String(entry?.id || "").trim();
-    if (!bienId || !syncUid) return;
-    const rows = await fetchUnavailableDatesForBien(bienId);
-    const matchingRows = rows.filter((row) =>
-      String(row?.sync_source || "").trim() === AMICALE_GROSS_SYNC_SOURCE
-      && String(row?.sync_uid || "").trim() === syncUid
-    );
-    for (const row of matchingRows) {
-      await deleteUnavailableDateById(String(row.id || "").trim());
-    }
-  }, [deleteUnavailableDateById, fetchUnavailableDatesForBien]);
-
   const handleSaveAmicaleGrossEntry = async () => {
     const selectedAmicaleId = String(amicaleGrossDraft.amicaleId || "").trim();
     const selectedBienId = String(amicaleGrossDraft.bienId || "").trim();
@@ -1121,13 +1096,17 @@ export default function AmicalesPage() {
 
     setSavingAmicaleGross(true);
     try {
-      await syncAmicaleGrossUnavailableDate(nextEntry, previousEntry);
-      setAmicaleGrossEntries((current) => {
-        if (amicaleGrossDraft.entryId) {
-          return current.map((entry) => (entry.id === amicaleGrossDraft.entryId ? nextEntry : entry));
-        }
-        return [nextEntry, ...current];
-      });
+      const savedEntry = await saveAdminAmicaleGrossEntry(nextEntry, amicaleGrossDraft.entryId ? "update" : "create");
+      if (savedEntry?.id) {
+        setAmicaleGrossEntries((current) => {
+          if (amicaleGrossDraft.entryId) {
+            return current.map((entry) => (entry.id === savedEntry.id ? savedEntry : entry));
+          }
+          return [savedEntry, ...current];
+        });
+      } else {
+        await loadData({ background: true });
+      }
       resetAmicaleGrossDraft();
       toast.success(amicaleGrossDraft.entryId ? "Saisie amicale en gros mise a jour." : "Saisie amicale en gros ajoutee.");
     } catch (error) {
@@ -1162,17 +1141,17 @@ export default function AmicalesPage() {
     }
     setSavingAmicaleGross(true);
     try {
-      const submittedAt = new Date().toISOString();
-      setAmicaleGrossEntries((current) => current.map((entry) => (
-        entry.id === entryId
-          ? {
-              ...entry,
-              submittedAt,
-              updatedAt: submittedAt,
-            }
-          : entry
-      )));
+      const submittedEntry = await submitAdminAmicaleGrossEntry(entryId);
+      if (submittedEntry?.id) {
+        setAmicaleGrossEntries((current) => current.map((entry) => (
+          entry.id === entryId ? submittedEntry : entry
+        )));
+      } else {
+        await loadData({ background: true });
+      }
       toast.success(targetEntry.submittedAt ? "Saisie amicale en gros re-soumise." : "Saisie amicale en gros soumise a l agent.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Soumission amicale en gros impossible");
     } finally {
       setSavingAmicaleGross(false);
     }
@@ -1183,9 +1162,7 @@ export default function AmicalesPage() {
     const targetEntry = amicaleGrossEntries.find((entry) => entry.id === entryId) || null;
     setSavingAmicaleGross(true);
     try {
-      if (targetEntry) {
-        await removeAmicaleGrossUnavailableDate(targetEntry);
-      }
+      await deleteAdminAmicaleGrossEntry(entryId);
       setAmicaleGrossEntries((current) => current.filter((entry) => entry.id !== entryId));
       if (amicaleGrossDraft.entryId === entryId) {
         resetAmicaleGrossDraft();
@@ -1835,7 +1812,7 @@ export default function AmicalesPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Saisies enregistrees</h2>
-                <p className="mt-1 text-sm text-slate-500">Suivi local des amicales en gros avec modification et suppression.</p>
+                <p className="mt-1 text-sm text-slate-500">Suivi serveur des amicales en gros avec modification et suppression partagees entre postes.</p>
               </div>
             </div>
 

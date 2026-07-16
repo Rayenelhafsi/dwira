@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import type { ReservationDemand, ReservationDemandStatus } from "../admin/types";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
-const AMICALE_GROSS_STORAGE_KEY = "dwira_admin_amicales_en_gros_v1";
 
 type AgentSession = {
   userId: string;
@@ -89,39 +88,17 @@ function formatCurrencyTtc(value?: number | string | null) {
   return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(num)} TTC DT`;
 }
 
-function loadSubmittedAmicaleGrossRows(amicaleId?: string | null) {
-  if (typeof window === "undefined") return [] as AgentAmicaleGrossRow[];
-  const targetAmicaleId = String(amicaleId || "").trim();
-  if (!targetAmicaleId) return [];
-  try {
-    const raw = window.localStorage.getItem(AMICALE_GROSS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((entry) => ({
-        id: String(entry?.id || "").trim(),
-        amicaleId: String(entry?.amicaleId || "").trim(),
-        amicaleName: String(entry?.amicaleName || "").trim(),
-        bienId: String(entry?.bienId || "").trim(),
-        bienReference: String(entry?.bienReference || "").trim(),
-        bienTitle: String(entry?.bienTitle || "").trim(),
-        arrivalDate: String(entry?.arrivalDate || "").trim(),
-        departureDate: String(entry?.departureDate || "").trim(),
-        rentalTotalAmount: Number(entry?.rentalTotalAmount || 0) || 0,
-        agentNote: String(entry?.agentNote || "").trim(),
-        submittedAt: entry?.submittedAt ? String(entry.submittedAt).trim() : null,
-        updatedAt: String(entry?.updatedAt || entry?.createdAt || "").trim(),
-      }))
-      .filter((entry) => entry.id && entry.amicaleId === targetAmicaleId && entry.submittedAt)
-      .sort((a, b) => {
-        const da = new Date(String(a.submittedAt || a.updatedAt || "")).getTime();
-        const db = new Date(String(b.submittedAt || b.updatedAt || "")).getTime();
-        return db - da;
-      });
-  } catch {
-    return [];
+async function fetchAgentAmicaleGrossRows() {
+  const response = await fetch(`${API_URL}/agent-amicale/gross-entries`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(String(payload?.error || "Chargement amicales en gros impossible"));
   }
+  const rows = await response.json().catch(() => []);
+  return Array.isArray(rows) ? rows as AgentAmicaleGrossRow[] : [];
 }
 
 function resolveAssetUrl(url?: string | null) {
@@ -163,9 +140,10 @@ export default function AgentAmicaleDashboardPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [demandsResponse, vouchersResponse] = await Promise.all([
+      const [demandsResponse, vouchersResponse, grossEntries] = await Promise.all([
         fetch(`${API_URL}/agent-amicale/reservation-demands`, { credentials: "include", cache: "no-store" }),
         fetch(`${API_URL}/agent-amicale/vouchers`, { credentials: "include", cache: "no-store" }),
+        fetchAgentAmicaleGrossRows(),
       ]);
       if (demandsResponse.ok) {
         const demandsJson = await demandsResponse.json().catch(() => []);
@@ -190,13 +168,10 @@ export default function AgentAmicaleDashboardPage() {
             })
         );
       }
+      setGrossRows(Array.isArray(grossEntries) ? grossEntries : []);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Chargement impossible");
     }
-  }, []);
-
-  const refreshGrossRows = useCallback((amicaleId?: string | null) => {
-    setGrossRows(loadSubmittedAmicaleGrossRows(amicaleId));
   }, []);
 
   useEffect(() => {
@@ -210,7 +185,6 @@ export default function AgentAmicaleDashboardPage() {
           return;
         }
         setSession(data?.session || null);
-        setGrossRows(loadSubmittedAmicaleGrossRows(data?.session?.amicaleId));
       } finally {
         setIsLoading(false);
       }
@@ -221,28 +195,11 @@ export default function AgentAmicaleDashboardPage() {
   useEffect(() => {
     if (!session) return;
     void loadData();
-    refreshGrossRows(session.amicaleId);
     const intervalId = window.setInterval(() => {
       void loadData();
-      refreshGrossRows(session.amicaleId);
     }, 15000);
     return () => window.clearInterval(intervalId);
-  }, [loadData, refreshGrossRows, session]);
-
-  useEffect(() => {
-    if (!session) return;
-    const handleFocus = () => refreshGrossRows(session.amicaleId);
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key && event.key !== AMICALE_GROSS_STORAGE_KEY) return;
-      refreshGrossRows(session.amicaleId);
-    };
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("focus", handleFocus);
-    return () => {
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("focus", handleFocus);
-    };
-  }, [refreshGrossRows, session]);
+  }, [loadData, session]);
 
   const summary = useMemo(() => {
     const waitingAmicale = demandRows.filter((row) => row.status === "attente_validation_amicale").length;

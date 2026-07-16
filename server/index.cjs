@@ -9423,6 +9423,30 @@ async function ensureAuthSchema() {
   );
 
   await pool.query(
+    `CREATE TABLE IF NOT EXISTS admin_amicale_gross_entries (
+      id VARCHAR(96) PRIMARY KEY,
+      amicale_id VARCHAR(64) NOT NULL,
+      amicale_name VARCHAR(255) NOT NULL,
+      bien_id VARCHAR(64) NULL,
+      bien_reference VARCHAR(255) NULL,
+      bien_title VARCHAR(255) NULL,
+      arrival_date DATE NOT NULL,
+      departure_date DATE NOT NULL,
+      owner_advance_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      rental_total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      internal_note LONGTEXT NOT NULL,
+      agent_note LONGTEXT NULL,
+      benefit_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      submitted_at DATETIME NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      INDEX idx_amicale_gross_amicale (amicale_id),
+      INDEX idx_amicale_gross_bien (bien_id),
+      INDEX idx_amicale_gross_arrival (arrival_date)
+    )`
+  );
+
+  await pool.query(
     `CREATE TABLE IF NOT EXISTS partner_agencies (
       id VARCHAR(64) PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,
@@ -29656,6 +29680,43 @@ app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, r
   }
 });
 
+app.get('/api/agent-amicale/gross-entries', requireAgentAmicaleSession, async (req, res) => {
+  try {
+    const amicaleId = String(req.agentSession?.amicaleId || '').trim();
+    if (!amicaleId) {
+      return res.status(400).json({ error: 'Amicale introuvable' });
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         amicale_id,
+         amicale_name,
+         bien_id,
+         bien_reference,
+         bien_title,
+         DATE_FORMAT(arrival_date, '%Y-%m-%d') AS arrival_date,
+         DATE_FORMAT(departure_date, '%Y-%m-%d') AS departure_date,
+         owner_advance_amount,
+         rental_total_amount,
+         internal_note,
+         agent_note,
+         benefit_amount,
+         DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submitted_at,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM admin_amicale_gross_entries
+       WHERE amicale_id = ?
+         AND submitted_at IS NOT NULL
+       ORDER BY submitted_at DESC, updated_at DESC`,
+      [amicaleId]
+    );
+    res.json((rows || []).map(formatAdminAmicaleGrossEntryRow).filter(Boolean));
+  } catch (error) {
+    console.error('Error fetching agent amicale gross entries:', error);
+    res.status(500).json({ error: 'Impossible de charger les demandes amicales en gros' });
+  }
+});
+
 app.post('/api/admin/reservation-demands/:id/revert-voucher', requireAdminSession, async (req, res) => {
   try {
     await ensureReservationDemandSchema();
@@ -32139,6 +32200,137 @@ function normalizePartnerAgencyMarginPercent(input) {
   return Math.round(raw * 100) / 100;
 }
 
+const AMICALE_GROSS_SYNC_SOURCE = 'amicale_gross';
+const AMICALE_GROSS_UNAVAILABLE_COLOR = '#6b7280';
+
+function formatAdminAmicaleGrossEntryRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id || '').trim(),
+    amicaleId: String(row.amicale_id || '').trim(),
+    amicaleName: String(row.amicale_name || '').trim(),
+    bienId: row.bien_id ? String(row.bien_id).trim() : '',
+    bienReference: row.bien_reference ? String(row.bien_reference).trim() : '',
+    bienTitle: row.bien_title ? String(row.bien_title).trim() : '',
+    arrivalDate: row.arrival_date ? String(row.arrival_date).slice(0, 10) : '',
+    departureDate: row.departure_date ? String(row.departure_date).slice(0, 10) : '',
+    ownerAdvanceAmount: Number(row.owner_advance_amount || 0) || 0,
+    rentalTotalAmount: Number(row.rental_total_amount || 0) || 0,
+    internalNote: String(row.internal_note || '').trim(),
+    agentNote: String(row.agent_note || '').trim(),
+    benefitAmount: Number(row.benefit_amount || 0) || 0,
+    submittedAt: row.submitted_at ? String(row.submitted_at).trim() : null,
+    createdAt: row.created_at ? String(row.created_at).trim() : null,
+    updatedAt: row.updated_at ? String(row.updated_at).trim() : null,
+  };
+}
+
+function normalizeAmicaleGrossDateValue(input) {
+  const value = String(input || '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+}
+
+function normalizeAmicaleGrossAmount(input) {
+  const numeric = Number(String(input ?? '').replace(',', '.'));
+  if (!Number.isFinite(numeric) || numeric < 0) return Number.NaN;
+  return Math.round((numeric + Number.EPSILON) * 100) / 100;
+}
+
+function buildAdminAmicaleGrossPayload(body) {
+  const id = String(body?.id || `amg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`).trim();
+  const amicaleId = String(body?.amicale_id || body?.amicaleId || '').trim();
+  const amicaleName = String(body?.amicale_name || body?.amicaleName || '').trim();
+  const bienId = String(body?.bien_id || body?.bienId || '').trim() || null;
+  const bienReference = String(body?.bien_reference || body?.bienReference || '').trim() || null;
+  const bienTitle = String(body?.bien_title || body?.bienTitle || '').trim() || null;
+  const arrivalDate = normalizeAmicaleGrossDateValue(body?.arrival_date || body?.arrivalDate);
+  const departureDate = normalizeAmicaleGrossDateValue(body?.departure_date || body?.departureDate);
+  const ownerAdvanceAmount = normalizeAmicaleGrossAmount(body?.owner_advance_amount ?? body?.ownerAdvanceAmount ?? 0);
+  const rentalTotalAmount = normalizeAmicaleGrossAmount(body?.rental_total_amount ?? body?.rentalTotalAmount ?? 0);
+  const benefitAmount = normalizeAmicaleGrossAmount(body?.benefit_amount ?? body?.benefitAmount ?? 0);
+  const internalNote = String(body?.internal_note || body?.internalNote || '').trim();
+  const agentNote = String(body?.agent_note || body?.agentNote || '').trim();
+  const submittedAtRaw = String(body?.submitted_at || body?.submittedAt || '').trim();
+  const submittedDate = submittedAtRaw ? new Date(submittedAtRaw) : null;
+  const submittedAt = submittedDate && !Number.isNaN(submittedDate.getTime())
+    ? getAgencySqlDateTime(submittedDate)
+    : null;
+  if (!id || !amicaleId || !amicaleName || !arrivalDate || !departureDate) {
+    throw new Error('amicale, nom amicale et dates obligatoires');
+  }
+  if (arrivalDate > departureDate) {
+    throw new Error('La date de depart doit etre apres la date d arrivee');
+  }
+  if (!Number.isFinite(ownerAdvanceAmount) || !Number.isFinite(rentalTotalAmount) || !Number.isFinite(benefitAmount) || !internalNote) {
+    throw new Error('Montants ou note interne invalides');
+  }
+  return {
+    id,
+    amicaleId,
+    amicaleName,
+    bienId,
+    bienReference,
+    bienTitle,
+    arrivalDate,
+    departureDate,
+    ownerAdvanceAmount,
+    rentalTotalAmount,
+    internalNote,
+    agentNote: agentNote || null,
+    benefitAmount,
+    submittedAt,
+  };
+}
+
+async function syncAmicaleGrossUnavailableDateEntry(connection, nextEntry, previousEntry) {
+  const syncUid = String(nextEntry?.id || previousEntry?.id || '').trim();
+  if (!syncUid) return;
+  const bienIds = Array.from(new Set([
+    String(nextEntry?.bienId || '').trim(),
+    String(previousEntry?.bienId || '').trim(),
+  ].filter(Boolean)));
+
+  for (const bienId of bienIds) {
+    const [rows] = await connection.query(
+      `SELECT id
+       FROM unavailable_dates
+       WHERE bien_id = ?
+         AND sync_source = ?
+         AND sync_uid = ?`,
+      [bienId, AMICALE_GROSS_SYNC_SOURCE, syncUid]
+    );
+    for (const row of rows || []) {
+      await connection.query(
+        'UPDATE reservation_demands SET unavailable_date_id = NULL WHERE unavailable_date_id = ?',
+        [row.id]
+      );
+      await connection.query('DELETE FROM unavailable_dates WHERE id = ?', [row.id]);
+    }
+  }
+
+  const nextBienId = String(nextEntry?.bienId || '').trim();
+  if (nextBienId) {
+    const unavailableId = `ud${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    await connection.query(
+      `INSERT INTO unavailable_dates (
+         id, bien_id, start_date, end_date, status, reservation_demand_id, payment_deadline, color, sync_source, sync_uid
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        unavailableId,
+        nextBienId,
+        nextEntry.arrivalDate,
+        nextEntry.departureDate,
+        'blocked',
+        null,
+        null,
+        AMICALE_GROSS_UNAVAILABLE_COLOR,
+        AMICALE_GROSS_SYNC_SOURCE,
+        syncUid,
+      ]
+    );
+  }
+}
+
 app.get('/api/public/amicales', async (req, res) => {
   try {
     await cleanupNamelessAmicalesAndTheirDemands();
@@ -32252,6 +32444,310 @@ app.delete('/api/amicales/:id', requireAdminSession, async (req, res) => {
   } catch (error) {
     console.error('Error deleting amicale:', error);
     res.status(500).json({ error: 'Failed to delete amicale' });
+  }
+});
+
+app.get('/api/admin/amicale-gross-entries', requireAdminSession, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         amicale_id,
+         amicale_name,
+         bien_id,
+         bien_reference,
+         bien_title,
+         DATE_FORMAT(arrival_date, '%Y-%m-%d') AS arrival_date,
+         DATE_FORMAT(departure_date, '%Y-%m-%d') AS departure_date,
+         owner_advance_amount,
+         rental_total_amount,
+         internal_note,
+         agent_note,
+         benefit_amount,
+         DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submitted_at,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM admin_amicale_gross_entries
+       ORDER BY arrival_date ASC, updated_at DESC`
+    );
+    res.json((rows || []).map(formatAdminAmicaleGrossEntryRow).filter(Boolean));
+  } catch (error) {
+    console.error('Error fetching admin amicale gross entries:', error);
+    res.status(500).json({ error: 'Impossible de charger les amicales en gros' });
+  }
+});
+
+app.post('/api/admin/amicale-gross-entries', requireAdminSession, async (req, res) => {
+  let connection;
+  try {
+    await ensureReservationDemandSchema();
+    const payload = buildAdminAmicaleGrossPayload(req.body);
+    const now = getAgencySqlDateTime();
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    await connection.query(
+      `INSERT INTO admin_amicale_gross_entries (
+         id, amicale_id, amicale_name, bien_id, bien_reference, bien_title, arrival_date, departure_date,
+         owner_advance_amount, rental_total_amount, internal_note, agent_note, benefit_amount, submitted_at, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        payload.id,
+        payload.amicaleId,
+        payload.amicaleName,
+        payload.bienId,
+        payload.bienReference,
+        payload.bienTitle,
+        payload.arrivalDate,
+        payload.departureDate,
+        payload.ownerAdvanceAmount,
+        payload.rentalTotalAmount,
+        payload.internalNote,
+        payload.agentNote,
+        payload.benefitAmount,
+        payload.submittedAt,
+        now,
+        now,
+      ]
+    );
+    await syncAmicaleGrossUnavailableDateEntry(connection, payload, null);
+    await connection.commit();
+    if (payload.bienId) {
+      await syncResidenceParentFromChild(payload.bienId);
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         amicale_id,
+         amicale_name,
+         bien_id,
+         bien_reference,
+         bien_title,
+         DATE_FORMAT(arrival_date, '%Y-%m-%d') AS arrival_date,
+         DATE_FORMAT(departure_date, '%Y-%m-%d') AS departure_date,
+         owner_advance_amount,
+         rental_total_amount,
+         internal_note,
+         agent_note,
+         benefit_amount,
+         DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submitted_at,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM admin_amicale_gross_entries
+       WHERE id = ?
+       LIMIT 1`,
+      [payload.id]
+    );
+    res.status(201).json(formatAdminAmicaleGrossEntryRow(rows?.[0] || null));
+  } catch (error) {
+    if (connection) {
+      try { await connection.rollback(); } catch {}
+      connection.release();
+      connection = null;
+    }
+    console.error('Error creating admin amicale gross entry:', error);
+    if (String(error?.code || '') === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Cette saisie existe deja' });
+    }
+    res.status(400).json({ error: String(error?.message || 'Creation impossible') });
+    return;
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+app.put('/api/admin/amicale-gross-entries/:id', requireAdminSession, async (req, res) => {
+  let connection;
+  try {
+    await ensureReservationDemandSchema();
+    const requestedId = String(req.params.id || '').trim();
+    if (!requestedId) return res.status(400).json({ error: 'id is required' });
+    const payload = buildAdminAmicaleGrossPayload({ ...req.body, id: requestedId });
+    connection = await pool.getConnection();
+    const [existingRows] = await connection.query(
+      `SELECT id, bien_id
+       FROM admin_amicale_gross_entries
+       WHERE id = ?
+       LIMIT 1`,
+      [requestedId]
+    );
+    const existing = existingRows?.[0] || null;
+    if (!existing) {
+      connection.release();
+      connection = null;
+      return res.status(404).json({ error: 'Saisie introuvable' });
+    }
+    await connection.beginTransaction();
+    await connection.query(
+      `UPDATE admin_amicale_gross_entries
+       SET amicale_id = ?,
+           amicale_name = ?,
+           bien_id = ?,
+           bien_reference = ?,
+           bien_title = ?,
+           arrival_date = ?,
+           departure_date = ?,
+           owner_advance_amount = ?,
+           rental_total_amount = ?,
+           internal_note = ?,
+           agent_note = ?,
+           benefit_amount = ?,
+           submitted_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [
+        payload.amicaleId,
+        payload.amicaleName,
+        payload.bienId,
+        payload.bienReference,
+        payload.bienTitle,
+        payload.arrivalDate,
+        payload.departureDate,
+        payload.ownerAdvanceAmount,
+        payload.rentalTotalAmount,
+        payload.internalNote,
+        payload.agentNote,
+        payload.benefitAmount,
+        payload.submittedAt,
+        getAgencySqlDateTime(),
+        requestedId,
+      ]
+    );
+    await syncAmicaleGrossUnavailableDateEntry(connection, payload, {
+      id: requestedId,
+      bienId: existing.bien_id,
+    });
+    await connection.commit();
+    const impactedBienIds = Array.from(new Set([
+      String(existing.bien_id || '').trim(),
+      String(payload.bienId || '').trim(),
+    ].filter(Boolean)));
+    for (const bienId of impactedBienIds) {
+      await syncResidenceParentFromChild(bienId);
+    }
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         amicale_id,
+         amicale_name,
+         bien_id,
+         bien_reference,
+         bien_title,
+         DATE_FORMAT(arrival_date, '%Y-%m-%d') AS arrival_date,
+         DATE_FORMAT(departure_date, '%Y-%m-%d') AS departure_date,
+         owner_advance_amount,
+         rental_total_amount,
+         internal_note,
+         agent_note,
+         benefit_amount,
+         DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submitted_at,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM admin_amicale_gross_entries
+       WHERE id = ?
+       LIMIT 1`,
+      [requestedId]
+    );
+    res.json(formatAdminAmicaleGrossEntryRow(rows?.[0] || null));
+  } catch (error) {
+    if (connection) {
+      try { await connection.rollback(); } catch {}
+      connection.release();
+      connection = null;
+    }
+    console.error('Error updating admin amicale gross entry:', error);
+    res.status(400).json({ error: String(error?.message || 'Mise a jour impossible') });
+    return;
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+app.post('/api/admin/amicale-gross-entries/:id/submit', requireAdminSession, async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    const submittedAt = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE admin_amicale_gross_entries
+       SET submitted_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [submittedAt, submittedAt, id]
+    );
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         amicale_id,
+         amicale_name,
+         bien_id,
+         bien_reference,
+         bien_title,
+         DATE_FORMAT(arrival_date, '%Y-%m-%d') AS arrival_date,
+         DATE_FORMAT(departure_date, '%Y-%m-%d') AS departure_date,
+         owner_advance_amount,
+         rental_total_amount,
+         internal_note,
+         agent_note,
+         benefit_amount,
+         DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submitted_at,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM admin_amicale_gross_entries
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const row = formatAdminAmicaleGrossEntryRow(rows?.[0] || null);
+    if (!row) return res.status(404).json({ error: 'Saisie introuvable' });
+    res.json(row);
+  } catch (error) {
+    console.error('Error submitting admin amicale gross entry:', error);
+    res.status(500).json({ error: 'Soumission impossible' });
+  }
+});
+
+app.delete('/api/admin/amicale-gross-entries/:id', requireAdminSession, async (req, res) => {
+  let connection;
+  try {
+    await ensureReservationDemandSchema();
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    connection = await pool.getConnection();
+    const [rows] = await connection.query(
+      `SELECT id, bien_id
+       FROM admin_amicale_gross_entries
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const existing = rows?.[0] || null;
+    if (!existing) {
+      connection.release();
+      connection = null;
+      return res.status(404).json({ error: 'Saisie introuvable' });
+    }
+    await connection.beginTransaction();
+    await syncAmicaleGrossUnavailableDateEntry(connection, null, {
+      id,
+      bienId: existing.bien_id,
+    });
+    await connection.query('DELETE FROM admin_amicale_gross_entries WHERE id = ?', [id]);
+    await connection.commit();
+    const bienId = String(existing.bien_id || '').trim();
+    if (bienId) {
+      await syncResidenceParentFromChild(bienId);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    if (connection) {
+      try { await connection.rollback(); } catch {}
+      connection.release();
+      connection = null;
+    }
+    console.error('Error deleting admin amicale gross entry:', error);
+    res.status(500).json({ error: 'Suppression impossible' });
+    return;
+  } finally {
+    if (connection) connection.release();
   }
 });
 
