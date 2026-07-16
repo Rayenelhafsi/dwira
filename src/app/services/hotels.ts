@@ -523,7 +523,7 @@ export async function listHotelReservationDemands(status?: string) {
 
 export async function updateHotelReservationDemand(
   demandId: string,
-  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_note" | "client_name" | "client_phone" | "amicale_name" | "hotel_name" | "boarding_name" | "room_name" | "check_in" | "check_out" | "hotel_context" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> & {
+  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_note" | "client_name" | "client_phone" | "payment_mode" | "pricing_amicale_id" | "amicale_name" | "amicale_matricule" | "amicale_phone" | "amicale_code" | "hotel_name" | "boarding_name" | "room_name" | "check_in" | "check_out" | "total_price" | "amount_due_now" | "hotel_context" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> & {
     force_generate_voucher?: boolean;
   }
 ) {
@@ -574,7 +574,7 @@ export async function uploadHotelVoucherPdf(demandId: string, file: File) {
 
 export async function regenerateHotelVoucher(
   demandId: string,
-  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> = {}
+  patch: Partial<Pick<HotelReservationDemand, "status" | "admin_note" | "client_name" | "client_phone" | "payment_mode" | "pricing_amicale_id" | "amicale_name" | "amicale_matricule" | "amicale_phone" | "amicale_code" | "hotel_name" | "boarding_name" | "room_name" | "check_in" | "check_out" | "total_price" | "amount_due_now" | "hotel_context" | "voucher_id" | "voucher_number" | "voucher_qr_payload" | "voucher_qr_image_url">> = {}
 ) {
   const response = await fetch(buildApiUrl(`/admin/hotel-reservation-demands/${encodeURIComponent(demandId)}/regenerate-voucher`), {
     method: "POST",

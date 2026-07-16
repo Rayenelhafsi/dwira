@@ -304,6 +304,11 @@ function buildPropertyPath(demand: ReservationDemand) {
   return token ? `/properties/${encodeURIComponent(token)}` : "/logements";
 }
 
+function buildGrossEntryPropertyPath(entry: AmicaleGrossManualEntry) {
+  const token = String(entry.bienReference || entry.bienId || "").trim();
+  return token ? `/properties/${encodeURIComponent(token)}` : "/logements";
+}
+
 function demandStatusLabel(status?: ReservationDemandStatus | null) {
   const value = String(status || "").trim() as ReservationDemandStatus;
   return statusLabels[value] || value || "-";
@@ -584,6 +589,15 @@ export default function AmicalesPage() {
       : demandRows.filter((row) => !isRejectedAmicaleDemand(row.status))
   ), [demandRows, demandSectionTab]);
 
+  const sortedAmicaleGrossEntries = useMemo(() => (
+    [...amicaleGrossEntries].sort((left, right) => {
+      const leftTime = parseSortDate(left.arrivalDate);
+      const rightTime = parseSortDate(right.arrivalDate);
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
+      return parseSortDate(right.updatedAt) - parseSortDate(left.updatedAt);
+    })
+  ), [amicaleGrossEntries]);
+
   const amicaleTabs = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; count: number }>();
     for (const row of scopedDemandRows) {
@@ -593,8 +607,15 @@ export default function AmicalesPage() {
       const name = String(row.amicale_name || amicaleNameById.get(id) || id).trim();
       byId.set(id, { id, name, count: (current?.count || 0) + 1 });
     }
+    for (const entry of sortedAmicaleGrossEntries) {
+      const id = String(entry.amicaleId || "").trim();
+      if (!id) continue;
+      const current = byId.get(id);
+      const name = String(entry.amicaleName || amicaleNameById.get(id) || id).trim();
+      byId.set(id, { id, name, count: (current?.count || 0) + 1 });
+    }
     return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, "fr"));
-  }, [scopedDemandRows, amicaleNameById]);
+  }, [scopedDemandRows, amicaleNameById, sortedAmicaleGrossEntries]);
 
   const selectedGrossAmicale = useMemo(
     () => amicales.find((item) => String(item.id || "").trim() === amicaleGrossDraft.amicaleId) || null,
@@ -649,14 +670,22 @@ export default function AmicalesPage() {
       });
   }, [amicaleGrossPropertySearch, biens, proprietaireNameById]);
 
-  const sortedAmicaleGrossEntries = useMemo(() => (
-    [...amicaleGrossEntries].sort((left, right) => {
-      const leftTime = parseSortDate(left.arrivalDate);
-      const rightTime = parseSortDate(right.arrivalDate);
-      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
-      return parseSortDate(right.updatedAt) - parseSortDate(left.updatedAt);
-    })
-  ), [amicaleGrossEntries]);
+  const filteredGrossDemands = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    return sortedAmicaleGrossEntries.filter((entry) => {
+      const amicaleId = String(entry.amicaleId || "").trim();
+      if (activeAmicaleFilter !== "all" && amicaleId !== activeAmicaleFilter) return false;
+      if (!needle) return true;
+      const bag = [
+        entry.amicaleName,
+        entry.bienReference,
+        entry.bienTitle,
+        entry.internalNote,
+        entry.agentNote,
+      ].map((value) => String(value || "").toLowerCase());
+      return bag.some((value) => value.includes(needle));
+    });
+  }, [activeAmicaleFilter, searchTerm, sortedAmicaleGrossEntries]);
 
   const filteredDemands = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
@@ -678,6 +707,8 @@ export default function AmicalesPage() {
     });
     return sortAmicaleDemandRows(filtered, demandSortMode);
   }, [activeAmicaleFilter, demandSortMode, scopedDemandRows, searchTerm]);
+
+  const totalDemandItems = scopedDemandRows.length + sortedAmicaleGrossEntries.length;
 
   const handleAdd = async () => {
     if (!name.trim() || !code.trim()) {
@@ -1944,7 +1975,7 @@ export default function AmicalesPage() {
                 onClick={() => setActiveAmicaleFilter("all")}
                 className={`rounded-lg border px-3 py-2 text-xs font-semibold ${activeAmicaleFilter === "all" ? "border-emerald-600 bg-emerald-600 text-white" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
               >
-                Toutes ({scopedDemandRows.length})
+                Toutes ({totalDemandItems})
               </button>
               {amicaleTabs.map((tabItem) => (
                 <button
@@ -1966,10 +1997,48 @@ export default function AmicalesPage() {
             />
           </div>
 
-          {filteredDemands.length === 0 ? (
+          {filteredDemands.length === 0 && filteredGrossDemands.length === 0 ? (
             <p className="text-sm text-gray-500">Aucune demande amicale pour le moment.</p>
           ) : (
             <div className="space-y-3">
+              {filteredGrossDemands.map((entry) => {
+                const consultPath = entry.bienId ? buildGrossEntryPropertyPath(entry) : "";
+                return (
+                  <article key={entry.id} className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-4">
+                    <div className="grid gap-3 lg:grid-cols-3">
+                      <div className="space-y-1 text-sm">
+                        <p><span className="font-semibold">Amicale:</span> {String(entry.amicaleName || amicaleNameById.get(String(entry.amicaleId || "").trim()) || "-")}</p>
+                        <p><span className="font-semibold">Type:</span> Demande amicale en gros</p>
+                        <p><span className="font-semibold">Reference:</span> {String(entry.bienReference || entry.bienId || "Hors catalogue")}</p>
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <p className="font-semibold">{String(entry.bienTitle || "Reservation sans bien du site")}</p>
+                        <p><span className="font-semibold">Periode:</span> {formatDateOnly(entry.arrivalDate)} au {formatDateOnly(entry.departureDate)}</p>
+                        <p><span className="font-semibold">Total TTC:</span> {formatCurrencyTtc(entry.rentalTotalAmount)}</p>
+                        {consultPath ? (
+                          <Link
+                            to={consultPath}
+                            className="mt-1 inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            Consulter
+                          </Link>
+                        ) : null}
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-100 px-2.5 py-1 text-xs font-semibold text-cyan-800">
+                          Amicale en gros
+                        </span>
+                        <p><span className="font-semibold">Soumise le:</span> {entry.submittedAt ? formatDateTime(entry.submittedAt) : "-"}</p>
+                        <div className="rounded-lg border border-cyan-200 bg-white/80 px-3 py-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-800">Note agent amicale</p>
+                          <p className="mt-1 text-gray-700">{String(entry.agentNote || "-")}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
               {filteredDemands.map((demand) => {
                 const consultPath = buildPropertyPath(demand);
                 const voucherUrl = demand.voucher_url ? resolveAssetUrl(demand.voucher_url) : "";

@@ -4317,12 +4317,27 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
   const nextClientNote = patch?.client_note !== undefined ? (String(patch.client_note || '').trim() || null) : (current.client_note || null);
   const nextClientName = patch?.client_name !== undefined ? (String(patch.client_name || '').trim() || null) : (current.client_name || null);
   const nextClientPhone = patch?.client_phone !== undefined ? (normalizePhoneNumber(patch.client_phone || '') || null) : (current.client_phone || null);
+  const nextPaymentMode = patch?.payment_mode !== undefined
+    ? normalizePaymentMode(patch.payment_mode, 'avance')
+    : normalizePaymentMode(current.payment_mode, 'avance');
+  const nextPricingAmicaleId = patch?.pricing_amicale_id !== undefined
+    ? (String(patch.pricing_amicale_id || '').trim() || null)
+    : (String(current.pricing_amicale_id || '').trim() || null);
   const nextAmicaleName = patch?.amicale_name !== undefined ? (String(patch.amicale_name || '').trim() || null) : (current.amicale_name || null);
+  const nextAmicaleMatricule = patch?.amicale_matricule !== undefined ? (String(patch.amicale_matricule || '').trim() || null) : (current.amicale_matricule || null);
+  const nextAmicalePhone = patch?.amicale_phone !== undefined ? (normalizePhoneNumber(patch.amicale_phone || '') || null) : (current.amicale_phone || null);
+  const nextAmicaleCode = patch?.amicale_code !== undefined ? (String(patch.amicale_code || '').trim() || null) : (current.amicale_code || null);
   const nextHotelName = patch?.hotel_name !== undefined ? (String(patch.hotel_name || '').trim() || null) : (current.hotel_name || null);
   const nextBoardingName = patch?.boarding_name !== undefined ? (String(patch.boarding_name || '').trim() || null) : (current.boarding_name || null);
   const nextRoomName = patch?.room_name !== undefined ? (String(patch.room_name || '').trim() || null) : (current.room_name || null);
   const nextCheckIn = patch?.check_in !== undefined ? (String(patch.check_in || '').trim() || null) : (current.check_in || null);
   const nextCheckOut = patch?.check_out !== undefined ? (String(patch.check_out || '').trim() || null) : (current.check_out || null);
+  const nextTotalPrice = patch?.total_price !== undefined
+    ? (Number.isFinite(Number(patch.total_price)) ? Number(patch.total_price) : null)
+    : (current.total_price === null || current.total_price === undefined ? null : Number(current.total_price));
+  const nextAmountDueNow = patch?.amount_due_now !== undefined
+    ? (Number.isFinite(Number(patch.amount_due_now)) ? Number(patch.amount_due_now) : null)
+    : (nextTotalPrice === null || nextTotalPrice === undefined ? null : nextTotalPrice);
   const nextOwnerPaid = patch?.montant_donne_proprietaire !== undefined
     ? (Number.isFinite(Number(patch.montant_donne_proprietaire)) ? Number(patch.montant_donne_proprietaire) : null)
     : (current.montant_donne_proprietaire === null || current.montant_donne_proprietaire === undefined ? null : Number(current.montant_donne_proprietaire));
@@ -4373,9 +4388,14 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
     voucherUrl = await generateHotelVoucherHtml({
       demand: {
         ...current,
+        payment_mode: nextPaymentMode,
+        pricing_amicale_id: nextPricingAmicaleId,
         client_name: nextClientName,
         client_phone: nextClientPhone,
         amicale_name: nextAmicaleName,
+        amicale_matricule: nextAmicaleMatricule,
+        amicale_phone: nextAmicalePhone,
+        amicale_code: nextAmicaleCode,
         hotel_name: nextHotelName,
         boarding_name: nextBoardingName,
         room_name: nextRoomName,
@@ -4415,7 +4435,8 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
   await pool.query(
      `UPDATE hotel_reservation_demands
      SET status = ?, admin_note = ?, client_note = ?,
-         client_name = ?, client_phone = ?, amicale_name = ?, hotel_name = ?, boarding_name = ?, room_name = ?, check_in = ?, check_out = ?,
+         client_name = ?, client_phone = ?, payment_mode = ?, pricing_amicale_id = ?, amicale_name = ?, amicale_matricule = ?, amicale_phone = ?, amicale_code = ?,
+         hotel_name = ?, boarding_name = ?, room_name = ?, check_in = ?, check_out = ?, total_price = ?, amount_due_now = ?,
          montant_donne_proprietaire = ?, montant_total_proprietaire = ?, profit_net = ?,
          hotel_context_json = ?,
          voucher_id = ?, voucher_number = ?, voucher_qr_payload = ?, voucher_qr_image_url = ?,
@@ -4429,12 +4450,19 @@ async function applyAdminHotelVoucherUpdate(demandId, patch = {}) {
       nextClientNote,
       nextClientName,
       nextClientPhone,
+      nextPaymentMode,
+      nextPricingAmicaleId,
       nextAmicaleName,
+      nextAmicaleMatricule,
+      nextAmicalePhone,
+      nextAmicaleCode,
       nextHotelName,
       nextBoardingName,
       nextRoomName,
       nextCheckIn,
       nextCheckOut,
+      nextTotalPrice,
+      nextAmountDueNow,
       nextOwnerPaid,
       nextOwnerTotal,
       nextNetProfit,
@@ -7320,6 +7348,22 @@ app.post('/api/admin/hotel-reservation-demands/:id/regenerate-voucher', requireA
     const demand = await applyAdminHotelVoucherUpdate(demandId, {
       status: req.body?.status || 'voucher_en_cours',
       force_generate_voucher: true,
+      client_name: req.body?.client_name,
+      client_phone: req.body?.client_phone,
+      payment_mode: req.body?.payment_mode,
+      pricing_amicale_id: req.body?.pricing_amicale_id,
+      amicale_name: req.body?.amicale_name,
+      amicale_matricule: req.body?.amicale_matricule,
+      amicale_phone: req.body?.amicale_phone,
+      amicale_code: req.body?.amicale_code,
+      hotel_name: req.body?.hotel_name,
+      boarding_name: req.body?.boarding_name,
+      room_name: req.body?.room_name,
+      check_in: req.body?.check_in,
+      check_out: req.body?.check_out,
+      total_price: req.body?.total_price,
+      amount_due_now: req.body?.amount_due_now,
+      hotel_context: req.body?.hotel_context,
       voucher_id: req.body?.voucher_id,
       voucher_number: req.body?.voucher_number,
       voucher_qr_payload: req.body?.voucher_qr_payload,

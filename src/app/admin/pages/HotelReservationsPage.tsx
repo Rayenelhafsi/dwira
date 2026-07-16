@@ -18,6 +18,7 @@ import {
   type HotelSummary,
 } from "../../services/hotels";
 import { flattenHotelRoomOffers, type HotelFlattenedRoomOffer } from "../../utils/hotelHelpers";
+import { fetchAmicalesAdmin, type AmicaleItem } from "../../utils/amicales";
 
 const statusLabels: Record<HotelReservationDemandStatus, string> = {
   attente_validation_amicale: "Attente validation amicale",
@@ -133,6 +134,18 @@ function formatTnd(value?: number | null) {
   return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(num)} TND`;
 }
 
+function formatTndTtc(value?: number | null) {
+  const base = formatTnd(value);
+  return base === "Sur demande" ? base : `${base} TTC`;
+}
+
+function paymentModeLabel(value?: string | null) {
+  const mode = String(value || "").trim();
+  if (mode === "amicale") return "Amicale";
+  if (mode === "totalite") return "Totalite";
+  return "Particulier / avance";
+}
+
 function toIsoDate(value: Date) {
   const yyyy = value.getFullYear();
   const mm = String(value.getMonth() + 1).padStart(2, "0");
@@ -163,6 +176,9 @@ type ManualHotelReservationDraft = {
   hotelId: string;
   clientName: string;
   clientPhone: string;
+  pricingAmicaleId: string;
+  amicaleMatricule: string;
+  amicalePhone: string;
   checkIn: string;
   checkOut: string;
   adults: string;
@@ -172,7 +188,7 @@ type ManualHotelReservationDraft = {
   roomId: string;
   totalPrice: string;
   currency: string;
-  paymentMode: "avance" | "totalite";
+  paymentMode: "avance" | "totalite" | "amicale";
   clientNote: string;
   adultTravellers: Array<{ firstName: string; lastName: string }>;
   childTravellers: Array<{ firstName: string; lastName: string }>;
@@ -180,6 +196,7 @@ type ManualHotelReservationDraft = {
 
 export default function HotelReservationsPage() {
   const [rows, setRows] = useState<HotelReservationDemand[]>([]);
+  const [amicales, setAmicales] = useState<AmicaleItem[]>([]);
   const [manualOpen, setManualOpen] = useState(false);
   const [creatingManual, setCreatingManual] = useState(false);
   const [cities, setCities] = useState<HotelCity[]>([]);
@@ -196,6 +213,9 @@ export default function HotelReservationsPage() {
       hotelId: "",
       clientName: "",
       clientPhone: "",
+      pricingAmicaleId: "",
+      amicaleMatricule: "",
+      amicalePhone: "",
       checkIn: toIsoDate(now),
       checkOut: toIsoDate(checkout),
       adults: "2",
@@ -220,8 +240,12 @@ export default function HotelReservationsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const nextRows = await listHotelReservationDemands();
+      const [nextRows, nextAmicales] = await Promise.all([
+        listHotelReservationDemands(),
+        fetchAmicalesAdmin(),
+      ]);
       setRows(Array.isArray(nextRows) ? nextRows : []);
+      setAmicales(Array.isArray(nextAmicales) ? nextAmicales : []);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Impossible de charger les demandes hotellerie");
     } finally {
@@ -396,12 +420,19 @@ export default function HotelReservationsPage() {
         client_note: patch.client_note,
         client_name: patch.client_name,
         client_phone: patch.client_phone,
+        payment_mode: patch.payment_mode,
+        pricing_amicale_id: patch.pricing_amicale_id,
         amicale_name: patch.amicale_name,
+        amicale_matricule: patch.amicale_matricule,
+        amicale_phone: patch.amicale_phone,
+        amicale_code: patch.amicale_code,
         hotel_name: patch.hotel_name,
         boarding_name: patch.boarding_name,
         room_name: patch.room_name,
         check_in: patch.check_in,
         check_out: patch.check_out,
+        total_price: patch.total_price,
+        amount_due_now: patch.amount_due_now,
         hotel_context: patch.hotel_context,
         voucher_id: patch.voucher_id,
         voucher_number: patch.voucher_number,
@@ -467,6 +498,22 @@ export default function HotelReservationsPage() {
     try {
       const updated = await regenerateHotelVoucher(row.id, {
         status: row.status === "voucher_envoye" ? "voucher_envoye" : "voucher_en_cours",
+        client_name: row.client_name || undefined,
+        client_phone: row.client_phone || undefined,
+        payment_mode: row.payment_mode || undefined,
+        pricing_amicale_id: row.pricing_amicale_id || undefined,
+        amicale_name: row.amicale_name || undefined,
+        amicale_matricule: row.amicale_matricule || undefined,
+        amicale_phone: row.amicale_phone || undefined,
+        amicale_code: row.amicale_code || undefined,
+        hotel_name: row.hotel_name || undefined,
+        boarding_name: row.boarding_name || undefined,
+        room_name: row.room_name || undefined,
+        check_in: row.check_in || undefined,
+        check_out: row.check_out || undefined,
+        total_price: row.total_price ?? undefined,
+        amount_due_now: row.amount_due_now ?? undefined,
+        hotel_context: row.hotel_context || undefined,
         voucher_id: row.voucher_id || undefined,
         voucher_number: row.voucher_number || undefined,
         voucher_qr_payload: row.voucher_qr_payload || undefined,
@@ -507,6 +554,39 @@ export default function HotelReservationsPage() {
         },
       };
     }));
+  };
+
+  const handleSubmitToAgentAmicale = async (row: HotelReservationDemand) => {
+    const pricingAmicaleId = String(row.pricing_amicale_id || "").trim();
+    const selectedAmicale = amicales.find((item) => item.id === pricingAmicaleId) || null;
+    if (String(row.payment_mode || "").trim() !== "amicale") {
+      toast.error("Passez d abord cette reservation hotel en mode amicale.");
+      return;
+    }
+    if (!pricingAmicaleId || !selectedAmicale) {
+      toast.error("Selectionnez l amicale avant de soumettre.");
+      return;
+    }
+    if (!String(row.amicale_matricule || "").trim()) {
+      toast.error("Matricule amicale obligatoire avant soumission.");
+      return;
+    }
+    if (!String(row.amicale_phone || "").trim()) {
+      toast.error("Telephone amicale obligatoire avant soumission.");
+      return;
+    }
+    await saveRow(
+      row,
+      {
+        ...row,
+        payment_mode: "amicale",
+        pricing_amicale_id: pricingAmicaleId,
+        amicale_name: selectedAmicale.name || row.amicale_name || null,
+        amicale_code: selectedAmicale.code || row.amicale_code || null,
+        status: "attente_validation_amicale",
+      },
+      "Reservation hotel soumise a l agent amicale."
+    );
   };
 
   const handleDeleteDemand = async (row: HotelReservationDemand) => {
@@ -576,6 +656,9 @@ export default function HotelReservationsPage() {
       hotelId: "",
       clientName: "",
       clientPhone: "",
+      pricingAmicaleId: "",
+      amicaleMatricule: "",
+      amicalePhone: "",
       checkIn: toIsoDate(now),
       checkOut: toIsoDate(checkout),
       adults: "2",
@@ -596,6 +679,7 @@ export default function HotelReservationsPage() {
 
   const handleCreateManualReservation = async () => {
     const hotel = selectedManualHotel;
+    const selectedAmicale = amicales.find((item) => item.id === manualDraft.pricingAmicaleId) || null;
     const adults = Math.max(1, Number(manualDraft.adults || 1));
     const children = Math.max(0, Number(manualDraft.children || 0));
     const childAges = manualDraft.childAges
@@ -614,6 +698,20 @@ export default function HotelReservationsPage() {
     if (!String(manualDraft.clientName || "").trim() || !String(manualDraft.clientPhone || "").trim()) {
       toast.error("Nom client et telephone obligatoires.");
       return;
+    }
+    if (manualDraft.paymentMode === "amicale") {
+      if (!selectedAmicale) {
+        toast.error("Selectionnez l amicale.");
+        return;
+      }
+      if (!String(manualDraft.amicaleMatricule || "").trim()) {
+        toast.error("Matricule amicale obligatoire.");
+        return;
+      }
+      if (!String(manualDraft.amicalePhone || "").trim()) {
+        toast.error("Telephone amicale obligatoire.");
+        return;
+      }
     }
     if (!manualDraft.checkIn || !manualDraft.checkOut || manualDraft.checkOut < manualDraft.checkIn) {
       toast.error("Dates de reservation invalides.");
@@ -657,7 +755,14 @@ export default function HotelReservationsPage() {
         clientPhone: String(manualDraft.clientPhone || "").trim(),
         clientNote: String(manualDraft.clientNote || "").trim() || null,
         paymentMode: manualDraft.paymentMode,
+        pricingAmicaleId: manualDraft.paymentMode === "amicale" ? selectedAmicale?.id || null : null,
+        amicaleName: manualDraft.paymentMode === "amicale" ? selectedAmicale?.name || null : null,
+        amicaleMatricule: manualDraft.paymentMode === "amicale" ? String(manualDraft.amicaleMatricule || "").trim() : null,
+        amicalePhone: manualDraft.paymentMode === "amicale" ? String(manualDraft.amicalePhone || "").trim() : null,
+        amicaleCode: manualDraft.paymentMode === "amicale" ? selectedAmicale?.code || null : null,
         hotelContext: {
+          amicaleId: manualDraft.paymentMode === "amicale" ? selectedAmicale?.id || null : null,
+          amicaleName: manualDraft.paymentMode === "amicale" ? selectedAmicale?.name || null : null,
           travellers: {
             adults: adultTravellers.map((traveller) => ({
               firstName: String(traveller.firstName || "").trim(),
@@ -683,7 +788,7 @@ export default function HotelReservationsPage() {
       setRows((prev) => [created, ...prev]);
       resetManualDraft();
       setManualOpen(false);
-      toast.success("Reservation hotel manuelle creee.");
+      toast.success(manualDraft.paymentMode === "amicale" ? "Reservation hotel amicale creee." : "Reservation hotel manuelle creee.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Creation manuelle impossible");
     } finally {
@@ -786,6 +891,24 @@ export default function HotelReservationsPage() {
                 placeholder="Telephone client"
                 className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
               />
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800">Type de reservation</span>
+                <select
+                  value={manualDraft.paymentMode}
+                  onChange={(event) => setManualDraft((prev) => ({
+                    ...prev,
+                    paymentMode: event.target.value as ManualHotelReservationDraft["paymentMode"],
+                    pricingAmicaleId: event.target.value === "amicale" ? prev.pricingAmicaleId : "",
+                    amicaleMatricule: event.target.value === "amicale" ? prev.amicaleMatricule : "",
+                    amicalePhone: event.target.value === "amicale" ? prev.amicalePhone : "",
+                  }))}
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="avance">Particulier / avance</option>
+                  <option value="totalite">Particulier / totalite</option>
+                  <option value="amicale">Amicale</option>
+                </select>
+              </label>
               <input
                 type="date"
                 value={manualDraft.checkIn}
@@ -798,6 +921,48 @@ export default function HotelReservationsPage() {
                 onChange={(event) => setManualDraft((prev) => ({ ...prev, checkOut: event.target.value }))}
                 className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
               />
+
+              {manualDraft.paymentMode === "amicale" ? (
+                <>
+                  <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4 xl:col-span-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Dossier amicale</p>
+                    <p className="mt-1 text-sm text-sky-900">Choisissez l amicale et saisissez les informations adherent pour que la reservation hotel soit traitee comme une reservation amicale.</p>
+                    <div className="mt-3 grid gap-3 xl:grid-cols-3">
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-800">Amicale</span>
+                        <select
+                          value={manualDraft.pricingAmicaleId}
+                          onChange={(event) => setManualDraft((prev) => ({ ...prev, pricingAmicaleId: event.target.value }))}
+                          className="w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm"
+                        >
+                          <option value="">Selectionner amicale</option>
+                          {amicales.map((item) => (
+                            <option key={item.id} value={item.id}>{item.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-800">Matricule adherent</span>
+                        <input
+                          value={manualDraft.amicaleMatricule}
+                          onChange={(event) => setManualDraft((prev) => ({ ...prev, amicaleMatricule: event.target.value }))}
+                          placeholder="Matricule amicale"
+                          className="w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-800">Telephone adherent</span>
+                        <input
+                          value={manualDraft.amicalePhone}
+                          onChange={(event) => setManualDraft((prev) => ({ ...prev, amicalePhone: event.target.value }))}
+                          placeholder="Telephone amicale"
+                          className="w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </>
+              ) : null}
 
               <input
                 type="number"
@@ -837,7 +1002,7 @@ export default function HotelReservationsPage() {
                 <option value="">{manualOffersLoading ? "Chargement chambres..." : "Selectionner type de chambre"}</option>
                 {availableRooms.map((offer, index) => (
                   <option key={`${offer.boardingId || "b"}-${offer.room?.Id || index}`} value={String(offer.room?.Id || "")}>
-                    {String(offer.room?.Name || "Chambre")} {Number(offer.room?.PriceWithAffiliateMarkup || offer.room?.Price || offer.room?.BasePrice || offer.room?.MyGoBasePrice || 0) > 0 ? `- ${formatTnd(Number(offer.room?.PriceWithAffiliateMarkup || offer.room?.Price || offer.room?.BasePrice || offer.room?.MyGoBasePrice || 0))}` : ""}
+                    {String(offer.room?.Name || "Chambre")} {Number(offer.room?.PriceWithAffiliateMarkup || offer.room?.Price || offer.room?.BasePrice || offer.room?.MyGoBasePrice || 0) > 0 ? `- ${formatTndTtc(Number(offer.room?.PriceWithAffiliateMarkup || offer.room?.Price || offer.room?.BasePrice || offer.room?.MyGoBasePrice || 0))}` : ""}
                   </option>
                 ))}
               </select>
@@ -910,7 +1075,7 @@ export default function HotelReservationsPage() {
                 step="0.01"
                 value={manualDraft.totalPrice}
                 onChange={(event) => setManualDraft((prev) => ({ ...prev, totalPrice: event.target.value }))}
-                placeholder="Total prix client"
+                placeholder="Total TTC client"
                 className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
               />
               <input
@@ -919,14 +1084,6 @@ export default function HotelReservationsPage() {
                 placeholder="Devise"
                 className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
               />
-              <select
-                value={manualDraft.paymentMode}
-                onChange={(event) => setManualDraft((prev) => ({ ...prev, paymentMode: event.target.value as ManualHotelReservationDraft["paymentMode"] }))}
-                className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm"
-              >
-                <option value="avance">Avance</option>
-                <option value="totalite">Totalite</option>
-              </select>
               <div className="rounded-xl border border-dashed border-emerald-300 bg-white px-3 py-2 text-xs text-emerald-900/80">
                 {selectedManualHotel ? (
                   <div className="flex items-center gap-3">
@@ -1033,9 +1190,9 @@ export default function HotelReservationsPage() {
                     {statusLabels[row.status]}
                   </span>
                   <div className="text-right">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Prix indicatif</p>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Total TTC</p>
                     <p className="mt-1 text-xl font-semibold text-slate-900">
-                      {resolvedTotal > 0 ? `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(resolvedTotal)} ${row.currency || "TND"}` : "Sur demande"}
+                      {formatTndTtc(resolvedTotal)}
                     </p>
                   </div>
                 </div>
@@ -1058,16 +1215,25 @@ export default function HotelReservationsPage() {
                         <p className="font-semibold text-slate-900">Chambre {idx + 1}</p>
                         <p className="mt-1">Offre: <span className="font-medium">{item.boardingName || "-"}</span></p>
                         <p>Type: <span className="font-medium">{item.roomName || "-"}</span></p>
-                        <p>Tarif chambre: <span className="font-semibold">{formatTnd(item.price)}</span></p>
+                        <p>Tarif chambre TTC: <span className="font-semibold">{formatTndTtc(item.price)}</span></p>
                       </div>
                     ))}
                   </div>
-                  <p className="mt-3 text-sm font-semibold text-slate-900">Total selectionne: {formatTnd(selectedRoomsTotal || resolvedTotal)}</p>
+                  <p className="mt-3 text-sm font-semibold text-slate-900">Total TTC selectionne: {formatTndTtc(selectedRoomsTotal || resolvedTotal)}</p>
                 </div>
               ) : null}
 
               <div className="mt-6 grid gap-4 lg:grid-cols-[0.95fr,1.05fr]">
                 <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className={`rounded-xl border p-3 text-sm ${String(row.payment_mode || "").trim() === "amicale" ? "border-sky-200 bg-sky-50 text-sky-900" : "border-slate-200 bg-white text-slate-800"}`}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em]">Type de dossier</p>
+                    <p className="mt-1 font-semibold">{paymentModeLabel(row.payment_mode)}</p>
+                    {String(row.payment_mode || "").trim() === "amicale" ? (
+                      <p className="mt-1">Amicale: {row.amicale_name || "-"}</p>
+                    ) : (
+                      <p className="mt-1">Cette reservation est actuellement traitee comme particuliere.</p>
+                    )}
+                  </div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Client</p>
                   <p className="inline-flex items-center gap-2 text-sm text-slate-700"><User size={14} /> {row.client_name || "-"}</p>
                   <p className="text-sm text-slate-700">{row.client_email || "-"}</p>
@@ -1184,6 +1350,43 @@ export default function HotelReservationsPage() {
                     <MessageSquareText size={14} />
                     Traitement admin
                   </p>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Conversion du dossier</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRows((prev) => prev.map((item) => (
+                          item.id === row.id
+                            ? { ...item, payment_mode: "amicale" }
+                            : item
+                        )))}
+                        className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-60"
+                        disabled={savingId === row.id || String(row.payment_mode || "").trim() === "amicale"}
+                      >
+                        Passer en amicale
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRows((prev) => prev.map((item) => (
+                          item.id === row.id
+                            ? {
+                                ...item,
+                                payment_mode: "avance",
+                                pricing_amicale_id: null,
+                                amicale_name: null,
+                                amicale_matricule: null,
+                                amicale_phone: null,
+                                amicale_code: null,
+                              }
+                            : item
+                        )))}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                        disabled={savingId === row.id || String(row.payment_mode || "").trim() !== "amicale"}
+                      >
+                        Passer en particulier
+                      </button>
+                    </div>
+                  </div>
                   <select
                     value={row.status}
                     onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, status: event.target.value as HotelReservationDemandStatus } : item))}
@@ -1194,13 +1397,73 @@ export default function HotelReservationsPage() {
                       <option key={status} value={status}>{statusLabels[status]}</option>
                     ))}
                   </select>
-                  <input
-                    value={row.amicale_name || ""}
-                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, amicale_name: event.target.value } : item))}
-                    placeholder="Amicale"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    disabled={savingId === row.id}
-                  />
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mode de reservation</span>
+                    <select
+                      value={row.payment_mode || "avance"}
+                      onChange={(event) => setRows((prev) => prev.map((item) => (
+                        item.id === row.id
+                          ? {
+                              ...item,
+                              payment_mode: event.target.value as HotelReservationDemand["payment_mode"],
+                              pricing_amicale_id: event.target.value === "amicale" ? item.pricing_amicale_id : null,
+                              amicale_name: event.target.value === "amicale" ? item.amicale_name : null,
+                              amicale_matricule: event.target.value === "amicale" ? item.amicale_matricule : null,
+                              amicale_phone: event.target.value === "amicale" ? item.amicale_phone : null,
+                              amicale_code: event.target.value === "amicale" ? item.amicale_code : null,
+                            }
+                          : item
+                      )))}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      disabled={savingId === row.id}
+                    >
+                      <option value="avance">Particulier / avance</option>
+                      <option value="totalite">Particulier / totalite</option>
+                      <option value="amicale">Amicale</option>
+                    </select>
+                  </label>
+                  {String(row.payment_mode || "").trim() === "amicale" ? (
+                    <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Dossier amicale</p>
+                      <div className="mt-3 grid gap-3">
+                        <select
+                          value={row.pricing_amicale_id || ""}
+                          onChange={(event) => setRows((prev) => prev.map((item) => {
+                            if (item.id !== row.id) return item;
+                            const selectedAmicale = amicales.find((entry) => entry.id === event.target.value) || null;
+                            return {
+                              ...item,
+                              payment_mode: event.target.value ? "amicale" : item.payment_mode,
+                              pricing_amicale_id: event.target.value || null,
+                              amicale_name: selectedAmicale?.name || null,
+                              amicale_code: selectedAmicale?.code || null,
+                            };
+                          }))}
+                          className="w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm"
+                          disabled={savingId === row.id}
+                        >
+                          <option value="">Selectionner amicale</option>
+                          {amicales.map((item) => (
+                            <option key={item.id} value={item.id}>{item.name}</option>
+                          ))}
+                        </select>
+                        <input
+                          value={row.amicale_matricule || ""}
+                          onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, amicale_matricule: event.target.value } : item))}
+                          placeholder="Matricule amicale"
+                          className="w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm"
+                          disabled={savingId === row.id}
+                        />
+                        <input
+                          value={row.amicale_phone || ""}
+                          onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, amicale_phone: event.target.value } : item))}
+                          placeholder="Telephone amicale"
+                          className="w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm"
+                          disabled={savingId === row.id}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                   <input
                     value={row.client_name || ""}
                     onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, client_name: event.target.value } : item))}
@@ -1226,6 +1489,20 @@ export default function HotelReservationsPage() {
                     value={row.room_name || ""}
                     onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, room_name: event.target.value } : item))}
                     placeholder="Type de chambre"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    disabled={savingId === row.id}
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={row.total_price ?? ""}
+                    onChange={(event) => setRows((prev) => prev.map((item) => item.id === row.id ? {
+                      ...item,
+                      total_price: event.target.value === "" ? null : Number(event.target.value),
+                      amount_due_now: event.target.value === "" ? null : Number(event.target.value),
+                    } : item))}
+                    placeholder="Total TTC"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
                     disabled={savingId === row.id}
                   />
@@ -1391,6 +1668,19 @@ export default function HotelReservationsPage() {
                     >
                       {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <Save size={16} />}
                       Enregistrer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSubmitToAgentAmicale(row)}
+                      disabled={
+                        savingId === row.id
+                        || String(row.payment_mode || "").trim() !== "amicale"
+                        || String(row.status || "").trim() === "attente_validation_amicale"
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {savingId === row.id ? <LoaderCircle size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                      {String(row.status || "").trim() === "attente_validation_amicale" ? "Deja soumise amicale" : "Soumettre a l agent amicale"}
                     </button>
                     <button
                       type="button"
