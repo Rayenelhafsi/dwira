@@ -1099,6 +1099,11 @@ export default function SubAdminOperationsPanel({
     void loadData();
   }, [loadData]);
 
+  const selectedAssignmentContractIds = useMemo(
+    () => Array.from(new Set((assignmentDraft.contractIds || []).map((value) => String(value || "").trim()).filter(Boolean))),
+    [assignmentDraft.contractIds]
+  );
+
   useEffect(() => {
     const contractId = String(assignmentDraft.contractId || "").trim();
     if (!contractId || selectedAssignmentContractIds.length !== 1) {
@@ -1192,10 +1197,6 @@ export default function SubAdminOperationsPanel({
   const selectedAssignmentContract = useMemo(
     () => contracts.find((entry) => entry.id === assignmentDraft.contractId) || null,
     [assignmentDraft.contractId, contracts]
-  );
-  const selectedAssignmentContractIds = useMemo(
-    () => Array.from(new Set((assignmentDraft.contractIds || []).map((value) => String(value || "").trim()).filter(Boolean))),
-    [assignmentDraft.contractIds]
   );
   const selectedTaskBien = useMemo(
     () => biens.find((entry) => entry.id === taskDraft.bienId) || null,
