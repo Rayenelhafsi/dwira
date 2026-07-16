@@ -33175,6 +33175,28 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     let assignmentSourceKind = hotelReservationDemandId ? 'hotel' : (reservationDemandId ? 'property' : null);
     let resolvedReservationDemandId = reservationDemandId || null;
     let resolvedHotelReservationDemandId = hotelReservationDemandId || null;
+    if (!contractId && reservationDemandId && hasAssignmentReservationDemandId) {
+      const [existingAssignmentRows] = await pool.query(
+        `SELECT id, contract_id
+         FROM subadmin_contract_assignments
+         WHERE reservation_demand_id = ?
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [reservationDemandId]
+      );
+      contractId = String(existingAssignmentRows?.[0]?.contract_id || '').trim();
+    }
+    if (!contractId && hotelReservationDemandId && hasAssignmentHotelReservationDemandId) {
+      const [existingAssignmentRows] = await pool.query(
+        `SELECT id, contract_id
+         FROM subadmin_contract_assignments
+         WHERE hotel_reservation_demand_id = ?
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [hotelReservationDemandId]
+      );
+      contractId = String(existingAssignmentRows?.[0]?.contract_id || '').trim();
+    }
     if (!contractId && reservationDemandId) {
       await ensureReservationDemandSchema();
       const [demandRows] = await pool.query('SELECT * FROM reservation_demands WHERE id = ? LIMIT 1', [reservationDemandId]);

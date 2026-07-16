@@ -313,6 +313,7 @@ type TechnicianPreset = {
 const initialAssignmentDraft = {
   subadminId: "",
   contractId: "",
+  contractIds: [] as string[],
   urgent: false,
   note: "",
 };
@@ -635,7 +636,10 @@ function SelectionDialog({
   onSearchChange,
   options,
   selectedId,
+  selectedIds,
+  selectionMode = "single",
   onSelect,
+  onConfirmSelection,
   emptyLabel,
 }: {
   open: boolean;
@@ -646,7 +650,10 @@ function SelectionDialog({
   onSearchChange: (value: string) => void;
   options: PickerOption[];
   selectedId: string;
+  selectedIds?: string[];
+  selectionMode?: "single" | "multiple";
   onSelect: (id: string) => void;
+  onConfirmSelection?: (ids: string[]) => void;
   emptyLabel: string;
 }) {
   const toneClasses = {
@@ -655,6 +662,11 @@ function SelectionDialog({
     amber: "border-amber-200 bg-amber-50 text-amber-700",
     slate: "border-slate-200 bg-slate-50 text-slate-600",
   } as const;
+  const isMultiple = selectionMode === "multiple";
+  const normalizedSelectedIds = useMemo(
+    () => Array.from(new Set((selectedIds || []).map((value) => String(value || "").trim()).filter(Boolean))),
+    [selectedIds]
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -665,6 +677,11 @@ function SelectionDialog({
               <DialogTitle className="text-xl font-bold text-slate-900 sm:text-2xl">{title}</DialogTitle>
               <DialogDescription className="text-sm leading-6 text-slate-600">{description}</DialogDescription>
             </DialogHeader>
+            {isMultiple ? (
+              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                {normalizedSelectedIds.length} selection{normalizedSelectedIds.length > 1 ? "s" : ""}
+              </p>
+            ) : null}
             <div className="relative mt-4">
               <Search size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -685,7 +702,9 @@ function SelectionDialog({
               <div className="space-y-2">
                 {options.map((option) => {
                   const effectiveValue = option.selectValue || option.id;
-                  const isSelected = effectiveValue === selectedId;
+                  const isSelected = isMultiple
+                    ? normalizedSelectedIds.includes(effectiveValue)
+                    : effectiveValue === selectedId;
                   const isAmicale = option.highlight === "amicale";
                   const selectedClasses = isSelected
                     ? isAmicale
@@ -760,6 +779,29 @@ function SelectionDialog({
               </div>
             )}
           </div>
+          {isMultiple ? (
+            <div className="border-t border-emerald-100 bg-white px-4 py-4 sm:px-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => onOpenChange(false)}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
+                >
+                  Fermer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onConfirmSelection?.(normalizedSelectedIds);
+                    onOpenChange(false);
+                  }}
+                  className="rounded-2xl border border-emerald-200 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white"
+                >
+                  Valider la selection
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>
@@ -952,6 +994,11 @@ export default function SubAdminOperationsPanel({
     }
   }, []);
 
+  const openContractPicker = useCallback(() => {
+    void loadReferenceData();
+    setPickerOpen("contract");
+  }, [loadReferenceData]);
+
   const loadAssignments = useCallback(async () => {
     const response = await fetch(buildApiUrl(`/subadmin/contracts${suffix}`), {
       credentials: "include",
@@ -1010,6 +1057,11 @@ export default function SubAdminOperationsPanel({
             .map((assignment) => String(assignment.contract_id || "").trim())
             .filter(Boolean)
         );
+        const assignedHotelDemandIds = new Set(
+          (assignmentsResult.status === "fulfilled" ? assignmentsResult.value : [])
+            .map((assignment) => String((assignment as { hotel_reservation_demand_id?: string | null }).hotel_reservation_demand_id || "").trim())
+            .filter(Boolean)
+        );
         const merged = [
           ...propertyRows
             .filter((row) => row
@@ -1017,7 +1069,14 @@ export default function SubAdminOperationsPanel({
               && !isRejectedAmicaleDemandStatus(row.status)
               && !assignedContractIds.has(String(row.contract_id || "").trim()))
             .map(mapPropertyDemandToAmicaleAssignmentRow),
-          ...hotelRows.filter((row) => row && isAmicaleDemandRow(row) && !isRejectedAmicaleDemandStatus(row.status)).map(mapHotelDemandToAmicaleAssignmentRow),
+          ...hotelRows
+            .filter((row) =>
+              row
+              && isAmicaleDemandRow(row)
+              && !isRejectedAmicaleDemandStatus(row.status)
+              && !assignedHotelDemandIds.has(String(row.id || "").trim())
+            )
+            .map(mapHotelDemandToAmicaleAssignmentRow),
         ].sort((left, right) => compareNearestArrivalDates(left.start_date, right.start_date, left.created_at, right.created_at));
         setAmicaleDemands(merged);
       } else {
@@ -1042,7 +1101,7 @@ export default function SubAdminOperationsPanel({
 
   useEffect(() => {
     const contractId = String(assignmentDraft.contractId || "").trim();
-    if (!contractId) {
+    if (!contractId || selectedAssignmentContractIds.length !== 1) {
       setAssignmentContractDetails(null);
       setAssignmentContractLoading(false);
       setAssignmentVariablesOpen(false);
@@ -1089,7 +1148,7 @@ export default function SubAdminOperationsPanel({
     return () => {
       cancelled = true;
     };
-  }, [assignmentDraft.contractId]);
+  }, [assignmentDraft.contractId, selectedAssignmentContractIds.length]);
 
   const openTasks = useMemo(() => tasks.filter((task) => task.status === "open"), [tasks]);
   const historyTasks = useMemo(() => tasks.filter((task) => task.status === "done"), [tasks]);
@@ -1133,6 +1192,10 @@ export default function SubAdminOperationsPanel({
   const selectedAssignmentContract = useMemo(
     () => contracts.find((entry) => entry.id === assignmentDraft.contractId) || null,
     [assignmentDraft.contractId, contracts]
+  );
+  const selectedAssignmentContractIds = useMemo(
+    () => Array.from(new Set((assignmentDraft.contractIds || []).map((value) => String(value || "").trim()).filter(Boolean))),
+    [assignmentDraft.contractIds]
   );
   const selectedTaskBien = useMemo(
     () => biens.find((entry) => entry.id === taskDraft.bienId) || null,
@@ -1583,39 +1646,53 @@ export default function SubAdminOperationsPanel({
   );
 
   const saveAssignment = async () => {
-    if (!assignmentDraft.subadminId || !assignmentDraft.contractId) {
-      toast.error("Sous-admin et contrat obligatoires");
+    if (!assignmentDraft.subadminId || selectedAssignmentContractIds.length === 0) {
+      toast.error("Sous-admin et au moins un contrat obligatoires");
       return;
     }
-    const rawSelection = String(assignmentDraft.contractId || "").trim();
-    const reservationDemandId = rawSelection.startsWith(RESERVATION_DEMAND_PICKER_PREFIX)
-      ? rawSelection.slice(RESERVATION_DEMAND_PICKER_PREFIX.length).trim()
-      : "";
-    const hotelReservationDemandId = rawSelection.startsWith(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX)
-      ? rawSelection.slice(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX.length).trim()
-      : "";
-    const selectedOption = selectedAssignmentContractPickerOption;
-    const contractId = reservationDemandId || hotelReservationDemandId ? "" : rawSelection;
     setSaving(true);
     try {
-      const response = await fetch(buildApiUrl("/subadmin/contracts"), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subadmin_id: assignmentDraft.subadminId,
-          contract_id: contractId || null,
-          reservation_demand_id: reservationDemandId || String(selectedOption?.reservationDemandId || "").trim() || null,
-          hotel_reservation_demand_id: hotelReservationDemandId || String(selectedOption?.hotelReservationDemandId || "").trim() || null,
-          urgent: assignmentDraft.urgent,
-          note: assignmentDraft.note,
-        }),
-      });
-      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Affectation impossible"));
-      const payload = (await response.json().catch(() => null)) as { push?: PushDispatchResult } | null;
-      toast.success("Contrat affecte.");
-      showPushDeliveryWarning(payload?.push, "Affectation");
-      setAssignmentDraft((prev) => ({ ...prev, contractId: "", note: "", urgent: false }));
+      const selectedOptions = selectedAssignmentContractIds
+        .map((selectedId) => contractPickerOptions.find((entry) => String(entry.selectValue || entry.id || "").trim() === selectedId) || null)
+        .filter(Boolean) as PickerOption[];
+      let warningShown = false;
+
+      for (const selectedOption of selectedOptions) {
+        const rawSelection = String(selectedOption.selectValue || selectedOption.id || "").trim();
+        const reservationDemandId = rawSelection.startsWith(RESERVATION_DEMAND_PICKER_PREFIX)
+          ? rawSelection.slice(RESERVATION_DEMAND_PICKER_PREFIX.length).trim()
+          : "";
+        const hotelReservationDemandId = rawSelection.startsWith(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX)
+          ? rawSelection.slice(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX.length).trim()
+          : "";
+        const contractId = reservationDemandId || hotelReservationDemandId ? "" : rawSelection;
+        const response = await fetch(buildApiUrl("/subadmin/contracts"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subadmin_id: assignmentDraft.subadminId,
+            contract_id: contractId || null,
+            reservation_demand_id: reservationDemandId || String(selectedOption.reservationDemandId || "").trim() || null,
+            hotel_reservation_demand_id: hotelReservationDemandId || String(selectedOption.hotelReservationDemandId || "").trim() || null,
+            urgent: assignmentDraft.urgent,
+            note: assignmentDraft.note,
+          }),
+        });
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, "Affectation impossible"));
+        const payload = (await response.json().catch(() => null)) as { push?: PushDispatchResult } | null;
+        if (!warningShown) {
+          showPushDeliveryWarning(payload?.push, "Affectation");
+          warningShown = true;
+        }
+      }
+
+      toast.success(
+        selectedAssignmentContractIds.length > 1
+          ? `${selectedAssignmentContractIds.length} affectations enregistrees.`
+          : "Contrat affecte."
+      );
+      setAssignmentDraft((prev) => ({ ...prev, contractId: "", contractIds: [], note: "", urgent: false }));
       setAssignmentContractDetails(null);
       setAssignmentVariablesOpen(false);
       await loadAssignments();
@@ -1943,7 +2020,10 @@ export default function SubAdminOperationsPanel({
 
             <button
               type="button"
-              onClick={() => void loadData()}
+              onClick={() => {
+                void loadReferenceData();
+                void loadData();
+              }}
               className="inline-flex h-12 items-center justify-center gap-2 rounded-[22px] border border-slate-200 bg-white/92 px-5 text-sm font-semibold text-slate-700 shadow-[0_14px_35px_rgba(15,23,42,0.06)] transition hover:border-emerald-200 hover:text-emerald-700 sm:h-[74px] sm:rounded-[28px]"
             >
               <RefreshCw size={16} />
@@ -2016,39 +2096,49 @@ export default function SubAdminOperationsPanel({
                 <SelectionButton
                   label="Contrat"
                   value={
-                    selectedAssignmentContract
-                      ? buildContractLabel(selectedAssignmentContract)
-                      : selectedAssignmentContractPickerOption?.title || ""
+                    selectedAssignmentContractIds.length > 1
+                      ? `${selectedAssignmentContractIds.length} contrats selectionnes`
+                      : selectedAssignmentContract
+                        ? buildContractLabel(selectedAssignmentContract)
+                        : selectedAssignmentContractPickerOption?.title || ""
                   }
                   placeholder="Choisir le contrat dans un popup"
-                  onOpen={() => setPickerOpen("contract")}
+                  onOpen={openContractPicker}
                   onClear={() => {
-                    setAssignmentDraft((prev) => ({ ...prev, contractId: "" }));
+                    setAssignmentDraft((prev) => ({ ...prev, contractId: "", contractIds: [] }));
                     setAssignmentContractDetails(null);
                     setAssignmentVariablesOpen(false);
                   }}
                 />
 
-                {assignmentDraft.contractId ? (
+                {selectedAssignmentContractIds.length > 0 ? (
                   <div className="rounded-[24px] border border-emerald-200 bg-white/90 p-3.5 shadow-[0_14px_32px_rgba(16,185,129,0.08)] sm:p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Variables auto-remplies</p>
                         <p className="mt-1 text-sm leading-6 text-slate-600">
-                          Les donnees du contrat selectionne sont injectees automatiquement pour l&apos;affectation mobile.
+                          {selectedAssignmentContractIds.length > 1
+                            ? "Le lot sera affecte au sous-admin avec la meme note terrain. Les variables detaillees restent visibles seulement pour une selection unique."
+                            : "Les donnees du contrat selectionne sont injectees automatiquement pour l'affectation mobile."}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        {assignmentContractLoading ? (
+                        {selectedAssignmentContractIds.length === 1 && assignmentContractLoading ? (
                           <span className="text-sm font-medium text-emerald-700">Chargement...</span>
                         ) : null}
-                        <button
-                          type="button"
-                          onClick={() => setAssignmentVariablesOpen((prev) => !prev)}
-                          className="inline-flex h-11 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100"
-                        >
-                          {assignmentVariablesOpen ? "Masquer les variables" : "Voir les variables"}
-                        </button>
+                        {selectedAssignmentContractIds.length === 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => setAssignmentVariablesOpen((prev) => !prev)}
+                            className="inline-flex h-11 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100"
+                          >
+                            {assignmentVariablesOpen ? "Masquer les variables" : "Voir les variables"}
+                          </button>
+                        ) : (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                            {selectedAssignmentContractIds.length} elements seront affectes
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -2149,7 +2239,7 @@ export default function SubAdminOperationsPanel({
 
                     {assignmentVariablesOpen && !assignmentContractLoading && !assignmentContractDetails ? (
                       <div className="mt-4 rounded-[20px] border border-dashed border-emerald-200 bg-emerald-50/40 px-4 py-4 text-sm text-emerald-800">
-                        Aucune variable exploitable n&apos;a ete renvoyee pour ce contrat. Si le backend vient d&apos;etre modifie, redemarrez le serveur Node.
+                        Aucune variable exploitable n'a ete renvoyee pour ce contrat. Si le backend vient d'etre modifie, redemarrez le serveur Node.
                       </div>
                     ) : null}
                   </div>
@@ -2182,7 +2272,7 @@ export default function SubAdminOperationsPanel({
                   disabled={saving}
                   className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-bold text-white shadow-[0_16px_30px_rgba(16,185,129,0.28)] transition hover:bg-emerald-700 disabled:opacity-60 sm:w-auto"
                 >
-                  Affecter le contrat
+                  {selectedAssignmentContractIds.length > 1 ? "Affecter la selection" : "Affecter le contrat"}
                 </button>
               </div>
             </PanelSurface>
@@ -3156,7 +3246,11 @@ export default function SubAdminOperationsPanel({
       <SelectionDialog
         open={pickerOpen === "contract"}
         onOpenChange={(open) => {
-          if (!open) setPickerOpen(null);
+          if (!open) {
+            setPickerOpen(null);
+            return;
+          }
+          void loadReferenceData();
         }}
         title="Choisir le contrat"
         description="Contrats et demandes adherants visibles dans une seule liste, tries par arrivee la plus proche."
@@ -3174,13 +3268,34 @@ export default function SubAdminOperationsPanel({
             : contractPickerOptions
         }
         selectedId={activeTab === "tasks" ? taskDraft.contractId : assignmentDraft.contractId}
+        selectedIds={activeTab === "assignments" ? selectedAssignmentContractIds : undefined}
+        selectionMode={activeTab === "assignments" ? "multiple" : "single"}
         onSelect={(id) => {
           if (activeTab === "tasks") {
             setTaskDraft((prev) => ({ ...prev, contractId: id }));
+            setPickerOpen(null);
           } else {
-            setAssignmentDraft((prev) => ({ ...prev, contractId: id }));
+            setAssignmentDraft((prev) => {
+              const normalizedId = String(id || "").trim();
+              const existing = Array.from(new Set((prev.contractIds || []).map((value) => String(value || "").trim()).filter(Boolean)));
+              const nextIds = existing.includes(normalizedId)
+                ? existing.filter((value) => value !== normalizedId)
+                : [...existing, normalizedId];
+              return {
+                ...prev,
+                contractIds: nextIds,
+                contractId: nextIds[0] || "",
+              };
+            });
           }
-          setPickerOpen(null);
+        }}
+        onConfirmSelection={(ids) => {
+          if (activeTab !== "assignments") return;
+          setAssignmentDraft((prev) => ({
+            ...prev,
+            contractIds: ids,
+            contractId: ids[0] || "",
+          }));
         }}
         emptyLabel="Aucun contrat correspondant."
       />
