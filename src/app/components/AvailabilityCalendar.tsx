@@ -240,8 +240,10 @@ export default function AvailabilityCalendar({
     const dayKey = toDayKey(date);
     const allowedStart = isAllowedRangeStart(dayKey);
     const allowedEnd = isAllowedRangeEnd(dayKey);
-    const availableClass = flashLocked
-      ? "border-amber-200 bg-[linear-gradient(135deg,#fff7ed_0%,#fff1f2_100%)]"
+    const flashAvailableClass = "bg-[linear-gradient(135deg,#fff7ed_0%,#fff1f2_100%)]";
+    const hasFlashAvailableStyle = flashLocked || isHighlightedRangeDay(dayKey);
+    const availableClass = hasFlashAvailableStyle
+      ? flashAvailableClass
       : "bg-green-100";
     const blockedHalfClass = flashLocked ? "bg-white" : "bg-slate-100";
     const isStart = !!selectedStart && isSameDay(date, selectedStart);
