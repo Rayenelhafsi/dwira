@@ -78,18 +78,21 @@ export default function AvailabilityCalendar({
   const isAllowedRangeEnd = (key: string) => normalizedAllowedRanges.some((range) => key === range.end);
   const isHighlightedRangeDay = (key: string) => normalizedHighlightedRanges.some((range) => key >= range.start && key <= range.end);
 
-  const getBlockingStatusForDay = (day: Date): "blocked" | "booked" | null => {
+  const getRangeStatusForDay = (day: Date): "blocked" | "pending" | "booked" | null => {
     const key = toDayKey(day);
     const blocking = unavailableDates.find((range) => {
       const status = String(range.status || "").toLowerCase();
-      if (status !== "blocked" && status !== "booked") return false;
+      if (status !== "blocked" && status !== "booked" && status !== "pending") return false;
       const startKey = normalizeKey(range.start);
       const endKey = normalizeKey(range.end);
       if (!startKey || !endKey) return false;
       return startKey <= key && key <= endKey;
     });
     if (!blocking) return null;
-    return String(blocking.status).toLowerCase() === "booked" ? "booked" : "blocked";
+    const status = String(blocking.status || "").toLowerCase();
+    if (status === "booked") return "booked";
+    if (status === "pending") return "pending";
+    return "blocked";
   };
 
   const getDateStatus = (date: Date): "available" | "blocked" | "pending" | "booked" | "past" => {
@@ -109,14 +112,14 @@ export default function AvailabilityCalendar({
   const isDateUnavailable = (date: Date) => {
     if (isOutsideAllowedRange(date)) return true;
     if (isBefore(date, today)) return true;
-    const blockingStatus = getBlockingStatusForDay(date);
+    const blockingStatus = getRangeStatusForDay(date);
     return blockingStatus === "blocked" || blockingStatus === "booked";
   };
 
   const canUseAsCheckoutBoundary = (date: Date) =>
     unavailableDates.some((range) => {
       const status = String(range.status || "").toLowerCase();
-      if (status !== "blocked" && status !== "booked") return false;
+      if (status !== "blocked" && status !== "booked" && status !== "pending") return false;
       const start = parseISO(range.start);
       return isSameDay(start, date);
     });
@@ -124,14 +127,14 @@ export default function AvailabilityCalendar({
   const canUseAsCheckinBoundary = (date: Date) => {
     const matchesBoundaryEnd = unavailableDates.some((range) => {
       const status = String(range.status || "").toLowerCase();
-      if (status !== "blocked" && status !== "booked") return false;
+      if (status !== "blocked" && status !== "booked" && status !== "pending") return false;
       const endKey = normalizeKey(range.end);
       return endKey === toDayKey(date);
     });
     if (matchesBoundaryEnd) return true;
 
     const nextDay = addDays(date, 1);
-    return getBlockingStatusForDay(nextDay) === null;
+    return getRangeStatusForDay(nextDay) === null;
   };
 
   const isDateInSelectedRange = (date: Date) => {
@@ -258,11 +261,16 @@ export default function AvailabilityCalendar({
       }
     }
 
-    const blocking = getBlockingStatusForDay(date);
-    const blockedClass = blocking === "booked" ? "bg-red-500" : blockedDayClass;
+    const rangeStatus = getRangeStatusForDay(date);
+    const blockedClass =
+      rangeStatus === "booked"
+        ? "bg-red-500"
+        : rangeStatus === "pending"
+          ? "bg-orange-200"
+          : blockedDayClass;
 
     if (isEnd) {
-      if (blocking && canUseAsCheckoutBoundary(date)) {
+      if (rangeStatus && canUseAsCheckoutBoundary(date)) {
         return { enabled: true, leftClass: selectedClass, rightClass: blockedClass };
       }
       if (isAllowedRangeEnd(dayKey)) {
@@ -272,7 +280,7 @@ export default function AvailabilityCalendar({
     }
 
     if (isStart) {
-      if (blocking && canUseAsCheckinBoundary(date)) {
+      if (rangeStatus && canUseAsCheckinBoundary(date)) {
         return { enabled: true, leftClass: blockedClass, rightClass: selectedClass };
       }
       if (isAllowedRangeStart(dayKey)) {
@@ -281,9 +289,9 @@ export default function AvailabilityCalendar({
       return { enabled: true, leftClass: availableClass, rightClass: selectedClass };
     }
 
-    const canCheckoutOnThisDay = !!blocking && canUseAsCheckoutBoundary(date);
-    const canCheckinOnThisDay = !!blocking && canUseAsCheckinBoundary(date);
-    const isTransition = !!blocking && (canCheckoutOnThisDay || canCheckinOnThisDay);
+    const canCheckoutOnThisDay = !!rangeStatus && canUseAsCheckoutBoundary(date);
+    const canCheckinOnThisDay = !!rangeStatus && canUseAsCheckinBoundary(date);
+    const isTransition = !!rangeStatus && (canCheckoutOnThisDay || canCheckinOnThisDay);
     if (!isTransition) {
       return { enabled: false, leftClass: "", rightClass: "" };
     }
