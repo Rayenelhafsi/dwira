@@ -91,6 +91,11 @@ function isOwnerExcludedFromCalendarAppFlow(status?: OwnerCalendarPromptStatus |
   return isOwnerWithoutAppStatus(status) || isOwnerPhoneOnlyStatus(status);
 }
 
+function canMarkCalendarOwnerUpdatedManually(status?: OwnerCalendarPromptStatus | null) {
+  const value = String(status?.status || '').trim();
+  return value === 'pending' || value === 'update_requested';
+}
+
 function isPendingCalendarRequestStatus(status?: string | null) {
   const normalized = String(status || '').trim().toLowerCase();
   return normalized === 'pending' || normalized === 'cancel_pending';
@@ -1832,6 +1837,7 @@ export default function NotificationsPage() {
   const selectedCalendarStatusMeta = getOwnerCalendarStatusMeta(selectedCalendarStatus, calendarNowMs);
   const selectedCalendarOwnerWithoutApp = isOwnerWithoutAppStatus(selectedCalendarStatus);
   const selectedCalendarOwnerPhoneOnly = isOwnerPhoneOnlyStatus(selectedCalendarStatus);
+  const selectedCalendarOwnerCanBeMarkedUpdatedManually = canMarkCalendarOwnerUpdatedManually(selectedCalendarStatus);
   const selectedCalendarPendingRequest = selectedCalendarOwner ? pendingCalendarRequestByOwner.get(selectedCalendarOwner.id) || null : null;
   const isCalendarReviewActionable = useMemo(() => {
     if (calendarReviewLoading) return false;
@@ -2368,6 +2374,27 @@ export default function NotificationsPage() {
       await fetchData({ background: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Impossible de remettre ce proprietaire dans la liste avec application");
+    } finally {
+      setCalendarOwnerStatusLoadingId(null);
+    }
+  };
+
+  const markCalendarOwnerUpdatedManually = async (owner: { id: string; name: string }) => {
+    const ownerId = String(owner.id || '').trim();
+    if (!ownerId) return;
+    setCalendarOwnerStatusLoadingId(ownerId);
+    try {
+      const response = await fetch(`${API_URL}/mobile/admin/owner-calendar-prompt-statuses/${encodeURIComponent(ownerId)}/manual-update`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Impossible de marquer ce proprietaire comme mis a jour manuellement'));
+      }
+      toast.success(`${owner.name} passe a jour apres mise a jour manuelle`);
+      await fetchData({ background: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de marquer ce proprietaire comme mis a jour manuellement');
     } finally {
       setCalendarOwnerStatusLoadingId(null);
     }
@@ -4456,6 +4483,16 @@ export default function NotificationsPage() {
                             >
                               {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Discussion tel'}
                             </button>
+                            {selectedCalendarOwnerCanBeMarkedUpdatedManually ? (
+                              <button
+                                type="button"
+                                onClick={() => void markCalendarOwnerUpdatedManually(selectedCalendarOwner)}
+                                disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                                className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-60"
+                              >
+                                {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Mis a jour manuellement'}
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => void dispatchCalendarPromptToOwner(selectedCalendarOwner)}
@@ -4544,6 +4581,16 @@ export default function NotificationsPage() {
                                     >
                                       {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Discussion tel'}
                                     </button>
+                                    {selectedCalendarOwnerCanBeMarkedUpdatedManually ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void markCalendarOwnerUpdatedManually(selectedCalendarOwner)}
+                                        disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
+                                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                      >
+                                        {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Mis a jour manuellement'}
+                                      </button>
+                                    ) : null}
                                   </>
                                 )}
                               </div>

@@ -21343,6 +21343,105 @@ app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/verify', req
   }
 });
 
+app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/manual-update', requireAdminSession, async (req, res) => {
+  try {
+    const ownerId = String(req.params.ownerId || '').trim();
+    if (!ownerId) {
+      return res.status(400).json({ error: 'ownerId requis' });
+    }
+    await ensureOwnerCalendarPromptSchema();
+    const ownerIdentity = await fetchOwnerIdentity(ownerId);
+    if (!ownerIdentity.ownerId) {
+      return res.status(404).json({ error: 'Proprietaire introuvable' });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT id, owner_id, prompt_date, status, notification_id, response_metadata_json, responded_at
+       FROM owner_calendar_prompts
+       WHERE owner_id = ?
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT 1`,
+      [ownerId]
+    );
+    const prompt = rows?.[0] || null;
+    if (!prompt) {
+      return res.status(404).json({ error: 'Aucun suivi calendrier trouve pour ce proprietaire' });
+    }
+
+    const currentStatus = String(prompt.status || '').trim();
+    if (currentStatus === 'confirmed_up_to_date') {
+      return res.json({
+        ok: true,
+        ownerId,
+        ownerName: ownerIdentity.ownerName,
+        status: currentStatus,
+        alreadyHandled: true,
+        respondedAt: prompt.responded_at || null,
+      });
+    }
+
+    let previousMetadata = null;
+    try {
+      previousMetadata = prompt.response_metadata_json ? JSON.parse(String(prompt.response_metadata_json)) : null;
+    } catch {
+      previousMetadata = null;
+    }
+
+    const now = getAgencySqlDateTime();
+    const responseMetadata = {
+      ...(previousMetadata && typeof previousMetadata === 'object' ? previousMetadata : {}),
+      response: 'manual_admin_update',
+      respondedAt: now,
+      manuallyUpdatedAt: now,
+      manuallyUpdatedBy: req.authUser?.id || 'admin',
+      previousStatus: currentStatus || null,
+      promptDate: prompt.prompt_date || null,
+    };
+
+    await pool.query(
+      `UPDATE owner_calendar_prompts
+       SET status = ?, responded_at = ?, response_metadata_json = ?, overdue_notification_id = NULL, overdue_notified_at = NULL, updated_at = ?
+       WHERE id = ?`,
+      ['confirmed_up_to_date', now, JSON.stringify(responseMetadata), now, prompt.id]
+    );
+
+    await pool.query('DELETE FROM owner_calendar_status_flags WHERE owner_id = ?', [ownerId]);
+
+    if (prompt.notification_id) {
+      await pool.query(
+        'UPDATE owner_mobile_notifications SET lu = 1 WHERE id = ? AND owner_id = ?',
+        [prompt.notification_id, ownerId]
+      ).catch(() => {});
+    }
+
+    await createAdminNotification(
+      'success',
+      `Calendrier du proprietaire ${ownerIdentity.ownerName} a ete mis a jour manuellement par admin le ${now}.`
+    );
+    await appendOwnerSystemChatMessage({
+      ownerId,
+      text: `Calendrier du proprietaire ${ownerIdentity.ownerName} a ete mis a jour manuellement par admin le ${now}.`,
+      metadata: {
+        kind: 'calendar_prompt_manual_admin_update',
+        promptId: prompt.id,
+        promptDate: prompt.prompt_date || null,
+      },
+    });
+
+    res.json({
+      ok: true,
+      ownerId,
+      ownerName: ownerIdentity.ownerName,
+      status: 'confirmed_up_to_date',
+      respondedAt: now,
+      promptId: prompt.id,
+    });
+  } catch (error) {
+    console.error('Error marking owner calendar prompt as manually updated:', error);
+    res.status(500).json({ error: 'Failed to mark owner calendar prompt as manually updated' });
+  }
+});
+
 app.delete('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/no-app', requireAdminSession, async (req, res) => {
   try {
     const ownerId = String(req.params.ownerId || '').trim();
