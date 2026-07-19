@@ -12110,6 +12110,53 @@ async function ensureAssignmentContractForHotelReservationDemand(current, actorI
   return { contractId };
 }
 
+async function ensureAssignmentContractForAdminAmicaleGrossEntry(current, actorId = 'admin') {
+  if (!current) return { contractId: null };
+  const grossEntryId = String(current.id || '').trim();
+  if (!grossEntryId) return { contractId: null };
+  if (!String(current.submitted_at || '').trim()) {
+    throw new Error('Seules les amicales en gros soumises peuvent etre affectees');
+  }
+  const bienId = String(current.bien_id || '').trim();
+  if (!bienId) {
+    throw new Error('Cette amicale en gros hors catalogue ne peut pas etre affectee sans bien du site');
+  }
+
+  const clientEmail = `${grossEntryId}@dwira.local`;
+  const clientName = String(current.amicale_name || 'Amicale en gros').trim() || 'Amicale en gros';
+  const locataireId = await upsertLocataireFromReservationProfile({
+    userId: null,
+    name: `${clientName} - amicale en gros`,
+    email: clientEmail,
+    telephone: '',
+    cin: '',
+  });
+
+  const now = getAgencySqlDateTime();
+  const contractId = `c${Date.now()}`;
+
+  await pool.query(
+    `INSERT INTO contrats (id, bien_id, locataire_id, date_debut, date_fin, montant_recu, url_pdf, owner_url_pdf, origine, statut, created_at, admin_note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      contractId,
+      bienId,
+      locataireId,
+      current.arrival_date || null,
+      current.departure_date || null,
+      0,
+      null,
+      null,
+      'automatique',
+      'actif',
+      now,
+      `Contrat technique amicale en gros cree pour affectation sous-admin depuis la saisie ${grossEntryId}`,
+    ]
+  );
+
+  return { contractId };
+}
+
 async function upsertPasskeyUser({ email, name }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Client';
@@ -26587,6 +26634,9 @@ async function ensureSubadminOperationsSchema() {
   if (!(await columnExists('subadmin_contract_assignments', 'assignment_source_kind'))) {
     await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN assignment_source_kind VARCHAR(20) NULL AFTER hotel_reservation_demand_id");
   }
+  if (!(await columnExists('subadmin_contract_assignments', 'amicale_gross_entry_id'))) {
+    await pool.query("ALTER TABLE subadmin_contract_assignments ADD COLUMN amicale_gross_entry_id VARCHAR(100) NULL AFTER assignment_source_kind");
+  }
 
   if (!(await columnExists('subadmin_tasks', 'bien_id'))) {
     await pool.query("ALTER TABLE subadmin_tasks ADD COLUMN bien_id VARCHAR(100) NULL AFTER subadmin_admin_id");
@@ -33052,6 +33102,7 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       hasOwnerName,
       hasOwnerPhone,
       hasLocatairePhone,
+      hasLocataireName,
       hasDemandArrivalTime,
       hasDemandTotalAmount,
       hasDemandAmountDueNow,
@@ -33060,6 +33111,7 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       hasAssignmentReservationDemandId,
       hasAssignmentHotelReservationDemandId,
       hasAssignmentSourceKind,
+      hasAssignmentAmicaleGrossEntryId,
     ] = await Promise.all([
       columnExists('contrats', 'montant_donne_proprietaire'),
       columnExists('contrats', 'montant_total_proprietaire'),
@@ -33067,6 +33119,7 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       columnExists('proprietaires', 'nom'),
       columnExists('proprietaires', 'telephone'),
       columnExists('locataires', 'telephone'),
+      columnExists('locataires', 'nom'),
       columnExists('reservation_demands', 'arrival_time'),
       columnExists('reservation_demands', 'total_amount'),
       columnExists('reservation_demands', 'amount_due_now'),
@@ -33075,6 +33128,7 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       columnExists('subadmin_contract_assignments', 'reservation_demand_id'),
       columnExists('subadmin_contract_assignments', 'hotel_reservation_demand_id'),
       columnExists('subadmin_contract_assignments', 'assignment_source_kind'),
+      columnExists('subadmin_contract_assignments', 'amicale_gross_entry_id'),
     ]);
     const reservationDemandJoinCondition = hasAssignmentReservationDemandId
       ? 'rd.id = a.reservation_demand_id OR rd.contract_id = c.id'
@@ -33096,6 +33150,7 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
              ${hasZoneMapsUrl ? 'z.google_maps_url' : 'NULL'} AS google_maps_url,
              ${hasOwnerName ? 'p.nom' : 'NULL'} AS proprietaire_nom,
              ${hasOwnerPhone ? 'p.telephone' : 'NULL'} AS proprietaire_telephone,
+             ${hasLocataireName ? 'l.nom' : 'NULL'} AS locataire_nom,
              ${hasLocatairePhone ? 'l.telephone' : 'NULL'} AS locataire_telephone,
              d.id AS reservation_demand_id,
              d.client_name AS property_client_name,
@@ -33112,7 +33167,16 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
              hd.check_out AS hotel_check_out,
              ${hasHotelDemandTotalPrice && hasAssignmentHotelReservationDemandId ? 'hd.total_price' : 'NULL'} AS hotel_total_price,
              ${hasHotelDemandAmountDueNow && hasAssignmentHotelReservationDemandId ? 'hd.amount_due_now' : 'NULL'} AS hotel_amount_due_now,
-             ${hasAssignmentSourceKind ? 'a.assignment_source_kind' : 'NULL'} AS assignment_source_kind
+             ${hasAssignmentSourceKind ? 'a.assignment_source_kind' : 'NULL'} AS assignment_source_kind,
+             ${hasAssignmentAmicaleGrossEntryId ? 'a.amicale_gross_entry_id' : 'NULL'} AS amicale_gross_entry_id,
+             ag.amicale_name AS gross_amicale_name,
+             ag.bien_id AS gross_bien_id,
+             ag.bien_reference AS gross_bien_reference,
+             ag.bien_title AS gross_bien_title,
+             DATE_FORMAT(ag.arrival_date, '%Y-%m-%d') AS gross_arrival_date,
+             DATE_FORMAT(ag.departure_date, '%Y-%m-%d') AS gross_departure_date,
+             ag.rental_total_amount AS gross_rental_total_amount,
+             DATE_FORMAT(ag.submitted_at, '%Y-%m-%d %H:%i:%s') AS gross_submitted_at
       FROM subadmin_contract_assignments a
       INNER JOIN administrateurs sa ON sa.id = a.subadmin_admin_id
       INNER JOIN contrats c ON c.id = a.contract_id
@@ -33128,6 +33192,7 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
         LIMIT 1
       )
       LEFT JOIN hotel_reservation_demands hd ON ${hasAssignmentHotelReservationDemandId ? 'hd.id = a.hotel_reservation_demand_id' : '1 = 0'}
+      LEFT JOIN admin_amicale_gross_entries ag ON ${hasAssignmentAmicaleGrossEntryId ? 'ag.id = a.amicale_gross_entry_id' : '1 = 0'}
       ${whereSql}
       ORDER BY a.urgent DESC, a.updated_at DESC
       `,
@@ -33151,7 +33216,11 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
         }
           const isHotelAssignment = String(row.assignment_source_kind || '').trim() === 'hotel'
             || Boolean(String(row.hotel_reservation_demand_id || '').trim());
-          const totalAmountRaw = isHotelAssignment ? row.hotel_total_price : row.property_total_amount;
+          const isGrossAssignment = String(row.assignment_source_kind || '').trim() === 'gross'
+            || Boolean(String(row.amicale_gross_entry_id || '').trim());
+          const totalAmountRaw = isGrossAssignment
+            ? row.gross_rental_total_amount
+            : (isHotelAssignment ? row.hotel_total_price : row.property_total_amount);
           const amountDueNowRaw = isHotelAssignment ? row.hotel_amount_due_now : row.property_amount_due_now;
           const totalAmount = Number.isFinite(Number(totalAmountRaw)) ? Number(totalAmountRaw) : null;
           const amountDueNow = Number.isFinite(Number(amountDueNowRaw)) ? Number(amountDueNowRaw) : null;
@@ -33170,19 +33239,34 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
           urgent: Number(row.urgent || 0) === 1,
             status: normalizeSubadminAssignmentStatus(row.status),
             note: row.note || null,
-            bien_id: isHotelAssignment ? (row.hotel_assignment_id || row.bien_id || null) : (row.bien_id || null),
-            bien_reference: assignmentAutofill?.bien_reference || (isHotelAssignment ? (row.hotel_assignment_id ? `HOTEL-${row.hotel_assignment_id}` : row.bien_reference) : row.bien_reference) || null,
-            bien_titre: assignmentAutofill?.bien_titre || (isHotelAssignment ? (row.hotel_assignment_name || row.bien_titre) : row.bien_titre) || null,
+            bien_id: isGrossAssignment
+              ? (row.gross_bien_id || row.bien_id || null)
+              : (isHotelAssignment ? (row.hotel_assignment_id || row.bien_id || null) : (row.bien_id || null)),
+            bien_reference: assignmentAutofill?.bien_reference
+              || (isGrossAssignment
+                ? (row.gross_bien_reference || row.bien_reference || row.bien_id)
+                : (isHotelAssignment ? (row.hotel_assignment_id ? `HOTEL-${row.hotel_assignment_id}` : row.bien_reference) : (row.bien_reference || row.bien_id)))
+              || null,
+            bien_titre: assignmentAutofill?.bien_titre
+              || (isGrossAssignment
+                ? (row.gross_bien_title || row.bien_titre || row.gross_amicale_name)
+                : (isHotelAssignment ? (row.hotel_assignment_name || row.bien_titre) : row.bien_titre))
+              || null,
             google_maps_url: assignmentAutofill?.google_maps_url || normalizeMapsOpenUrl(row.google_maps_url) || null,
             property_url: assignmentAutofill?.property_url || (
-              isHotelAssignment
+              isGrossAssignment
+                ? (row.gross_bien_id ? buildSubadminPropertyUrl(req, row.gross_bien_id, row.gross_bien_reference || row.bien_reference) : null)
+                : isHotelAssignment
                 ? (row.hotel_assignment_id ? `/hotels/${encodeURIComponent(String(row.hotel_assignment_id).trim())}` : null)
                 : buildSubadminPropertyUrl(req, row.bien_id, row.bien_reference)
             ),
-            client_name: assignmentAutofill?.client_name || (isHotelAssignment ? row.hotel_client_name : row.property_client_name) || null,
+            client_name: assignmentAutofill?.client_name
+              || (isGrossAssignment ? (row.gross_amicale_name || row.locataire_nom) : (isHotelAssignment ? row.hotel_client_name : row.property_client_name))
+              || row.locataire_nom
+              || null,
             client_phone: assignmentAutofill?.client_phone || (isHotelAssignment ? row.hotel_client_phone : row.property_client_phone) || row.locataire_telephone || null,
-            arrival_time: assignmentAutofill?.arrival_time || (isHotelAssignment ? row.hotel_check_in : row.property_arrival_time) || null,
-            departure_time: assignmentAutofill?.departure_time || (isHotelAssignment ? row.hotel_check_out : null),
+            arrival_time: assignmentAutofill?.arrival_time || (isGrossAssignment ? row.gross_arrival_date : (isHotelAssignment ? row.hotel_check_in : row.property_arrival_time)) || null,
+            departure_time: assignmentAutofill?.departure_time || (isGrossAssignment ? row.gross_departure_date : (isHotelAssignment ? row.hotel_check_out : null)),
             url_pdf: assignmentAutofill?.url_pdf || resolvePublicAssetUrl(row.url_pdf || '') || null,
             proprietaire_nom: assignmentAutofill?.proprietaire_nom || row.proprietaire_nom || null,
             proprietaire_telephone: assignmentAutofill?.proprietaire_telephone || row.proprietaire_telephone || null,
@@ -33196,6 +33280,8 @@ app.get('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
             contract_end_date: assignmentAutofill?.contract_end_date || row.contract_end_date || null,
             reservation_demand_id: row.reservation_demand_id || null,
             hotel_reservation_demand_id: row.hotel_reservation_demand_id || null,
+            amicale_gross_entry_id: row.amicale_gross_entry_id || null,
+            assignment_source_kind: row.assignment_source_kind || null,
             resolved_template_vars: includeTemplateVars
             ? (assignmentAutofill?.resolved_template_vars || templateContext?.resolvedTemplateVars || null)
             : null,
@@ -33248,13 +33334,15 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
     await ensureContractsSchema();
     await ensureReservationDemandSchema();
     await ensureHotelReservationDemandSchema();
+    await ensureProprietairesSchema();
     let contractId = String(req.body?.contract_id || '').trim();
     const reservationDemandId = String(req.body?.reservation_demand_id || '').trim();
     const hotelReservationDemandId = String(req.body?.hotel_reservation_demand_id || '').trim();
+    const amicaleGrossEntryId = String(req.body?.amicale_gross_entry_id || '').trim();
     const requestedSubadminId = resolveSubadminScopeId(req, req.body?.subadmin_id);
     const urgent = req.body?.urgent === true || req.body?.urgent === 1 || String(req.body?.urgent || '').trim() === 'true';
     const note = String(req.body?.note || '').trim() || null;
-    if ((!contractId && !reservationDemandId && !hotelReservationDemandId) || !requestedSubadminId) {
+    if ((!contractId && !reservationDemandId && !hotelReservationDemandId && !amicaleGrossEntryId) || !requestedSubadminId) {
       return res.status(400).json({ error: 'contract_id ou demande amicale, et subadmin_id requis' });
     }
     if (!ensureSubadminAccess(req, res, requestedSubadminId)) return;
@@ -33266,14 +33354,17 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       hasAssignmentReservationDemandId,
       hasAssignmentHotelReservationDemandId,
       hasAssignmentSourceKind,
+      hasAssignmentAmicaleGrossEntryId,
     ] = await Promise.all([
       columnExists('subadmin_contract_assignments', 'reservation_demand_id'),
       columnExists('subadmin_contract_assignments', 'hotel_reservation_demand_id'),
       columnExists('subadmin_contract_assignments', 'assignment_source_kind'),
+      columnExists('subadmin_contract_assignments', 'amicale_gross_entry_id'),
     ]);
-    let assignmentSourceKind = hotelReservationDemandId ? 'hotel' : (reservationDemandId ? 'property' : null);
+    let assignmentSourceKind = amicaleGrossEntryId ? 'gross' : (hotelReservationDemandId ? 'hotel' : (reservationDemandId ? 'property' : null));
     let resolvedReservationDemandId = reservationDemandId || null;
     let resolvedHotelReservationDemandId = hotelReservationDemandId || null;
+    let resolvedAmicaleGrossEntryId = amicaleGrossEntryId || null;
     if (!contractId && reservationDemandId && hasAssignmentReservationDemandId) {
       const [existingAssignmentRows] = await pool.query(
         `SELECT id, contract_id
@@ -33293,6 +33384,17 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
          ORDER BY updated_at DESC
          LIMIT 1`,
         [hotelReservationDemandId]
+      );
+      contractId = String(existingAssignmentRows?.[0]?.contract_id || '').trim();
+    }
+    if (!contractId && amicaleGrossEntryId && hasAssignmentAmicaleGrossEntryId) {
+      const [existingAssignmentRows] = await pool.query(
+        `SELECT id, contract_id
+         FROM subadmin_contract_assignments
+         WHERE amicale_gross_entry_id = ?
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [amicaleGrossEntryId]
       );
       contractId = String(existingAssignmentRows?.[0]?.contract_id || '').trim();
     }
@@ -33325,6 +33427,39 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
         String(req.authUser?.id || req.authUser?.email || 'admin')
       );
       contractId = String(ensured.contractId || '').trim();
+    } else if (!contractId && amicaleGrossEntryId) {
+      const [grossEntryRows] = await pool.query(
+        `SELECT
+           id,
+           amicale_id,
+           amicale_name,
+           bien_id,
+           bien_reference,
+           bien_title,
+           DATE_FORMAT(arrival_date, '%Y-%m-%d') AS arrival_date,
+           DATE_FORMAT(departure_date, '%Y-%m-%d') AS departure_date,
+           owner_advance_amount,
+           rental_total_amount,
+           internal_note,
+           agent_note,
+           benefit_amount,
+           DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submitted_at,
+           DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+         FROM admin_amicale_gross_entries
+         WHERE id = ?
+         LIMIT 1`,
+        [amicaleGrossEntryId]
+      );
+      const grossEntry = grossEntryRows?.[0] || null;
+      if (!grossEntry) {
+        return res.status(404).json({ error: 'Demande amicale en gros introuvable' });
+      }
+      const ensured = await ensureAssignmentContractForAdminAmicaleGrossEntry(
+        grossEntry,
+        String(req.authUser?.id || req.authUser?.email || 'admin')
+      );
+      contractId = String(ensured.contractId || '').trim();
     }
     if (!contractId) {
       return res.status(400).json({ error: 'Contrat introuvable pour cette affectation' });
@@ -33353,6 +33488,10 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       if (hasAssignmentSourceKind) {
         updateFields.push('assignment_source_kind = ?');
         updateValues.push(assignmentSourceKind);
+      }
+      if (hasAssignmentAmicaleGrossEntryId) {
+        updateFields.push('amicale_gross_entry_id = ?');
+        updateValues.push(resolvedAmicaleGrossEntryId);
       }
       updateFields.push(
         'subadmin_admin_id = ?',
@@ -33393,6 +33532,10 @@ app.post('/api/subadmin/contracts', requireAdminSession, async (req, res) => {
       if (hasAssignmentSourceKind) {
         insertColumns.push('assignment_source_kind');
         insertValues.push(assignmentSourceKind);
+      }
+      if (hasAssignmentAmicaleGrossEntryId) {
+        insertColumns.push('amicale_gross_entry_id');
+        insertValues.push(resolvedAmicaleGrossEntryId);
       }
       insertColumns.push(
         'subadmin_admin_id',

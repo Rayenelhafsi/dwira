@@ -42,6 +42,10 @@ type AdminAccount = {
 type AssignmentRow = {
   id: string;
   contract_id: string;
+  reservation_demand_id?: string | null;
+  hotel_reservation_demand_id?: string | null;
+  amicale_gross_entry_id?: string | null;
+  assignment_source_kind?: "property" | "hotel" | "gross" | null;
   subadmin_admin_id: string;
   subadmin_name?: string | null;
   urgent: boolean;
@@ -114,11 +118,30 @@ type HotelReservationDemandRow = {
   updated_at?: string | null;
 };
 
+type AdminAmicaleGrossEntryRow = {
+  id: string;
+  amicaleId?: string | null;
+  amicaleName?: string | null;
+  bienId?: string | null;
+  bienReference?: string | null;
+  bienTitle?: string | null;
+  arrivalDate?: string | null;
+  departureDate?: string | null;
+  ownerAdvanceAmount?: number | string | null;
+  rentalTotalAmount?: number | string | null;
+  internalNote?: string | null;
+  agentNote?: string | null;
+  benefitAmount?: number | string | null;
+  submittedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
 type AmicaleAssignmentRow = {
   id: string;
   demand_id: string;
   contract_id?: string | null;
-  source_kind: "property" | "hotel";
+  source_kind: "property" | "hotel" | "gross";
   status?: string | null;
   amicale_name?: string | null;
   bien_id?: string | null;
@@ -133,6 +156,8 @@ type AmicaleAssignmentRow = {
   amount_due_now?: number | null;
   voucher_url?: string | null;
   voucher_generated_at?: string | null;
+  amicale_gross_entry_id?: string | null;
+  submitted_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -287,6 +312,7 @@ type PickerOption = {
 
 const RESERVATION_DEMAND_PICKER_PREFIX = "reservation-demand:";
 const HOTEL_RESERVATION_DEMAND_PICKER_PREFIX = "hotel-reservation-demand:";
+const AMICALE_GROSS_ENTRY_PICKER_PREFIX = "amicale-gross-entry:";
 const TECHNICIAN_CONTRACT_PICKER_PREFIX = "technician-contract:";
 const TECHNICIAN_DEMAND_PICKER_PREFIX = "technician-demand:";
 
@@ -492,6 +518,36 @@ function mapPropertyDemandToAmicaleAssignmentRow(row: ReservationDemandRow): Ami
     voucher_generated_at: row.voucher_generated_at || null,
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
+  };
+}
+
+function mapGrossEntryToAmicaleAssignmentRow(row: AdminAmicaleGrossEntryRow): AmicaleAssignmentRow {
+  const entryId = String(row.id || "").trim();
+  return {
+    id: `gross-entry-${entryId}`,
+    demand_id: entryId,
+    contract_id: null,
+    source_kind: "gross",
+    status: row.submittedAt ? "submitted" : "draft",
+    amicale_name: row.amicaleName || null,
+    bien_id: row.bienId || null,
+    bien_reference: row.bienReference || (row.bienId || null),
+    bien_titre: row.bienTitle || null,
+    property_url: String(row.bienId || "").trim()
+      ? resolveDemandPropertyUrl({ source_kind: "property", bien_id: row.bienId, bien_reference: row.bienReference || null })
+      : null,
+    client_name: row.amicaleName || null,
+    client_phone: null,
+    start_date: row.arrivalDate || null,
+    end_date: row.departureDate || null,
+    total_amount: Number.isFinite(Number(row.rentalTotalAmount)) ? Number(row.rentalTotalAmount) : null,
+    amount_due_now: null,
+    voucher_url: null,
+    voucher_generated_at: null,
+    amicale_gross_entry_id: entryId || null,
+    submitted_at: row.submittedAt || null,
+    created_at: row.createdAt || null,
+    updated_at: row.updatedAt || null,
   };
 }
 
@@ -1022,7 +1078,7 @@ export default function SubAdminOperationsPanel({
         return Array.isArray(rows) ? (rows as T[]) : [];
       };
 
-      const [assignmentsResult, tasksResult, chargesResult, techniciansResult, technicianAssignmentsResult, reservationDemandsResult, hotelDemandsResult] = await Promise.allSettled([
+      const [assignmentsResult, tasksResult, chargesResult, techniciansResult, technicianAssignmentsResult, reservationDemandsResult, hotelDemandsResult, grossEntriesResult] = await Promise.allSettled([
         loadCollection<AssignmentRow>(`/subadmin/contracts${suffix}`, "Impossible de charger les affectations"),
         loadCollection<TaskRow>(`/subadmin/tasks${suffix}`, "Impossible de charger les taches"),
         loadCollection<ChargeRow>(`/subadmin/charges${suffix}`, "Impossible de charger les charges"),
@@ -1030,6 +1086,7 @@ export default function SubAdminOperationsPanel({
         loadCollection<TechnicianAssignmentRow>(`/subadmin/technician-assignments${suffix}`, "Impossible de charger les affectations technicien"),
         loadCollection<ReservationDemandRow>("/reservation-demands", "Impossible de charger les demandes adherants"),
         loadCollection<HotelReservationDemandRow>("/hotel-reservation-demands", "Impossible de charger les demandes adherants"),
+        loadCollection<AdminAmicaleGrossEntryRow>("/admin/amicale-gross-entries", "Impossible de charger les amicales en gros"),
       ]);
 
       const errors: string[] = [];
@@ -1062,6 +1119,12 @@ export default function SubAdminOperationsPanel({
             .map((assignment) => String((assignment as { hotel_reservation_demand_id?: string | null }).hotel_reservation_demand_id || "").trim())
             .filter(Boolean)
         );
+        const assignedGrossEntryIds = new Set(
+          (assignmentsResult.status === "fulfilled" ? assignmentsResult.value : [])
+            .map((assignment) => String((assignment as { amicale_gross_entry_id?: string | null }).amicale_gross_entry_id || "").trim())
+            .filter(Boolean)
+        );
+        const grossRows = grossEntriesResult.status === "fulfilled" ? grossEntriesResult.value : [];
         const merged = [
           ...propertyRows
             .filter((row) => row
@@ -1077,10 +1140,20 @@ export default function SubAdminOperationsPanel({
               && !assignedHotelDemandIds.has(String(row.id || "").trim())
             )
             .map(mapHotelDemandToAmicaleAssignmentRow),
+          ...grossRows
+            .filter((row) =>
+              row
+              && String(row.submittedAt || "").trim()
+              && !assignedGrossEntryIds.has(String(row.id || "").trim())
+            )
+            .map(mapGrossEntryToAmicaleAssignmentRow),
         ].sort((left, right) => compareNearestArrivalDates(left.start_date, right.start_date, left.created_at, right.created_at));
         setAmicaleDemands(merged);
       } else {
         errors.push("Impossible de charger les demandes adherants");
+      }
+      if (grossEntriesResult.status !== "fulfilled") {
+        errors.push(grossEntriesResult.reason instanceof Error ? grossEntriesResult.reason.message : "Impossible de charger les amicales en gros");
       }
 
       if (errors.length > 0) {
@@ -1115,6 +1188,7 @@ export default function SubAdminOperationsPanel({
     if (
       contractId.startsWith(RESERVATION_DEMAND_PICKER_PREFIX)
       || contractId.startsWith(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX)
+      || contractId.startsWith(AMICALE_GROSS_ENTRY_PICKER_PREFIX)
     ) {
       setAssignmentContractDetails(null);
       setAssignmentContractLoading(false);
@@ -1376,15 +1450,25 @@ export default function SubAdminOperationsPanel({
       })
       .flatMap((demand) => {
         const linkedContractId = String(demand.contract_id || "").trim();
+        const isGrossDemand = demand.source_kind === "gross";
         const canAssignFromVoucher = Boolean(String(demand.voucher_url || "").trim());
+        const canAssignGross = isGrossDemand && Boolean(String(demand.bien_id || "").trim());
         const hasLinkedContract = Boolean(linkedContractId);
-        const canSelectForAssignment = hasLinkedContract || canAssignFromVoucher;
-        const demandLabel = demand.source_kind === "hotel" ? "Demande hotel amicale" : "Demande bien amicale";
+        const canSelectForAssignment = hasLinkedContract || canAssignFromVoucher || canAssignGross;
+        const demandLabel = isGrossDemand
+          ? "Demande amicale en gros"
+          : demand.source_kind === "hotel"
+            ? "Demande hotel amicale"
+            : "Demande bien amicale";
         const titleParts = [String(demand.bien_reference || "").trim(), String(demand.bien_titre || "").trim()].filter(Boolean);
         const note = hasLinkedContract
           ? `Note terrain: amicale : ${String(demand.amicale_name || "Amicale").trim()}`
+          : canAssignGross
+            ? `Affectation amicale en gros sans PDF: ${String(demand.amicale_name || "Amicale").trim()}`
           : canAssignFromVoucher
             ? `Affectation via voucher PDF: amicale : ${String(demand.amicale_name || "Amicale").trim()}`
+            : isGrossDemand
+              ? "Demande amicale en gros hors catalogue: ajoutez un bien du site pour permettre l affectation."
             : demand.source_kind === "hotel"
               ? "Demande hotel sans contrat lie: visible ici, non affectable depuis ce popup."
               : "Demande adherant sans voucher PDF: generer le voucher avant affectation.";
@@ -1393,6 +1477,8 @@ export default function SubAdminOperationsPanel({
           baseId: demand.id,
           selectValue: hasLinkedContract
             ? linkedContractId
+            : canAssignGross
+              ? `${AMICALE_GROSS_ENTRY_PICKER_PREFIX}${String(demand.amicale_gross_entry_id || demand.demand_id || "").trim()}`
             : canAssignFromVoucher
               ? demand.source_kind === "hotel"
                 ? `${HOTEL_RESERVATION_DEMAND_PICKER_PREFIX}${String(demand.demand_id || "").trim()}`
@@ -1414,6 +1500,8 @@ export default function SubAdminOperationsPanel({
             demand.amicale_name ? { label: `Amicale ${String(demand.amicale_name).trim()}`, tone: "sky" } : null,
             hasLinkedContract
               ? { label: `Contrat ${linkedContractId}`, tone: "emerald" }
+              : canAssignGross
+                ? { label: "Sans PDF", tone: "amber" }
               : canAssignFromVoucher
                 ? { label: "Voucher PDF", tone: "emerald" }
                 : { label: "Sans contrat", tone: "amber" },
@@ -1666,6 +1754,9 @@ export default function SubAdminOperationsPanel({
         const hotelReservationDemandId = rawSelection.startsWith(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX)
           ? rawSelection.slice(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX.length).trim()
           : "";
+        const amicaleGrossEntryId = rawSelection.startsWith(AMICALE_GROSS_ENTRY_PICKER_PREFIX)
+          ? rawSelection.slice(AMICALE_GROSS_ENTRY_PICKER_PREFIX.length).trim()
+          : "";
         const contractId = reservationDemandId || hotelReservationDemandId ? "" : rawSelection;
         const response = await fetch(buildApiUrl("/subadmin/contracts"), {
           method: "POST",
@@ -1673,9 +1764,10 @@ export default function SubAdminOperationsPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             subadmin_id: assignmentDraft.subadminId,
-            contract_id: contractId || null,
+            contract_id: amicaleGrossEntryId ? null : (contractId || null),
             reservation_demand_id: reservationDemandId || String(selectedOption.reservationDemandId || "").trim() || null,
             hotel_reservation_demand_id: hotelReservationDemandId || String(selectedOption.hotelReservationDemandId || "").trim() || null,
+            amicale_gross_entry_id: amicaleGrossEntryId || String(selectedOption.id || "").replace(/^gross-entry-/, "").trim() || null,
             urgent: assignmentDraft.urgent,
             note: assignmentDraft.note,
           }),
@@ -3264,7 +3356,8 @@ export default function SubAdminOperationsPanel({
                 disabled:
                   option.disabled
                   || String(option.selectValue || "").trim().startsWith(RESERVATION_DEMAND_PICKER_PREFIX)
-                  || String(option.selectValue || "").trim().startsWith(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX),
+                  || String(option.selectValue || "").trim().startsWith(HOTEL_RESERVATION_DEMAND_PICKER_PREFIX)
+                  || String(option.selectValue || "").trim().startsWith(AMICALE_GROSS_ENTRY_PICKER_PREFIX),
               }))
             : contractPickerOptions
         }
