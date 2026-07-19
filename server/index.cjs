@@ -11712,13 +11712,13 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
     const row = existingRows[0];
     try {
         await pool.query(
-          `UPDATE locataires
+        `UPDATE locataires
            SET nom = ?, telephone = ?, email = ?, cin = ?
            WHERE id = ?`,
           [
             normalizedName || row.nom || 'Client',
-            normalizedPhone || row.telephone || null,
-            normalizedEmail || row.email || null,
+            normalizedPhone || row.telephone || '',
+            normalizedEmail || row.email || '',
             normalizedCin || row.cin || '',
             row.id,
           ]
@@ -11749,8 +11749,8 @@ async function upsertLocataireFromReservationProfile({ userId, name, email, tele
         [
           id,
           normalizedName || 'Client',
-          normalizedPhone || null,
-          normalizedEmail || null,
+          normalizedPhone || '',
+          normalizedEmail || '',
           generatedCin,
           5,
           getAgencySqlDateTime(),
