@@ -78,3 +78,9 @@ dist.tar.gz
 contrat_template_site.pdf
 contrat-vide.pdf
 contrat_template_site_last.pdf
+backups/portable-20260721-143121/dwira-db.sql.gz
+backups/portable-20260721-143121/dwira-site-public.tar.gz
+backups/portable-copy-20260721-150344/dwira-db.sql.gz
+backups/portable-copy-20260721-150344/public/.env.example
+backups/portable-copy-20260721-150344/public/server_debug.log
+backups/prod-20260721-141837/dwira-db.sql.gz

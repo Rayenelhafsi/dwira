@@ -17304,51 +17304,89 @@ app.delete('/api/services-payants/catalogue/:id', requireAdminSession, async (re
 
 app.get('/api/biens', async (req, res) => {
   try {
-    await ensurePaidServicesSchema();
-    await ensureSeasonalPricingSchema();
     const [rows] = await pool.query(`
-      SELECT b.*, z.nom as zone_nom, p.nom as proprietaire_nom, p.telephone as proprietaire_telephone
-      FROM biens b 
-      LEFT JOIN zones z ON b.zone_id = z.id 
+      SELECT
+        b.id,
+        b.reference,
+        b.titre,
+        b.nom_bien_mobile,
+        b.description,
+        b.mode,
+        b.type,
+        b.nb_chambres,
+        b.nb_salle_bain,
+        b.prix_nuitee,
+        b.prix_semaine,
+        b.avance,
+        b.caution,
+        b.statut,
+        b.visible_sur_site,
+        b.is_featured,
+        b.reservation_sur_demande,
+        b.ui_config_json,
+        b.location_saisonniere_config_json,
+        b.menage_en_cours,
+        b.zone_id,
+        b.proprietaire_id,
+        b.folder_id,
+        b.residence_parent_bien_id,
+        b.residence_parent_name,
+        b.residence_unit_key,
+        b.residence_unit_sub_type,
+        b.residence_units_json,
+        b.date_ajout,
+        b.created_at,
+        b.updated_at,
+        b.admin_last_saved_at,
+        b.tarification_methode,
+        b.prix_affiche_client,
+        b.prix_fixe_proprietaire,
+        b.prix_proprietaire,
+        b.prix_final,
+        b.revenu_agence,
+        b.commission_pourcentage_proprietaire,
+        b.commission_pourcentage_client,
+        b.montant_max_reduction_negociation,
+        b.prix_minimum_accepte,
+        b.modalite_paiement_vente,
+        b.pourcentage_premiere_partie_promesse,
+        b.montant_premiere_partie_promesse,
+        b.montant_deuxieme_partie,
+        b.nombre_tranches,
+        b.periode_tranches_mois,
+        b.montant_par_tranche,
+        b.type_rue,
+        b.type_papier,
+        b.superficie_m2,
+        b.etage,
+        b.configuration,
+        b.annee_construction,
+        b.distance_plage_m,
+        b.proche_plage,
+        b.chauffage_central,
+        b.climatisation,
+        b.balcon,
+        b.terrasse,
+        b.ascenseur,
+        b.vue_mer,
+        b.gaz_ville,
+        b.cuisine_equipee,
+        b.place_parking,
+        b.syndic,
+        b.meuble,
+        b.independant,
+        b.eau_puits,
+        b.eau_sonede,
+        b.electricite_steg,
+        z.nom AS zone_nom,
+        p.nom AS proprietaire_nom,
+        p.telephone AS proprietaire_telephone
+      FROM biens b
+      LEFT JOIN zones z ON b.zone_id = z.id
       LEFT JOIN proprietaires p ON b.proprietaire_id = p.id
       ORDER BY b.created_at DESC
     `);
-    const rowsWithCaracteristiques = await enrichBiensWithCaracteristiques(rows || []);
-    const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const mediaByBienId = await listMediaForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const residenceUnitsByParentId = buildResidenceUnitsViewFromRows(
-      (rowsWithCaracteristiques || []).filter((row) => normalizeBienType(row?.type) === 'residence' && !String(row?.residence_parent_bien_id || '').trim()),
-      (rowsWithCaracteristiques || []).filter((row) => String(row?.residence_parent_bien_id || '').trim()),
-      mediaByBienId,
-      pricingPeriodsByBienId,
-      unavailableDatesByBienId
-    );
-    const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
-      let config = null;
-      try {
-        config = row.location_saisonniere_config_json
-          ? (typeof row.location_saisonniere_config_json === 'string'
-            ? JSON.parse(row.location_saisonniere_config_json)
-            : row.location_saisonniere_config_json)
-          : null;
-      } catch {
-        config = null;
-      }
-    const nextConfig = injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || []);
-    return {
-      ...row,
-      nom_bien_mobile: String(nextConfig?.nom_bien_mobile || '').trim() || null,
-      location_saisonniere_config_json: JSON.stringify(nextConfig),
-      pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
-      unavailableDates: unavailableDatesByBienId.get(row.id) || [],
-      residence_units_json: normalizeBienType(row?.type) === 'residence' && !String(row?.residence_parent_bien_id || '').trim()
-        ? JSON.stringify(residenceUnitsByParentId.get(String(row?.id || '').trim()) || [])
-        : row.residence_units_json,
-      };
-    });
-    res.json(enrichedRows);
+    res.json(Array.isArray(rows) ? rows : []);
   } catch (error) {
     console.error('Error fetching biens:', error);
     res.status(500).json({ error: 'Failed to fetch biens' });
@@ -18350,9 +18388,6 @@ app.get('/api/zones', async (req, res) => {
 // GET light biens payload (optimized for constrained mobile browsers)
 app.get('/api/biens-lite', async (req, res) => {
   try {
-    await ensurePaidServicesSchema();
-    await ensureSeasonalPricingSchema();
-    await ensureReservationDemandSchema();
     const [rows] = await pool.query(`
       SELECT
         id, reference, titre, nom_bien_mobile, description, mode, type, nb_chambres, nb_salle_bain,
@@ -18370,31 +18405,7 @@ app.get('/api/biens-lite', async (req, res) => {
       FROM biens
       ORDER BY created_at DESC
     `);
-    const rowsWithCaracteristiques = await enrichBiensWithCaracteristiques(rows || []);
-    const pricingPeriodsByBienId = await listPricingPeriodsForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const unavailableDatesByBienId = await listUnavailableDatesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const servicesByBienId = await listPaidServicesForBienIds((rowsWithCaracteristiques || []).map((row) => row.id));
-    const enrichedRows = (rowsWithCaracteristiques || []).map((row) => {
-      let config = null;
-      try {
-        config = row.location_saisonniere_config_json
-          ? (typeof row.location_saisonniere_config_json === 'string'
-            ? JSON.parse(row.location_saisonniere_config_json)
-            : row.location_saisonniere_config_json)
-          : null;
-      } catch {
-        config = null;
-      }
-      const nextConfig = injectPaidServicesIntoConfig(config, servicesByBienId.get(row.id) || []);
-      return {
-        ...row,
-        nom_bien_mobile: String(nextConfig?.nom_bien_mobile || row.nom_bien_mobile || '').trim() || null,
-        location_saisonniere_config_json: JSON.stringify(nextConfig),
-        pricing_periods_json: JSON.stringify(pricingPeriodsByBienId.get(row.id) || []),
-        unavailable_dates_json: JSON.stringify(unavailableDatesByBienId.get(row.id) || []),
-      };
-    });
-    res.json(enrichedRows);
+    res.json(Array.isArray(rows) ? rows : []);
   } catch (error) {
     console.error('Error fetching biens-lite:', error);
     res.status(500).json({ error: 'Failed to fetch biens-lite' });
@@ -29709,20 +29720,26 @@ app.get('/api/agent-amicale/reservation-demands', requireAgentAmicaleSession, as
     }
     const [propertyRows] = await pool.query(
       `SELECT
-         d.*,
+         d.id,
+         d.status,
+         d.client_name,
+         d.bien_id,
+         d.start_date,
+         d.end_date,
+         d.total_amount,
+         d.amicale_matricule,
+         d.amicale_phone,
+         d.voucher_id,
+         d.voucher_number,
+         d.voucher_url,
          b.titre AS bien_titre,
          b.reference AS bien_reference,
+         b.mode AS bien_mode,
          a.name AS amicale_name,
          a.logo_url AS amicale_logo_url,
          DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
          DATE_FORMAT(d.agency_validation_at, '%Y-%m-%d %H:%i:%s') AS agency_validation_at,
          DATE_FORMAT(d.voucher_generated_at, '%Y-%m-%d %H:%i:%s') AS voucher_generated_at,
-         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
-         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
-         DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
-         DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
-         DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
-         DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
          DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
          DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
        FROM reservation_demands d
@@ -29734,7 +29751,22 @@ app.get('/api/agent-amicale/reservation-demands', requireAgentAmicaleSession, as
     );
     const [hotelRows] = await pool.query(
       `SELECT
-         d.*,
+         d.id,
+         d.status,
+         d.client_name,
+         d.hotel_id,
+         d.hotel_name,
+         d.check_in,
+         d.check_out,
+         d.adults,
+         d.child_ages_json,
+         d.total_price,
+         d.amount_due_now,
+         d.amicale_matricule,
+         d.amicale_phone,
+         d.voucher_id,
+         d.voucher_number,
+         d.voucher_url,
          a.name AS amicale_name,
          a.logo_url AS amicale_logo_url,
          DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
@@ -29774,9 +29806,21 @@ app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, r
     const amicaleId = String(req.agentSession?.amicaleId || '').trim();
     const [propertyRows] = await pool.query(
       `SELECT
-         d.*,
+         d.id,
+         d.status,
+         d.client_name,
+         d.bien_id,
+         d.start_date,
+         d.end_date,
+         d.total_amount,
+         d.amicale_matricule,
+         d.amicale_phone,
+         d.voucher_id,
+         d.voucher_number,
+         d.voucher_url,
          b.titre AS bien_titre,
          b.reference AS bien_reference,
+         b.mode AS bien_mode,
          a.name AS amicale_name,
          a.logo_url AS amicale_logo_url,
          DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,
@@ -29795,7 +29839,22 @@ app.get('/api/agent-amicale/vouchers', requireAgentAmicaleSession, async (req, r
     );
     const [hotelRows] = await pool.query(
       `SELECT
-         d.*,
+         d.id,
+         d.status,
+         d.client_name,
+         d.hotel_id,
+         d.hotel_name,
+         d.check_in,
+         d.check_out,
+         d.adults,
+         d.child_ages_json,
+         d.total_price,
+         d.amount_due_now,
+         d.amicale_matricule,
+         d.amicale_phone,
+         d.voucher_id,
+         d.voucher_number,
+         d.voucher_url,
          a.name AS amicale_name,
          a.logo_url AS amicale_logo_url,
          DATE_FORMAT(d.amicale_validation_at, '%Y-%m-%d %H:%i:%s') AS amicale_validation_at,

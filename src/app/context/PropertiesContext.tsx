@@ -1269,8 +1269,16 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const currentPathname = typeof window !== 'undefined' ? window.location.pathname : '';
+      const currentSearch = typeof window !== 'undefined' ? window.location.search : '';
       const isAdminRoute = currentPathname.startsWith('/admin');
       const shouldPrefetchAllMedia = currentPathname !== '/admin/packs';
+      const currentQuery = new URLSearchParams(currentSearch);
+      const hasStaySearch =
+        String(currentQuery.get('stayRanges') || '').trim().length > 0
+        || (
+          /^\d{4}-\d{2}-\d{2}$/.test(String(currentQuery.get('checkIn') || '').trim())
+          && /^\d{4}-\d{2}-\d{2}$/.test(String(currentQuery.get('checkOut') || '').trim())
+        );
       const [biensResponse, zonesResponse, modePrioritiesResponse, propertyGroupsResponse, propsResponse, foldersResponse] = await Promise.all([
         fetchBiensResilient(API_URL),
         fetchWithTimeout(`${API_URL}/zones`, { credentials: 'include' }, 8000),
@@ -1338,7 +1346,7 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
         const datesByBienId = new Map<string, any[]>();
         const eagerUnavailableDateIds = mappedBiens
           .filter(isPubliclyVisibleBien)
-          .slice(0, 10)
+          .slice(0, hasStaySearch ? Number.MAX_SAFE_INTEGER : 10)
           .map((bien) => String(bien.id || '').trim())
           .filter(Boolean);
         await Promise.all(
