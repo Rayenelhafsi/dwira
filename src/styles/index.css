@@ -495,6 +495,35 @@ body.dwira-scroll-active .dwira-electric-path--core {
   background: transparent;
 }
 
+@media (max-width: 1023px) {
+  .dwira-admin-main {
+    overscroll-behavior-x: contain;
+  }
+
+  .dwira-admin-mobile-tabs {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dwira-admin-mobile-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .dwira-admin-page,
+  .dwira-admin-page > * {
+    min-width: 0;
+  }
+
+  .dwira-admin-page .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dwira-admin-page [role="dialog"] {
+    max-width: calc(100vw - 1rem);
+  }
+}
+
 @media (max-width: 767px) {
   .amicale-orbit-zone {
     inset: -44px;

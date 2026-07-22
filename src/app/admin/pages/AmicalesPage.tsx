@@ -953,10 +953,23 @@ export default function AmicalesPage() {
 
   const handleVoucherUpload = async (demand: AmicaleDemandRow, file: File | null) => {
     if (!file) return;
-    if (String(demand.source_kind || "").trim() !== "hotel") return;
     setUploadingVoucherId(demand.id);
     try {
-      await uploadHotelVoucherPdf(demand.id, file);
+      if (String(demand.source_kind || "").trim() === "hotel") {
+        await uploadHotelVoucherPdf(demand.id, file);
+      } else {
+        const formData = new FormData();
+        formData.append("voucher", file);
+        const response = await fetch(`${API_URL}/reservation-demands/${encodeURIComponent(demand.id)}/upload-voucher-pdf`, {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => null);
+          throw new Error(String(data?.error || "Upload voucher impossible"));
+        }
+      }
       toast.success(demand.voucher_url ? "Voucher PDF remplace." : "Voucher PDF charge.");
       await loadData();
     } catch (error) {
@@ -2222,17 +2235,19 @@ export default function AmicalesPage() {
                               Revenir et supprimer voucher
                             </button>
                           ) : null}
-                          {String(demand.source_kind || "") === "hotel" && ["voucher_en_cours", "voucher_envoye"].includes(String(demand.status || "").trim()) ? (
+                          {["voucher_en_cours", "voucher_envoye"].includes(String(demand.status || "").trim()) ? (
                             <>
-                              <button
-                                type="button"
-                                disabled={savingId === demand.id}
-                                onClick={() => void handleVoucherRegenerate(demand)}
-                                className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
-                              >
-                                <RefreshCw className={`h-4 w-4 ${savingId === demand.id ? "animate-spin" : ""}`} />
-                                Regenerer voucher
-                              </button>
+                              {String(demand.source_kind || "") === "hotel" ? (
+                                <button
+                                  type="button"
+                                  disabled={savingId === demand.id}
+                                  onClick={() => void handleVoucherRegenerate(demand)}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                                >
+                                  <RefreshCw className={`h-4 w-4 ${savingId === demand.id ? "animate-spin" : ""}`} />
+                                  Regenerer voucher
+                                </button>
+                              ) : null}
                               {voucherUrl ? (
                                 <label className={`inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 ${uploadingVoucherId === demand.id ? "opacity-60" : "cursor-pointer"}`}>
                                   <Upload className="h-4 w-4" />

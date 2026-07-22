@@ -24,10 +24,18 @@ import {
 } from 'lucide-react';
 import logo from '../../../../logo dwira.jpg';
 import { preloadAdminRoute } from '../utils/routePreload';
+import type { AuthUser } from '../../services/auth';
 
 interface AdminSidebarProps {
   onClose?: () => void;
 }
+
+type AdminNavItem = {
+  name: string;
+  path: string;
+  icon: typeof LayoutDashboard;
+  badgeCount?: number;
+};
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -62,6 +70,30 @@ type SidebarReservationDemand = {
   payment_mode?: string | null;
   pricing_amicale_id?: string | null;
 };
+
+export function buildAdminNavItems(user: AuthUser | null | undefined, notificationAlertCount: number): AdminNavItem[] {
+  return [
+    { name: 'Tableau de bord', path: '/admin', icon: LayoutDashboard },
+    { name: 'Biens', path: '/admin/biens', icon: Home },
+    { name: 'Packs', path: '/admin/packs', icon: Layers },
+    { name: 'Clienteles', path: '/admin/clienteles', icon: Users },
+    { name: 'Agences partenaires', path: '/admin/agences-partenaires', icon: Building2 },
+    { name: 'Contrats', path: '/admin/contrats', icon: FileText },
+    { name: 'Paiements', path: '/admin/paiements', icon: CreditCard },
+    { name: 'Comptabilite', path: '/admin/comptabilite', icon: Calculator },
+    { name: 'Amicales', path: '/admin/amicales', icon: Handshake },
+    { name: 'Hotels', path: '/admin/hotels', icon: Hotel },
+    { name: 'Reservations hotels', path: '/admin/reservations-hotels', icon: Hotel },
+    { name: 'Maintenance', path: '/admin/maintenance', icon: Wrench },
+    { name: 'Notifications', path: '/admin/notifications', icon: Bell, badgeCount: notificationAlertCount },
+    { name: 'Statistiques', path: '/admin/statistiques', icon: BarChart },
+    { name: 'Marketing', path: '/admin/marketing', icon: Megaphone },
+    { name: 'Utilisateurs', path: '/admin/utilisateurs', icon: UserCheck },
+    ...(user?.adminType === 'superadmin' ? [{ name: 'Sous-admins', path: '/admin/sous-admins', icon: ShieldCheck }] : []),
+    { name: 'Audit securite', path: '/admin/audit-securite', icon: ShieldCheck },
+    { name: 'Parametres', path: '/admin/parametres', icon: Settings },
+  ];
+}
 
 export function AdminSidebar({ onClose }: AdminSidebarProps) {
   const { user, logout } = useAuth();
@@ -173,30 +205,10 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
     return () => window.clearInterval(intervalId);
   }, [fetchNotificationAlerts]);
 
-  const navItems = [
-    { name: 'Tableau de bord', path: '/admin', icon: LayoutDashboard },
-    { name: 'Biens', path: '/admin/biens', icon: Home },
-    { name: 'Packs', path: '/admin/packs', icon: Layers },
-    { name: 'Clienteles', path: '/admin/clienteles', icon: Users },
-    { name: 'Agences partenaires', path: '/admin/agences-partenaires', icon: Building2 },
-    { name: 'Contrats', path: '/admin/contrats', icon: FileText },
-    { name: 'Paiements', path: '/admin/paiements', icon: CreditCard },
-    { name: 'Comptabilite', path: '/admin/comptabilite', icon: Calculator },
-    { name: 'Amicales', path: '/admin/amicales', icon: Handshake },
-    { name: 'Hotels', path: '/admin/hotels', icon: Hotel },
-    { name: 'Reservations hotels', path: '/admin/reservations-hotels', icon: Hotel },
-    { name: 'Maintenance', path: '/admin/maintenance', icon: Wrench },
-    { name: 'Notifications', path: '/admin/notifications', icon: Bell, badgeCount: notificationAlertCount },
-    { name: 'Statistiques', path: '/admin/statistiques', icon: BarChart },
-    { name: 'Marketing', path: '/admin/marketing', icon: Megaphone },
-    { name: 'Utilisateurs', path: '/admin/utilisateurs', icon: UserCheck },
-    ...(user?.adminType === 'superadmin' ? [{ name: 'Sous-admins', path: '/admin/sous-admins', icon: ShieldCheck }] : []),
-    { name: 'Audit securite', path: '/admin/audit-securite', icon: ShieldCheck },
-    { name: 'Parametres', path: '/admin/parametres', icon: Settings },
-  ];
+  const navItems = buildAdminNavItems(user, notificationAlertCount);
 
   return (
-    <aside className="flex h-screen w-64 flex-col overflow-y-auto bg-emerald-950 text-white">
+    <aside className="flex h-screen w-[min(22rem,86vw)] max-w-64 flex-col overflow-y-auto bg-emerald-950 pb-[env(safe-area-inset-bottom)] text-white lg:w-64">
       <div className="hidden border-b border-emerald-900 p-6 lg:block">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">

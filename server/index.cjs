@@ -7636,6 +7636,58 @@ app.post('/api/hotel-reservation-demands/:id/upload-voucher-pdf', requireAdminSe
   }
 });
 
+app.post('/api/reservation-demands/:id/upload-voucher-pdf', requireAdminSession, reservationMutationRateLimit, (req, res, next) => amicaleVoucherPdfUpload.single('voucher')(req, res, next), async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande introuvable' });
+    const current = await fetchReservationDemandDetailsById(demandId);
+    if (!current) return res.status(404).json({ error: 'Demande introuvable' });
+    if (!req.file) return res.status(400).json({ error: 'PDF voucher obligatoire' });
+
+    const isAmicaleDemand = String(current.payment_mode || '').trim() === 'amicale'
+      || Boolean(String(current.pricing_amicale_id || '').trim());
+    if (!isAmicaleDemand) {
+      return res.status(400).json({ error: 'Action reservee aux demandes adherants' });
+    }
+    if (!String(current.voucher_url || '').trim()) {
+      return res.status(400).json({ error: 'Le voucher automatique doit etre genere avant de pouvoir le remplacer par un PDF.' });
+    }
+
+    const now = getAgencySqlDateTime();
+    await deleteLocalFileFromPublicUrl(current.voucher_url, path.join('contracts', 'amicale-vouchers'));
+    await deleteLocalFileFromPublicUrl(current.voucher_url, path.join('uploads', 'amicale-voucher-pdfs'));
+    await deleteLocalFileFromPublicUrl(current.voucher_url, path.join('uploads', 'amicale-voucher-pdfs'));
+
+    const voucherUrl = `/uploads/amicale-voucher-pdfs/${req.file.filename}`;
+    const resolvedVoucherId = String(current.voucher_id || '').trim() || `vch_${demandId}`;
+    const resolvedVoucherNumber = String(current.voucher_number || '').trim() || `VCH-${String(demandId).slice(-8).toUpperCase()}`;
+    const nextStatus = String(current.status || '').trim() === 'voucher_envoye' ? 'voucher_envoye' : 'voucher_en_cours';
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET status = ?, voucher_id = ?, voucher_number = ?, voucher_url = ?,
+           voucher_generated_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [nextStatus, resolvedVoucherId, resolvedVoucherNumber, voucherUrl, now, now, demandId]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      nextStatus,
+      'admin',
+      String(req.authUser?.id || req.authUser?.email || 'admin').trim(),
+      `Voucher PDF remplace (${resolvedVoucherNumber})`,
+      now
+    );
+
+    return res.json((await fetchReservationDemandDetailsById(demandId)) || null);
+  } catch (error) {
+    console.error('Error uploading amicale voucher pdf:', error);
+    return res.status(500).json({ error: 'Impossible de remplacer le voucher PDF' });
+  }
+});
+
 app.post('/api/hotel-reservation-demands/:id/flouci/create-checkout', requireAuthenticatedSession, paymentRateLimit, async (req, res) => {
   try {
     await ensureHotelReservationDemandSchema();
@@ -22852,6 +22904,33 @@ const hotelVoucherPdfStorage = multer.diskStorage({
 
 const hotelVoucherPdfUpload = multer({
   storage: hotelVoucherPdfStorage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedExt = /\.pdf$/i.test(path.extname(file.originalname || '').toLowerCase());
+    const mime = String(file.mimetype || '').toLowerCase();
+    const allowedMime = mime === 'application/pdf' || mime === 'application/x-pdf';
+    if (allowedExt || allowedMime) return cb(null, true);
+    cb(new Error('Only PDF files are allowed'));
+  },
+});
+
+const amicaleVoucherPdfStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const voucherDir = path.join(__dirname, 'uploads', 'amicale-voucher-pdfs');
+    if (!fs.existsSync(voucherDir)) {
+      fs.mkdirSync(voucherDir, { recursive: true });
+    }
+    cb(null, voucherDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.pdf';
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `amicale-voucher-pdf-${uniqueSuffix}${ext === '.pdf' ? ext : '.pdf'}`);
+  },
+});
+
+const amicaleVoucherPdfUpload = multer({
+  storage: amicaleVoucherPdfStorage,
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedExt = /\.pdf$/i.test(path.extname(file.originalname || '').toLowerCase());

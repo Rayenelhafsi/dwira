@@ -1,7 +1,7 @@
-import { Outlet, useNavigate, useNavigation } from 'react-router';
+import { Outlet, useLocation, useNavigate, useNavigation } from 'react-router';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { AdminSidebar } from './components/AdminSidebar';
+import { AdminSidebar, buildAdminNavItems } from './components/AdminSidebar';
 import { Menu, X } from 'lucide-react';
 import logo from '../../../logo dwira.jpg';
 import { preloadImportantAdminRoutes } from './utils/routePreload';
@@ -9,6 +9,7 @@ import { preloadImportantAdminRoutes } from './utils/routePreload';
 export function AdminLayout() {
   const { user, isLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const navigation = useNavigation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -34,6 +35,10 @@ export function AdminLayout() {
     };
   }, [isLoading, user]);
 
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
 
   if (isLoading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center text-emerald-600 font-medium">
@@ -43,6 +48,9 @@ export function AdminLayout() {
 
   if (!user) return null;
 
+  const navItems = buildAdminNavItems(user, 0);
+  const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(`${path}/`);
+
   return (
     <div className="flex min-h-screen bg-gray-50 font-sans text-gray-900">
       {navigation.state !== 'idle' && (
@@ -50,8 +58,7 @@ export function AdminLayout() {
           <div className="h-full w-full origin-left animate-[dwira-admin-progress_1.15s_ease-in-out_infinite] bg-gradient-to-r from-emerald-400 via-emerald-600 to-emerald-400" />
         </div>
       )}
-      {/* Mobile header with hamburger */}
-      <div className="fixed top-0 left-0 right-0 bg-emerald-950 text-white h-16 px-4 flex items-center justify-between lg:hidden z-50">
+      <div className="fixed left-0 right-0 top-0 z-50 flex h-16 items-center justify-between bg-emerald-950 px-4 text-white lg:hidden">
         <div className="flex items-center gap-2">
           <img src={logo} alt="Dwira" className="h-6 w-auto" />
           <h1 className="font-bold">Dwira Admin</h1>
@@ -64,7 +71,26 @@ export function AdminLayout() {
         </button>
       </div>
 
-      {/* Overlay for mobile */}
+      <div className="fixed left-0 right-0 top-16 z-40 border-b border-emerald-100 bg-white/95 backdrop-blur lg:hidden">
+        <div className="dwira-admin-mobile-tabs flex gap-2 overflow-x-auto px-4 py-3">
+          {navItems.map((item) => (
+            <button
+              key={`mobile-admin-tab-${item.path}`}
+              type="button"
+              onClick={() => navigate(item.path)}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors ${
+                isActive(item.path)
+                  ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm'
+                  : 'border-slate-200 bg-white text-slate-700'
+              }`}
+            >
+              <item.icon size={14} />
+              <span className="whitespace-nowrap">{item.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {sidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -72,7 +98,6 @@ export function AdminLayout() {
         />
       )}
 
-      {/* Sidebar */}
       <div className={`
         fixed inset-y-0 left-0 z-50
         lg:top-0 lg:h-screen
@@ -83,16 +108,15 @@ export function AdminLayout() {
         <AdminSidebar onClose={() => setSidebarOpen(false)} />
       </div>
 
-      {/* Main content */}
       <main 
         className={`
-          flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6 md:p-8 
-          pt-20 sm:pt-24 lg:pt-6
+          dwira-admin-main flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 sm:p-6 md:p-8
+          pt-32 sm:pt-24 lg:pt-6
           transition-all duration-300 ease-in-out
           lg:ml-64
         `}
       >
-        <div className="max-w-7xl mx-auto">
+        <div className="dwira-admin-page mx-auto max-w-7xl min-w-0">
           <Outlet />
         </div>
       </main>
