@@ -3057,15 +3057,17 @@ export default function PropertiesPage() {
 
           if (hasDateFilter) {
             maxScore += 20;
-            const exactRange = validStayRanges.find((range) => isPropertyStayRangeCalendarAvailable(property, range.start, range.end));
-            exactDateAvailable = Boolean(exactRange);
-            const exactBookableRange = validStayRanges.find((range) => evaluatePropertyStayBookability(property, range.start, range.end).ok);
-            exactDateBookable = Boolean(exactBookableRange);
+            const firstUnavailableExactRange = validStayRanges.find((range) => !isPropertyStayRangeCalendarAvailable(property, range.start, range.end)) || null;
+            const firstUnbookableExactRange = validStayRanges.find((range) => !evaluatePropertyStayBookability(property, range.start, range.end).ok) || null;
+            const exactRange = firstUnavailableExactRange ? null : (validStayRanges[0] || null);
+            const exactBookableRange = firstUnbookableExactRange ? null : (validStayRanges[0] || null);
+            exactDateAvailable = !firstUnavailableExactRange;
+            exactDateBookable = !firstUnbookableExactRange;
             if (exactDateAvailable) {
               if (exactDateBookable) {
                 score += 20;
               } else {
-                const exactAvailabilityRange = exactRange || validStayRanges[0];
+                const exactAvailabilityRange = firstUnbookableExactRange || exactRange || validStayRanges[0];
                 if (exactAvailabilityRange) {
                   const stayValidation = evaluatePropertyStayBookability(property, exactAvailabilityRange.start, exactAvailabilityRange.end);
                   if (stayValidation.reason) {
