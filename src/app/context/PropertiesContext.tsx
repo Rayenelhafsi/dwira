@@ -1142,7 +1142,25 @@ function buildPublicPropertiesFromBiens(biens: Bien[], zonesById: Record<string,
       const aggregatedUnavailableDates = aggregateUnavailableDatesByUnitCalendars(
         groupedBiens.map((item) => (Array.isArray(item.unavailableDates) ? item.unavailableDates : []))
       );
-      return bienToProperty(bien, zonesById, aggregatedUnavailableDates);
+      const property = bienToProperty(bien, zonesById, aggregatedUnavailableDates);
+      property.residenceGroupedVariants = groupedBiens.map((item) => ({
+        id: String(item.id || '').trim(),
+        reference: String(item.reference || '').trim() || undefined,
+        slug: String(item.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        detailPath: buildPropertyDetailsPath({
+          id: String(item.id || '').trim(),
+          reference: String(item.reference || '').trim() || undefined,
+          slug: String(item.titre || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        }),
+        unavailableDates: Array.isArray(item.unavailableDates) ? item.unavailableDates : [],
+        images: Array.isArray(item.media)
+          ? item.media
+              .filter((media) => String(media?.type || '').trim().toLowerCase() === 'image')
+              .map((media) => resolvePublicMediaUrl(media?.url))
+              .filter(Boolean)
+          : [],
+      }));
+      return property;
     });
 }
 

@@ -64,6 +64,14 @@ export interface Property {
   category: string;
   residenceName?: string | null;
   residenceUnitSubType?: string | null;
+  residenceGroupedVariants?: Array<{
+    id: string;
+    reference?: string;
+    slug: string;
+    detailPath?: string;
+    unavailableDates?: DateStatus[];
+    images?: string[];
+  }>;
   isFeatured?: boolean;
   reservationOnRequest?: boolean;
   unavailableDates?: DateStatus[];

@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import {
   findBestStayRangeAlternative,
+  hasBlockingUnavailableDates,
   getStayAvailabilityAlternativeLabel,
   isValidStayRange,
   resolveStayAvailability,
@@ -882,6 +883,29 @@ const isPropertyStayRangeCalendarAvailable = (property: any, startRaw: string, e
   const stayRules = property?.filterProfile?.stayRules || null;
   const stayAvailability = resolveStayAvailability(stayRules?.unavailableDates || property?.unavailableDates || [], startRaw, endRaw);
   return stayAvailability.exactAvailable;
+};
+
+const getPropertyDisplayVariantForStayRanges = (
+  property: Property,
+  ranges: Array<{ start: string; end: string }>
+): Property | null => {
+  const variants = Array.isArray(property.residenceGroupedVariants) ? property.residenceGroupedVariants : [];
+  if (variants.length === 0 || ranges.length === 0) return null;
+
+  const matchingVariant = variants.find((variant) =>
+    ranges.every((range) => !hasBlockingUnavailableDates(variant.unavailableDates || [], range.start, range.end))
+  );
+  if (!matchingVariant) return null;
+
+  return {
+    ...property,
+    id: matchingVariant.id,
+    reference: matchingVariant.reference || property.reference,
+    slug: matchingVariant.slug || property.slug,
+    detailPath: matchingVariant.detailPath || property.detailPath,
+    unavailableDates: matchingVariant.unavailableDates || property.unavailableDates,
+    images: Array.isArray(matchingVariant.images) && matchingVariant.images.length > 0 ? matchingVariant.images : property.images,
+  };
 };
 
 export default function PropertiesPage() {
@@ -3571,9 +3595,12 @@ export default function PropertiesPage() {
     const flashRows: PrimaryDisplayResult[] = [];
     const regularRows: PrimaryDisplayResult[] = [];
     sortedScoredResults.forEach((row) => {
+      const displayProperty = hasStrictStaySearch
+        ? (getPropertyDisplayVariantForStayRanges(row.property, validStayRanges) || row.property)
+        : row.property;
       const baseParams = new URLSearchParams(searchParams.toString());
       const flashOffers = filterFlashOffersByStayRanges(
-        getPropertyFlashOffers(row.property),
+        getPropertyFlashOffers(displayProperty),
         stayRanges,
         hasStrictStaySearch
       );
@@ -3608,7 +3635,8 @@ export default function PropertiesPage() {
       if (flashEntries.length > 0) {
         flashRows.push({
           ...row,
-          displayKey: `${row.property.id}-flash-group`,
+          property: displayProperty,
+          displayKey: `${displayProperty.id}-flash-group`,
           cardVariant: "flash",
           flashOffer: flashEntries[0].flashOffer,
           flashOffers: flashEntries.map((entry) => entry.flashOffer),
@@ -3617,7 +3645,8 @@ export default function PropertiesPage() {
       }
       regularRows.push({
         ...row,
-        displayKey: String(row.property.id),
+        property: displayProperty,
+        displayKey: String(displayProperty.id),
         cardVariant: "default",
         flashOffer: null,
         searchParams: baseParams.toString(),
