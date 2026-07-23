@@ -227,6 +227,8 @@ export function hasBlockingUnavailableDates(
   const stayStart = parseDateOnly(startRaw);
   const stayEnd = parseDateOnly(endRaw);
   if (!stayStart || !stayEnd || !(stayStart < stayEnd)) return false;
+  const stayLastOccupiedDay = new Date(stayEnd);
+  stayLastOccupiedDay.setDate(stayLastOccupiedDay.getDate() - 1);
 
   return (Array.isArray(ranges) ? ranges : []).some((range) => {
     const status = String(range?.status || "").trim().toLowerCase();
@@ -234,7 +236,10 @@ export function hasBlockingUnavailableDates(
     const rangeStart = parseDateOnly(range?.start || range?.start_date);
     const rangeEnd = parseDateOnly(range?.end || range?.end_date);
     if (!rangeStart || !rangeEnd) return false;
-    return rangeStart < stayEnd && rangeEnd > stayStart;
+    // Unavailable date rows are displayed and aggregated as inclusive ranges
+    // across the app, so the exact-match filter must treat the end date as
+    // occupied too.
+    return rangeStart <= stayLastOccupiedDay && rangeEnd >= stayStart;
   });
 }
 

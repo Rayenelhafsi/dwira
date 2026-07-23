@@ -2849,10 +2849,8 @@ out body 40;
         const rowStart = String(row?.start || '').slice(0, 10);
         const rowEnd = String(row?.end || '').slice(0, 10);
         if (!rowStart || !rowEnd) return false;
-        // Night-overlap check with end-exclusive intervals:
-        // guest stay [startDate, endDate), occupied range [rowStart, rowEnd)
-        // This allows checkout exactly on rowStart (boundary handoff day).
-        return rowStart < endDate && rowEnd > startDate;
+        const stayLastOccupiedDate = format(new Date(orderedEnd.getTime() - (24 * 60 * 60 * 1000)), 'yyyy-MM-dd');
+        return rowStart <= stayLastOccupiedDate && rowEnd >= startDate;
       });
       if (hasBlockedOrBookedOverlap) {
         failRule("Periode invalide: un ou plusieurs jours sont bloques ou reserves.");
