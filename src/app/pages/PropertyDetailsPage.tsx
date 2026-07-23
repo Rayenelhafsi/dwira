@@ -110,6 +110,30 @@ type UnavailableDateRow = {
   reservation_demand_id?: string | null;
 };
 
+const isBlockingStayStatus = (status: unknown) => {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'blocked' || normalized === 'booked';
+};
+
+const toDateKey = (value: unknown) => String(value || '').slice(0, 10);
+
+const hasBlockingStayOverlap = (
+  unavailableRows: Array<{ start?: string; end?: string; status?: string }>,
+  startDate: string,
+  endDate: string,
+) => {
+  if (!startDate || !endDate || startDate >= endDate) return false;
+  return unavailableRows.some((row) => {
+    if (!isBlockingStayStatus(row?.status)) return false;
+    const rowStart = toDateKey(row?.start);
+    const rowEnd = toDateKey(row?.end);
+    if (!rowStart || !rowEnd || rowStart > rowEnd) return false;
+    // Both calendars and reservations use exclusive checkout semantics:
+    // occupied nights are [start, end), so arrival on rowEnd and departure on rowStart stay valid.
+    return rowStart < endDate && startDate < rowEnd;
+  });
+};
+
 const normalizeResidenceMatchToken = (value: unknown) => String(value || '').trim().toLowerCase();
 const normalizeResidenceMatchType = (value: unknown) => {
   const raw = normalizeResidenceMatchToken(value);
@@ -1573,6 +1597,9 @@ out body 40;
     if (startDate === endDate) {
       return { valid: false, message: "Choisissez au moins une nuit." };
     }
+    if (hasBlockingStayOverlap(effectiveUnavailableDates || [], startDate, endDate)) {
+      return { valid: false, message: "Periode invalide: un ou plusieurs jours sont bloques ou reserves." };
+    }
 
     const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
     const flashRangeForStayRules = matchingLockedFlashRange || matchingPreviewFlashRange;
@@ -2821,38 +2848,7 @@ out body 40;
       const startDate = format(orderedStart, 'yyyy-MM-dd');
       const endDate = format(orderedEnd, 'yyyy-MM-dd');
       const unavailableRows = effectiveUnavailableDates || [];
-      const nextDayDate = format(new Date(orderedStart.getTime() + (24 * 60 * 60 * 1000)), 'yyyy-MM-dd');
-      const isBlockedOrBookedDay = (day: string) => unavailableRows.some((row) => {
-        const status = String(row?.status || '').toLowerCase();
-        if (status !== 'blocked' && status !== 'booked') return false;
-        const rowStart = String(row?.start || '').slice(0, 10);
-        const rowEnd = String(row?.end || '').slice(0, 10);
-        if (!rowStart || !rowEnd) return false;
-        return rowStart <= day && day <= rowEnd;
-      });
-      const isArrivalInsideOccupiedNight = unavailableRows.some((row) => {
-        const status = String(row?.status || '').toLowerCase();
-        if (status !== 'blocked' && status !== 'booked') return false;
-        const rowStart = String(row?.start || '').slice(0, 10);
-        const rowEnd = String(row?.end || '').slice(0, 10);
-        if (!rowStart || !rowEnd) return false;
-        // Occupied nights are [rowStart, rowEnd). Arrival on rowEnd is allowed (boundary).
-        return rowStart <= startDate && startDate < rowEnd;
-      });
-      if (isArrivalInsideOccupiedNight && isBlockedOrBookedDay(nextDayDate)) {
-        failRule("Date d'arrivee invalide: ce jour est bloque ou reserve.");
-        return;
-      }
-      const hasBlockedOrBookedOverlap = unavailableRows.some((row) => {
-        const status = String(row?.status || '').toLowerCase();
-        if (status !== 'blocked' && status !== 'booked') return false;
-        const rowStart = String(row?.start || '').slice(0, 10);
-        const rowEnd = String(row?.end || '').slice(0, 10);
-        if (!rowStart || !rowEnd) return false;
-        const stayLastOccupiedDate = format(new Date(orderedEnd.getTime() - (24 * 60 * 60 * 1000)), 'yyyy-MM-dd');
-        return rowStart <= stayLastOccupiedDate && rowEnd >= startDate;
-      });
-      if (hasBlockedOrBookedOverlap) {
+      if (hasBlockingStayOverlap(unavailableRows, startDate, endDate)) {
         failRule("Periode invalide: un ou plusieurs jours sont bloques ou reserves.");
         return;
       }
