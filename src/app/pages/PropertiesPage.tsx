@@ -15,6 +15,7 @@ import { PUBLIC_COMING_SOON } from "../config/publicAvailability";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import {
+  aggregateUnavailableDatesByUnitCalendars,
   findBestStayRangeAlternative,
   hasBlockingUnavailableDates,
   getStayAvailabilityAlternativeLabel,
@@ -838,7 +839,12 @@ const propertyMatchesComfortOption = (property: any, option: HomeComfortOptionKe
   return false;
 };
 
-const evaluatePropertyStayBookability = (property: any, startRaw: string, endRaw: string) => {
+const evaluatePropertyStayBookability = (
+  property: any,
+  startRaw: string,
+  endRaw: string,
+  resolveUnavailableDates?: (property: any) => any[],
+) => {
   if (!isValidStayRange(startRaw, endRaw)) {
     return { ok: false, reason: "Plage de sejour invalide." };
   }
@@ -851,7 +857,8 @@ const evaluatePropertyStayBookability = (property: any, startRaw: string, endRaw
   const end = new Date(`${endRaw}T00:00:00`);
   const nights = Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
 
-  const stayAvailability = resolveStayAvailability(stayRules?.unavailableDates || property?.unavailableDates || [], startRaw, endRaw);
+  const unavailableDates = resolveUnavailableDates ? resolveUnavailableDates(property) : (stayRules?.unavailableDates || property?.unavailableDates || []);
+  const stayAvailability = resolveStayAvailability(unavailableDates, startRaw, endRaw);
   if (!stayAvailability.exactAvailable) {
     return { ok: false, reason: "Dates non disponibles." };
   }
@@ -878,22 +885,35 @@ const evaluatePropertyStayBookability = (property: any, startRaw: string, endRaw
   return { ok: true, reason: "" };
 };
 
-const isPropertyStayRangeCalendarAvailable = (property: any, startRaw: string, endRaw: string) => {
+const isPropertyStayRangeCalendarAvailable = (
+  property: any,
+  startRaw: string,
+  endRaw: string,
+  resolveUnavailableDates?: (property: any) => any[],
+) => {
   if (!isValidStayRange(startRaw, endRaw)) return false;
-  const stayRules = property?.filterProfile?.stayRules || null;
-  const stayAvailability = resolveStayAvailability(stayRules?.unavailableDates || property?.unavailableDates || [], startRaw, endRaw);
+  const stayAvailability = resolveStayAvailability(
+    resolveUnavailableDates ? resolveUnavailableDates(property) : (property?.filterProfile?.stayRules?.unavailableDates || property?.unavailableDates || []),
+    startRaw,
+    endRaw,
+  );
   return stayAvailability.exactAvailable;
 };
 
 const getPropertyDisplayVariantForStayRanges = (
   property: Property,
-  ranges: Array<{ start: string; end: string }>
+  ranges: Array<{ start: string; end: string }>,
+  resolveUnavailableDates?: (property: any) => any[],
 ): Property | null => {
   const variants = Array.isArray(property.residenceGroupedVariants) ? property.residenceGroupedVariants : [];
   if (variants.length === 0 || ranges.length === 0) return null;
 
   const matchingVariant = variants.find((variant) =>
-    ranges.every((range) => !hasBlockingUnavailableDates(variant.unavailableDates || [], range.start, range.end))
+    ranges.every((range) => !hasBlockingUnavailableDates(
+      resolveUnavailableDates ? resolveUnavailableDates(variant) : (variant.unavailableDates || []),
+      range.start,
+      range.end,
+    ))
   );
   if (!matchingVariant) return null;
 
@@ -928,6 +948,8 @@ export default function PropertiesPage() {
   const [publicPartnerSlug, setPublicPartnerSlug] = useState<string | null>(null);
   const [resolvedPricingAmicaleId, setResolvedPricingAmicaleId] = useState<string | null>(null);
   const [resolvedPartnerAgencyMarginMultiplier, setResolvedPartnerAgencyMarginMultiplier] = useState<number | null>(null);
+  const [searchUnavailableDatesByBienId, setSearchUnavailableDatesByBienId] = useState<Record<string, any[]>>({});
+  const hydratedSearchUnavailableDateIdsRef = useRef<Set<string>>(new Set());
   const trackingChannel = useMemo(() => {
     const partnerQuery = String(searchParams.get("partner") || searchParams.get("partnerAgencyId") || searchParams.get("partner_agency_id") || searchParams.get("publicPartnerSlug") || "").trim();
     if (partnerQuery || publicPartnerSlug) return "partner" as const;
@@ -2292,6 +2314,77 @@ export default function PropertiesPage() {
       : []),
     [selectedMode, stayRanges]
   );
+  const resolvePropertyUnavailableDates = useCallback((property: any) => {
+    const propertyId = String(property?.id || "").trim();
+    if (propertyId) {
+      if (Object.prototype.hasOwnProperty.call(searchUnavailableDatesByBienId, propertyId)) {
+        return Array.isArray(searchUnavailableDatesByBienId[propertyId]) ? searchUnavailableDatesByBienId[propertyId] : [];
+      }
+      const bienMatch = bienById.get(propertyId);
+      if (Array.isArray(bienMatch?.unavailableDates) && bienMatch.unavailableDates.length > 0) {
+        return bienMatch.unavailableDates;
+      }
+    }
+    const variants = Array.isArray(property?.residenceGroupedVariants) ? property.residenceGroupedVariants : [];
+    if (variants.length > 0) {
+      return aggregateUnavailableDatesByUnitCalendars(
+        variants.map((variant: any) => {
+          const variantId = String(variant?.id || "").trim();
+          if (variantId && Object.prototype.hasOwnProperty.call(searchUnavailableDatesByBienId, variantId)) {
+            return Array.isArray(searchUnavailableDatesByBienId[variantId]) ? searchUnavailableDatesByBienId[variantId] : [];
+          }
+          const bienMatch = bienById.get(variantId);
+          if (Array.isArray(bienMatch?.unavailableDates) && bienMatch.unavailableDates.length > 0) {
+            return bienMatch.unavailableDates;
+          }
+          return Array.isArray(variant?.unavailableDates) ? variant.unavailableDates : [];
+        })
+      );
+    }
+    return Array.isArray(property?.filterProfile?.stayRules?.unavailableDates)
+      ? property.filterProfile.stayRules.unavailableDates
+      : (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []);
+  }, [bienById, searchUnavailableDatesByBienId]);
+
+  useEffect(() => {
+    if (selectedMode !== "location_saisonniere" || validStayRanges.length === 0) return;
+    const publicBienIds = modeBiens
+      .filter((bien) => bien.visible_sur_site !== false && String(bien.type || "").trim().toLowerCase() !== "residence")
+      .map((bien) => String(bien.id || "").trim())
+      .filter(Boolean);
+    const missingBienIds = publicBienIds.filter((bienId) => !hydratedSearchUnavailableDateIdsRef.current.has(bienId));
+    if (missingBienIds.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const loadedEntries: Array<[string, any[]]> = [];
+      await Promise.all(
+        missingBienIds.map(async (bienId) => {
+          try {
+            const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: "include" });
+            if (!response.ok) return;
+            const rows = await response.json();
+            loadedEntries.push([bienId, Array.isArray(rows) ? rows : []]);
+            hydratedSearchUnavailableDateIdsRef.current.add(bienId);
+          } catch {
+            // Ignore per-bien failures and keep existing fallback calendars.
+          }
+        })
+      );
+      if (cancelled || loadedEntries.length === 0) return;
+      setSearchUnavailableDatesByBienId((prev) => {
+        const next = { ...prev };
+        loadedEntries.forEach(([bienId, rows]) => {
+          next[bienId] = rows;
+        });
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [API_URL, modeBiens, selectedMode, validStayRanges.length]);
 
   const buildManagedSearchParams = () => {
     const params = new URLSearchParams(searchParams);
@@ -3084,8 +3177,8 @@ export default function PropertiesPage() {
 
           if (hasDateFilter) {
             maxScore += 20;
-            const firstUnavailableExactRange = validStayRanges.find((range) => !isPropertyStayRangeCalendarAvailable(property, range.start, range.end)) || null;
-            const firstUnbookableExactRange = validStayRanges.find((range) => !evaluatePropertyStayBookability(property, range.start, range.end).ok) || null;
+            const firstUnavailableExactRange = validStayRanges.find((range) => !isPropertyStayRangeCalendarAvailable(property, range.start, range.end, resolvePropertyUnavailableDates)) || null;
+            const firstUnbookableExactRange = validStayRanges.find((range) => !evaluatePropertyStayBookability(property, range.start, range.end, resolvePropertyUnavailableDates).ok) || null;
             const exactRange = firstUnavailableExactRange ? null : (validStayRanges[0] || null);
             const exactBookableRange = firstUnbookableExactRange ? null : (validStayRanges[0] || null);
             exactDateAvailable = !firstUnavailableExactRange;
@@ -3096,7 +3189,7 @@ export default function PropertiesPage() {
               } else {
                 const exactAvailabilityRange = firstUnbookableExactRange || exactRange || validStayRanges[0];
                 if (exactAvailabilityRange) {
-                  const stayValidation = evaluatePropertyStayBookability(property, exactAvailabilityRange.start, exactAvailabilityRange.end);
+                  const stayValidation = evaluatePropertyStayBookability(property, exactAvailabilityRange.start, exactAvailabilityRange.end, resolvePropertyUnavailableDates);
                   if (stayValidation.reason) {
                     dateFailureReason = stayValidation.reason;
                     dateRuleType = classifyDateRuleReason(stayValidation.reason);
@@ -3104,7 +3197,7 @@ export default function PropertiesPage() {
                   const alternative = findBestStayRangeAlternative({
                     startRaw: exactAvailabilityRange.start,
                     endRaw: exactAvailabilityRange.end,
-                    isRangeValid: (candidateStart, candidateEnd) => evaluatePropertyStayBookability(property, candidateStart, candidateEnd).ok,
+                    isRangeValid: (candidateStart, candidateEnd) => evaluatePropertyStayBookability(property, candidateStart, candidateEnd, resolvePropertyUnavailableDates).ok,
                     maxShiftDays: 7,
                     maxNightDelta: 7,
                   });
@@ -3123,12 +3216,12 @@ export default function PropertiesPage() {
               let failureReason = "Dates non disponibles";
               const alternatives = validStayRanges
                 .map((range) => {
-                  const stayValidation = evaluatePropertyStayBookability(property, range.start, range.end);
+                  const stayValidation = evaluatePropertyStayBookability(property, range.start, range.end, resolvePropertyUnavailableDates);
                   if (stayValidation.reason) failureReason = stayValidation.reason;
                   const alternative = findBestStayRangeAlternative({
                     startRaw: range.start,
                     endRaw: range.end,
-                    isRangeValid: (candidateStart, candidateEnd) => evaluatePropertyStayBookability(property, candidateStart, candidateEnd).ok,
+                    isRangeValid: (candidateStart, candidateEnd) => evaluatePropertyStayBookability(property, candidateStart, candidateEnd, resolvePropertyUnavailableDates).ok,
                     maxShiftDays: 7,
                     maxNightDelta: 7,
                   });
@@ -3597,7 +3690,7 @@ export default function PropertiesPage() {
     const regularRows: PrimaryDisplayResult[] = [];
     sortedScoredResults.forEach((row) => {
       const displayProperty = hasStrictStaySearch
-        ? (getPropertyDisplayVariantForStayRanges(row.property, validStayRanges) || row.property)
+        ? (getPropertyDisplayVariantForStayRanges(row.property, validStayRanges, resolvePropertyUnavailableDates) || row.property)
         : row.property;
       const baseParams = new URLSearchParams(searchParams.toString());
       const flashOffers = filterFlashOffersByStayRanges(
@@ -3654,7 +3747,7 @@ export default function PropertiesPage() {
       });
     });
     return [...flashRows, ...regularRows];
-  }, [hasStrictStaySearch, searchParams, sortedScoredResults, stayRanges]);
+  }, [hasStrictStaySearch, resolvePropertyUnavailableDates, searchParams, sortedScoredResults, stayRanges]);
   const flashDisplayResults = useMemo(
     () => displayedPrimaryResults.filter((row) => row.cardVariant === "flash"),
     [displayedPrimaryResults]
@@ -4757,7 +4850,7 @@ export default function PropertiesPage() {
                             ? [{ start: row.stayDateAlternative.start, end: row.stayDateAlternative.end }]
                             : validStayRanges;
                           const displayProperty = hasStrictStaySearch
-                            ? (getPropertyDisplayVariantForStayRanges(row.property, alternativeRanges) || row.property)
+                            ? (getPropertyDisplayVariantForStayRanges(row.property, alternativeRanges, resolvePropertyUnavailableDates) || row.property)
                             : row.property;
                           return (
                           <div key={`${section.key}-${displayProperty.id}`} className="space-y-2">
