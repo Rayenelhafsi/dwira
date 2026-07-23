@@ -227,8 +227,6 @@ export function hasBlockingUnavailableDates(
   const stayStart = parseDateOnly(startRaw);
   const stayEnd = parseDateOnly(endRaw);
   if (!stayStart || !stayEnd || !(stayStart < stayEnd)) return false;
-  const stayLastOccupiedDay = new Date(stayEnd);
-  stayLastOccupiedDay.setDate(stayLastOccupiedDay.getDate() - 1);
 
   return (Array.isArray(ranges) ? ranges : []).some((range) => {
     const status = String(range?.status || "").trim().toLowerCase();
@@ -236,10 +234,11 @@ export function hasBlockingUnavailableDates(
     const rangeStart = parseDateOnly(range?.start || range?.start_date);
     const rangeEnd = parseDateOnly(range?.end || range?.end_date);
     if (!rangeStart || !rangeEnd) return false;
-    // Unavailable date rows are displayed and aggregated as inclusive ranges
-    // across the app, so the exact-match filter must treat the end date as
-    // occupied too.
-    return rangeStart <= stayLastOccupiedDay && rangeEnd >= stayStart;
+    // Reservation nights use [start, end) semantics across the booking UI:
+    // arrival on an unavailable range end is allowed, and departure on its
+    // start is allowed. Alternatives and exact-match availability must follow
+    // the same overlap rule as the half-day calendar visuals.
+    return rangeStart < stayEnd && stayStart < rangeEnd;
   });
 }
 

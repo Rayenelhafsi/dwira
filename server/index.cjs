@@ -18881,6 +18881,313 @@ app.get('/api/contrats', requireAdminSession, async (req, res) => {
   }
 });
 
+app.get('/api/admin/dashboard-reservations', requireAdminSession, async (req, res) => {
+  try {
+    await ensureContractsSchema();
+    await ensureReservationDemandSchema();
+    await ensureHotelReservationDemandSchema();
+    await ensureAdminReservationDiscussionSchema();
+
+    const [contractRows] = await pool.query(`
+      SELECT
+        c.id,
+        c.bien_id,
+        c.date_debut,
+        c.date_fin,
+        c.montant_recu,
+        c.montant_donne_proprietaire,
+        c.montant_total_proprietaire,
+        c.profit_net,
+        c.admin_note,
+        c.url_pdf,
+        c.owner_url_pdf,
+        c.statut,
+        DATE_FORMAT(c.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(c.created_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
+        b.reference AS bien_reference,
+        b.titre AS bien_titre,
+        p.nom AS proprietaire_nom,
+        l.nom AS locataire_nom,
+        (
+          SELECT d.payment_receipt_image_url
+          FROM reservation_demands d
+          WHERE d.contract_id = c.id
+          ORDER BY d.updated_at DESC
+          LIMIT 1
+        ) AS payment_receipt_image_url,
+        (
+          SELECT d.payment_receipts_json
+          FROM reservation_demands d
+          WHERE d.contract_id = c.id
+          ORDER BY d.updated_at DESC
+          LIMIT 1
+        ) AS payment_receipts_json
+      FROM contrats c
+      LEFT JOIN biens b ON b.id = c.bien_id
+      LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+      LEFT JOIN locataires l ON l.id = c.locataire_id
+      ORDER BY c.created_at DESC
+    `);
+
+    const [reservationRows] = await pool.query(`
+      SELECT
+        d.id,
+        d.bien_id,
+        d.start_date,
+        d.end_date,
+        d.total_amount,
+        d.montant_donne_proprietaire,
+        d.montant_total_proprietaire,
+        d.profit_net,
+        d.admin_note,
+        d.status,
+        d.client_name,
+        d.payment_mode,
+        d.pricing_amicale_id,
+        d.contract_url,
+        d.owner_contract_url,
+        d.voucher_url,
+        d.payment_receipt_image_url,
+        d.payment_receipts_json,
+        DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
+        b.reference AS bien_reference,
+        b.titre AS bien_titre,
+        p.nom AS proprietaire_nom,
+        a.name AS amicale_name
+      FROM reservation_demands d
+      LEFT JOIN biens b ON b.id = d.bien_id
+      LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+      LEFT JOIN amicales a ON a.id = d.pricing_amicale_id
+      ORDER BY d.updated_at DESC, d.created_at DESC
+    `);
+
+    const [hotelRows] = await pool.query(`
+      SELECT
+        h.id,
+        h.hotel_id,
+        h.hotel_name,
+        h.hotel_city_name,
+        h.check_in,
+        h.check_out,
+        h.total_price,
+        h.montant_donne_proprietaire,
+        h.montant_total_proprietaire,
+        h.profit_net,
+        h.admin_note,
+        h.status,
+        h.client_name,
+        h.payment_mode,
+        h.pricing_amicale_id,
+        h.amicale_name,
+        h.voucher_url,
+        h.payment_receipt_image_url,
+        DATE_FORMAT(h.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(h.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+      FROM hotel_reservation_demands h
+      ORDER BY h.updated_at DESC, h.created_at DESC
+    `);
+
+    const [amicaleGrossRows] = await pool.query(`
+      SELECT
+        ag.id,
+        ag.amicale_id,
+        ag.amicale_name,
+        ag.bien_id,
+        ag.bien_reference,
+        ag.bien_title,
+        DATE_FORMAT(ag.arrival_date, '%Y-%m-%d') AS arrival_date,
+        DATE_FORMAT(ag.departure_date, '%Y-%m-%d') AS departure_date,
+        ag.owner_advance_amount,
+        ag.rental_total_amount,
+        ag.benefit_amount,
+        ag.internal_note,
+        ag.agent_note,
+        DATE_FORMAT(ag.submitted_at, '%Y-%m-%d %H:%i:%s') AS submitted_at,
+        DATE_FORMAT(ag.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(ag.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
+        p.nom AS proprietaire_nom
+      FROM admin_amicale_gross_entries ag
+      LEFT JOIN biens b ON b.id = ag.bien_id
+      LEFT JOIN proprietaires p ON p.id = b.proprietaire_id
+      ORDER BY ag.updated_at DESC, ag.created_at DESC
+    `);
+
+    const [discussionRows] = await pool.query(`
+      SELECT
+        id,
+        entity_type,
+        entity_id,
+        note,
+        created_by_admin_id,
+        created_by_admin_name,
+        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+      FROM admin_reservation_discussions
+      ORDER BY created_at ASC
+    `);
+    const formattedDiscussions = (discussionRows || []).map(formatAdminReservationDiscussionRow).filter(Boolean);
+
+    const items = [
+      ...(contractRows || []).map((row) => ({
+        entity_type: 'contract',
+        entity_id: String(row.id || '').trim(),
+        source_label: 'Contrat reservation',
+        title: String(row.bien_titre || 'Contrat reservation').trim(),
+        reference: row.bien_reference || null,
+        owner_name: row.proprietaire_nom || null,
+        tenant_name: row.locataire_nom || null,
+        amicale_name: null,
+        status: row.statut || null,
+        check_in: row.date_debut || null,
+        check_out: row.date_fin || null,
+        created_at: row.created_at || null,
+        updated_at: row.updated_at || null,
+        owner_amount_paid: row.montant_donne_proprietaire === null || row.montant_donne_proprietaire === undefined ? null : Number(row.montant_donne_proprietaire),
+        owner_total_amount: row.montant_total_proprietaire === null || row.montant_total_proprietaire === undefined ? null : Number(row.montant_total_proprietaire),
+        total_amount: row.montant_recu === null || row.montant_recu === undefined ? null : Number(row.montant_recu),
+        profit_net: row.profit_net === null || row.profit_net === undefined ? null : Number(row.profit_net),
+        admin_note: row.admin_note || null,
+        bien_id: row.bien_id || null,
+        contract_url: row.url_pdf || null,
+        owner_contract_url: row.owner_url_pdf || null,
+        voucher_url: null,
+        receipt_urls: (() => {
+          const urls = [];
+          const parsedReceipts = parseJsonArray(row.payment_receipts_json);
+          for (const receipt of parsedReceipts || []) {
+            const url = String(receipt?.url || '').trim();
+            if (url) urls.push(url);
+          }
+          const fallbackUrl = String(row.payment_receipt_image_url || '').trim();
+          if (fallbackUrl && !urls.includes(fallbackUrl)) urls.push(fallbackUrl);
+          return urls;
+        })(),
+      })),
+      ...(reservationRows || []).map((row) => ({
+        entity_type: 'reservation_demand',
+        entity_id: String(row.id || '').trim(),
+        source_label: 'Demande adherant',
+        title: String(row.bien_titre || 'Demande adherant').trim(),
+        reference: row.bien_reference || null,
+        owner_name: row.proprietaire_nom || null,
+        tenant_name: row.client_name || null,
+        amicale_name: row.amicale_name || null,
+        status: row.status || null,
+        check_in: row.start_date || null,
+        check_out: row.end_date || null,
+        created_at: row.created_at || null,
+        updated_at: row.updated_at || null,
+        owner_amount_paid: row.montant_donne_proprietaire === null || row.montant_donne_proprietaire === undefined ? null : Number(row.montant_donne_proprietaire),
+        owner_total_amount: row.montant_total_proprietaire === null || row.montant_total_proprietaire === undefined ? null : Number(row.montant_total_proprietaire),
+        total_amount: row.total_amount === null || row.total_amount === undefined ? null : Number(row.total_amount),
+        profit_net: row.profit_net === null || row.profit_net === undefined ? null : Number(row.profit_net),
+        admin_note: row.admin_note || null,
+        bien_id: row.bien_id || null,
+        contract_url: row.contract_url || null,
+        owner_contract_url: row.owner_contract_url || null,
+        voucher_url: row.voucher_url || null,
+        receipt_urls: (() => {
+          const urls = [];
+          const parsedReceipts = parseJsonArray(row.payment_receipts_json);
+          for (const receipt of parsedReceipts || []) {
+            const url = String(receipt?.url || '').trim();
+            if (url) urls.push(url);
+          }
+          const fallbackUrl = String(row.payment_receipt_image_url || '').trim();
+          if (fallbackUrl && !urls.includes(fallbackUrl)) urls.push(fallbackUrl);
+          return urls;
+        })(),
+      })),
+      ...(amicaleGrossRows || []).map((row) => ({
+        entity_type: 'amicale_gross',
+        entity_id: String(row.id || '').trim(),
+        source_label: 'Amicale en gros',
+        title: String(row.bien_title || 'Amicale en gros').trim(),
+        reference: row.bien_reference || null,
+        owner_name: row.proprietaire_nom || null,
+        tenant_name: row.amicale_name || null,
+        amicale_name: row.amicale_name || null,
+        status: row.submitted_at ? 'soumise' : 'brouillon',
+        check_in: row.arrival_date || null,
+        check_out: row.departure_date || null,
+        created_at: row.created_at || null,
+        updated_at: row.updated_at || null,
+        owner_amount_paid: row.owner_advance_amount === null || row.owner_advance_amount === undefined ? null : Number(row.owner_advance_amount),
+        owner_total_amount: row.owner_advance_amount === null || row.owner_advance_amount === undefined ? null : Number(row.owner_advance_amount),
+        total_amount: row.rental_total_amount === null || row.rental_total_amount === undefined ? null : Number(row.rental_total_amount),
+        profit_net: row.benefit_amount === null || row.benefit_amount === undefined ? null : Number(row.benefit_amount),
+        admin_note: row.internal_note || null,
+        bien_id: row.bien_id || null,
+        amicale_id: row.amicale_id || null,
+        agent_note: row.agent_note || null,
+        contract_url: null,
+        owner_contract_url: null,
+        voucher_url: null,
+        receipt_urls: [],
+      })),
+      ...(hotelRows || []).map((row) => ({
+        entity_type: 'hotel_reservation',
+        entity_id: String(row.id || '').trim(),
+        source_label: 'Reservation hotel',
+        title: String(row.hotel_name || 'Reservation hotel').trim(),
+        reference: row.hotel_city_name || null,
+        owner_name: null,
+        tenant_name: row.client_name || null,
+        amicale_name: row.amicale_name || null,
+        status: row.status || null,
+        check_in: row.check_in || null,
+        check_out: row.check_out || null,
+        created_at: row.created_at || null,
+        updated_at: row.updated_at || null,
+        owner_amount_paid: row.montant_donne_proprietaire === null || row.montant_donne_proprietaire === undefined ? null : Number(row.montant_donne_proprietaire),
+        owner_total_amount: row.montant_total_proprietaire === null || row.montant_total_proprietaire === undefined ? null : Number(row.montant_total_proprietaire),
+        total_amount: row.total_price === null || row.total_price === undefined ? null : Number(row.total_price),
+        profit_net: row.profit_net === null || row.profit_net === undefined ? null : Number(row.profit_net),
+        admin_note: row.admin_note || null,
+        bien_id: null,
+        contract_url: null,
+        owner_contract_url: null,
+        voucher_url: row.voucher_url || null,
+        receipt_urls: String(row.payment_receipt_image_url || '').trim() ? [String(row.payment_receipt_image_url || '').trim()] : [],
+      })),
+    ];
+
+    res.json({
+      items: attachAdminReservationDiscussions(items, formattedDiscussions),
+      globalDiscussions: formattedDiscussions.filter((entry) => entry.entity_type === 'dashboard_global' && entry.entity_id === 'reservations_dashboard'),
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard reservations:', error);
+    res.status(500).json({ error: 'Impossible de charger les reservations du dashboard' });
+  }
+});
+
+app.post('/api/admin/dashboard-reservations/:entityType/:entityId/discussions', requireAdminSession, async (req, res) => {
+  try {
+    const entityType = String(req.params?.entityType || '').trim();
+    const entityId = String(req.params?.entityId || '').trim();
+    const note = String(req.body?.note || '').trim();
+    const allowedTypes = new Set(['contract', 'reservation_demand', 'amicale_gross', 'hotel_reservation', 'dashboard_global']);
+    if (!allowedTypes.has(entityType) || !entityId) {
+      return res.status(400).json({ error: 'Reservation cible invalide' });
+    }
+    if (!note) {
+      return res.status(400).json({ error: 'Note obligatoire' });
+    }
+    const discussion = await createAdminReservationDiscussion({
+      entityType,
+      entityId,
+      note,
+      adminUser: req.authUser,
+      createdAt: getAgencySqlDateTime(),
+    });
+    res.status(201).json(discussion);
+  } catch (error) {
+    console.error('Error saving dashboard reservation discussion:', error);
+    res.status(500).json({ error: 'Impossible d enregistrer la discussion' });
+  }
+});
+
 app.get('/api/contrats/:id', requireAuthenticatedSession, async (req, res) => {
   try {
     await ensureContractsSchema();
@@ -28891,6 +29198,99 @@ async function ensureContractsSchema() {
   if (!(await columnExists('contrats', 'admin_note'))) {
     await pool.query('ALTER TABLE contrats ADD COLUMN admin_note TEXT NULL AFTER profit_net');
   }
+}
+
+let ensureAdminReservationDiscussionSchemaPromise = null;
+
+async function ensureAdminReservationDiscussionSchema() {
+  if (!ensureAdminReservationDiscussionSchemaPromise) {
+    ensureAdminReservationDiscussionSchemaPromise = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS admin_reservation_discussions (
+          id VARCHAR(96) PRIMARY KEY,
+          entity_type VARCHAR(40) NOT NULL,
+          entity_id VARCHAR(100) NOT NULL,
+          note LONGTEXT NOT NULL,
+          created_by_admin_id VARCHAR(100) NULL,
+          created_by_admin_name VARCHAR(255) NULL,
+          created_at DATETIME NOT NULL,
+          INDEX idx_admin_res_discussion_entity (entity_type, entity_id, created_at)
+        )
+      `);
+    })().catch((error) => {
+      ensureAdminReservationDiscussionSchemaPromise = null;
+      throw error;
+    });
+  }
+  await ensureAdminReservationDiscussionSchemaPromise;
+}
+
+function formatAdminReservationDiscussionRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id || '').trim(),
+    entity_type: String(row.entity_type || '').trim(),
+    entity_id: String(row.entity_id || '').trim(),
+    note: String(row.note || '').trim(),
+    created_by_admin_id: row.created_by_admin_id || null,
+    created_by_admin_name: row.created_by_admin_name || null,
+    created_at: row.created_at || null,
+  };
+}
+
+async function createAdminReservationDiscussion({ entityType, entityId, note, adminUser, createdAt }) {
+  await ensureAdminReservationDiscussionSchema();
+  const normalizedEntityType = String(entityType || '').trim();
+  const normalizedEntityId = String(entityId || '').trim();
+  const normalizedNote = String(note || '').trim();
+  if (!normalizedEntityType || !normalizedEntityId || !normalizedNote) {
+    throw new Error('Discussion invalide');
+  }
+  const insertedAt = createdAt || getAgencySqlDateTime();
+  const rowId = `ard_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO admin_reservation_discussions (
+       id, entity_type, entity_id, note, created_by_admin_id, created_by_admin_name, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      rowId,
+      normalizedEntityType,
+      normalizedEntityId,
+      normalizedNote,
+      String(adminUser?.id || '').trim() || null,
+      String(adminUser?.nom || adminUser?.name || adminUser?.email || '').trim() || null,
+      insertedAt,
+    ]
+  );
+  const [rows] = await pool.query(
+    `SELECT
+       id, entity_type, entity_id, note, created_by_admin_id, created_by_admin_name,
+       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+     FROM admin_reservation_discussions
+     WHERE id = ?
+     LIMIT 1`,
+    [rowId]
+  );
+  return formatAdminReservationDiscussionRow(rows?.[0] || null);
+}
+
+function attachAdminReservationDiscussions(items, discussionRows) {
+  const discussionsByKey = new Map();
+  for (const discussion of discussionRows || []) {
+    const key = `${String(discussion.entity_type || '').trim()}:${String(discussion.entity_id || '').trim()}`;
+    const list = discussionsByKey.get(key) || [];
+    list.push(discussion);
+    discussionsByKey.set(key, list);
+  }
+  return (items || []).map((item) => {
+    const key = `${String(item.entity_type || '').trim()}:${String(item.entity_id || '').trim()}`;
+    const discussions = discussionsByKey.get(key) || [];
+    return {
+      ...item,
+      discussions,
+      latest_discussion: discussions.length > 0 ? discussions[discussions.length - 1] : null,
+    };
+  });
 }
 
 app.delete('/api/caracteristiques/:id', requireAdminSession, async (req, res) => {
