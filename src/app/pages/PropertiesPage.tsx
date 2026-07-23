@@ -2286,6 +2286,12 @@ export default function PropertiesPage() {
     () => Math.max(2, ...modeProperties.map((p) => Math.max(1, Number(p.guests || 1)))),
     [modeProperties]
   );
+  const validStayRanges = useMemo(
+    () => (selectedMode === "location_saisonniere"
+      ? stayRanges.filter((range) => isValidStayRange(range.start, range.end))
+      : []),
+    [selectedMode, stayRanges]
+  );
 
   const buildManagedSearchParams = () => {
     const params = new URLSearchParams(searchParams);
@@ -2654,9 +2660,6 @@ export default function PropertiesPage() {
   };
 
   const scoringBuckets = useMemo(() => {
-    const validStayRanges = selectedMode === "location_saisonniere"
-      ? stayRanges.filter((range) => isValidStayRange(range.start, range.end))
-      : [];
     const hasDateFilter = validStayRanges.length > 0;
     const requiresRdcComfortFallback = selectedComfortOptions.includes("rdc");
     const hasCoreFilters =
