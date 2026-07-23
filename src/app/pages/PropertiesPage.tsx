@@ -3248,11 +3248,9 @@ export default function PropertiesPage() {
           : genericComfortAlternative || hasComfortFallbackFromBeach || hasPoolAlternative;
         const hasDateRuleAlternative = Boolean(
           hasDateFilter
-          && (!exactDateAvailable || !exactDateBookable)
+          && !exactDateAvailable
           && (
             Boolean(stayDateAlternative)
-            // Keep real stay-window alternatives, but do not surface
-            // check-in/check-out weekday rules as filtered-search alternatives.
             || dateRuleType === "min_max"
           )
         );
@@ -4754,10 +4752,17 @@ export default function PropertiesPage() {
                         <span className="text-xs text-gray-500">{section.rows.length} bien(s)</span>
                       </div>
                       <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-                        {section.rows.map((row) => (
-                          <div key={`${section.key}-${row.property.id}`} className="space-y-2">
+                        {section.rows.map((row) => {
+                          const alternativeRanges = row.stayDateAlternative?.start && row.stayDateAlternative?.end
+                            ? [{ start: row.stayDateAlternative.start, end: row.stayDateAlternative.end }]
+                            : validStayRanges;
+                          const displayProperty = hasStrictStaySearch
+                            ? (getPropertyDisplayVariantForStayRanges(row.property, alternativeRanges) || row.property)
+                            : row.property;
+                          return (
+                          <div key={`${section.key}-${displayProperty.id}`} className="space-y-2">
                             <PropertyCard
-                              property={row.property}
+                              property={displayProperty}
                               searchParams={(() => {
                                 const params = new URLSearchParams(searchParams);
                                 if (row.stayDateAlternative?.start) params.set("checkIn", row.stayDateAlternative.start);
@@ -4783,7 +4788,7 @@ export default function PropertiesPage() {
                                   <p>
                                     <span className="text-gray-500 line-through">{row.requestedTypeDisplayLabel || [requestedMainTypeLabel, requestedSubTypeLabel].filter(Boolean).join(" ")}</span>
                                     {" -> "}
-                                    <span className="font-semibold text-red-600">{getResolvedPropertyCategoryLabel(row.property)}</span>
+                                    <span className="font-semibold text-red-600">{getResolvedPropertyCategoryLabel(displayProperty)}</span>
                                   </p>
                                 )}
                                 {row.hasDateRuleAlternative && stayRanges[0]?.start && stayRanges[0]?.end && row.stayDateAlternative && (
@@ -4807,7 +4812,7 @@ export default function PropertiesPage() {
                               </div>
                             </div>
                           </div>
-                        ))}
+                        )})}
                       </div>
                     </div>
                   ))}
