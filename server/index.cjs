@@ -19063,46 +19063,51 @@ app.get('/api/admin/dashboard-reservations', requireAdminSession, async (req, re
           return urls;
         })(),
       })),
-      ...(reservationRows || []).map((row) => ({
-        entity_type: 'reservation_demand',
-        entity_id: String(row.id || '').trim(),
-        source_label: 'Demande adherant',
-        title: String(row.bien_titre || 'Demande adherant').trim(),
-        reference: row.bien_reference || null,
-        owner_name: row.proprietaire_nom || null,
-        tenant_name: row.client_name || null,
-        amicale_name: row.amicale_name || null,
-        status: row.status || null,
-        check_in: row.start_date || null,
-        check_out: row.end_date || null,
-        created_at: row.created_at || null,
-        updated_at: row.updated_at || null,
-        owner_amount_paid: row.montant_donne_proprietaire === null || row.montant_donne_proprietaire === undefined ? null : Number(row.montant_donne_proprietaire),
-        owner_total_amount: row.montant_total_proprietaire === null || row.montant_total_proprietaire === undefined ? null : Number(row.montant_total_proprietaire),
-        total_amount: row.total_amount === null || row.total_amount === undefined ? null : Number(row.total_amount),
-        profit_net: row.profit_net === null || row.profit_net === undefined ? null : Number(row.profit_net),
-        admin_note: row.admin_note || null,
-        bien_id: row.bien_id || null,
-        contract_url: row.contract_url || null,
-        owner_contract_url: row.owner_contract_url || null,
-        voucher_url: row.voucher_url || null,
-        receipt_urls: (() => {
-          const urls = [];
-          const parsedReceipts = parseJsonArray(row.payment_receipts_json);
-          for (const receipt of parsedReceipts || []) {
-            const url = String(receipt?.url || '').trim();
-            if (url) urls.push(url);
-          }
-          const fallbackUrl = String(row.payment_receipt_image_url || '').trim();
-          if (fallbackUrl && !urls.includes(fallbackUrl)) urls.push(fallbackUrl);
-          return urls;
-        })(),
-      })),
+      ...(reservationRows || []).map((row) => {
+        const isAmicaleReservation = String(row.payment_mode || '').trim().toLowerCase() === 'amicale'
+          || Boolean(String(row.pricing_amicale_id || '').trim())
+          || Boolean(String(row.amicale_name || '').trim());
+        return {
+          entity_type: 'reservation_demand',
+          entity_id: String(row.id || '').trim(),
+          source_label: isAmicaleReservation ? 'Demande amicale' : 'Demande adherant',
+          title: String(row.bien_titre || (isAmicaleReservation ? 'Demande amicale' : 'Demande adherant')).trim(),
+          reference: row.bien_reference || null,
+          owner_name: row.proprietaire_nom || null,
+          tenant_name: row.client_name || null,
+          amicale_name: row.amicale_name || null,
+          status: row.status || null,
+          check_in: row.start_date || null,
+          check_out: row.end_date || null,
+          created_at: row.created_at || null,
+          updated_at: row.updated_at || null,
+          owner_amount_paid: row.montant_donne_proprietaire === null || row.montant_donne_proprietaire === undefined ? null : Number(row.montant_donne_proprietaire),
+          owner_total_amount: row.montant_total_proprietaire === null || row.montant_total_proprietaire === undefined ? null : Number(row.montant_total_proprietaire),
+          total_amount: row.total_amount === null || row.total_amount === undefined ? null : Number(row.total_amount),
+          profit_net: row.profit_net === null || row.profit_net === undefined ? null : Number(row.profit_net),
+          admin_note: row.admin_note || null,
+          bien_id: row.bien_id || null,
+          contract_url: row.contract_url || null,
+          owner_contract_url: row.owner_contract_url || null,
+          voucher_url: row.voucher_url || null,
+          receipt_urls: (() => {
+            const urls = [];
+            const parsedReceipts = parseJsonArray(row.payment_receipts_json);
+            for (const receipt of parsedReceipts || []) {
+              const url = String(receipt?.url || '').trim();
+              if (url) urls.push(url);
+            }
+            const fallbackUrl = String(row.payment_receipt_image_url || '').trim();
+            if (fallbackUrl && !urls.includes(fallbackUrl)) urls.push(fallbackUrl);
+            return urls;
+          })(),
+        };
+      }),
       ...(amicaleGrossRows || []).map((row) => ({
         entity_type: 'amicale_gross',
         entity_id: String(row.id || '').trim(),
-        source_label: 'Amicale en gros',
-        title: String(row.bien_title || 'Amicale en gros').trim(),
+        source_label: 'Demande amicale en gros',
+        title: String(row.bien_title || 'Demande amicale en gros').trim(),
         reference: row.bien_reference || null,
         owner_name: row.proprietaire_nom || null,
         tenant_name: row.amicale_name || null,
