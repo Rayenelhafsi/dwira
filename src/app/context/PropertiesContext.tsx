@@ -1367,18 +1367,42 @@ export function PropertiesProvider({ children }: { children: ReactNode }) {
           .slice(0, hasStaySearch ? Number.MAX_SAFE_INTEGER : 10)
           .map((bien) => String(bien.id || '').trim())
           .filter(Boolean);
-        await Promise.all(
-          eagerUnavailableDateIds.map(async (bienId) => {
+        if (hasStaySearch && eagerUnavailableDateIds.length > 0) {
+          const chunkSize = 100;
+          for (let index = 0; index < eagerUnavailableDateIds.length; index += chunkSize) {
+            const batchIds = eagerUnavailableDateIds.slice(index, index + chunkSize);
             try {
-              const datesResponse = await fetchWithTimeout(`${API_URL}/unavailable-dates/${bienId}`, { credentials: 'include' }, 5000);
-              if (!datesResponse.ok) return;
-              const rows = await datesResponse.json();
-              datesByBienId.set(bienId, Array.isArray(rows) ? rows : []);
+              const datesResponse = await fetchWithTimeout(
+                `${API_URL}/unavailable-dates-bulk?bien_ids=${encodeURIComponent(batchIds.join(','))}`,
+                { credentials: 'include' },
+                8000
+              );
+              if (!datesResponse.ok) continue;
+              const rowsByBienId = await datesResponse.json();
+              batchIds.forEach((bienId) => {
+                const rows = rowsByBienId?.[bienId];
+                datesByBienId.set(bienId, Array.isArray(rows) ? rows : []);
+              });
             } catch {
-              console.warn(`Failed to fetch unavailable dates for bien ${bienId}`);
+              batchIds.forEach((bienId) => {
+                console.warn(`Failed to fetch unavailable dates for bien ${bienId}`);
+              });
             }
-          })
-        );
+          }
+        } else {
+          await Promise.all(
+            eagerUnavailableDateIds.map(async (bienId) => {
+              try {
+                const datesResponse = await fetchWithTimeout(`${API_URL}/unavailable-dates/${bienId}`, { credentials: 'include' }, 5000);
+                if (!datesResponse.ok) return;
+                const rows = await datesResponse.json();
+                datesByBienId.set(bienId, Array.isArray(rows) ? rows : []);
+              } catch {
+                console.warn(`Failed to fetch unavailable dates for bien ${bienId}`);
+              }
+            })
+          );
+        }
 
         const nextMappedBiens = (Array.isArray(biensData) ? biensData : []).map((bien: any) =>
           dbRowToBien(

@@ -318,6 +318,30 @@ const serializeStayRangesParam = (ranges: StayRangeSelection[]) =>
     .map((range) => `${String(range.start || "").trim()}_${String(range.end || "").trim()}`)
     .filter((item) => item !== "_")
     .join(";");
+
+const formatStayRangeSummary = (range?: StayRangeSelection | null) => {
+  if (!range?.start || !range?.end) return "";
+  return `${formatDateLabel(range.start)} - ${formatDateLabel(range.end)}`;
+};
+
+const formatStayRangesSummary = (ranges: StayRangeSelection[]) =>
+  ranges
+    .filter((range) => isValidStayRange(range.start, range.end))
+    .map((range) => formatStayRangeSummary(range))
+    .filter(Boolean)
+    .join(" | ");
+
+const replaceFirstStayRangeWithAlternative = (
+  ranges: StayRangeSelection[],
+  alternative?: StayRangeSelection | null,
+) => {
+  const validRanges = ranges.filter((range) => range.start || range.end);
+  if (!alternative?.start || !alternative?.end) return validRanges;
+  if (validRanges.length === 0) return [alternative];
+  const [firstRange, ...rest] = validRanges;
+  return [{ ...firstRange, start: alternative.start, end: alternative.end }, ...rest];
+};
+
 const toggleStringInList = (items: string[], value: string) =>
   items.includes(value) ? items.filter((item) => item !== value) : [...items, value];
 const buildHierarchicalLocationLabel = (parts: Array<string | null | undefined>) =>
@@ -2358,19 +2382,24 @@ export default function PropertiesPage() {
     let cancelled = false;
     void (async () => {
       const loadedEntries: Array<[string, any[]]> = [];
-      await Promise.all(
-        missingBienIds.map(async (bienId) => {
-          try {
-            const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: "include" });
-            if (!response.ok) return;
-            const rows = await response.json();
-            loadedEntries.push([bienId, Array.isArray(rows) ? rows : []]);
+      const chunkSize = 100;
+      for (let index = 0; index < missingBienIds.length; index += chunkSize) {
+        const batchIds = missingBienIds.slice(index, index + chunkSize);
+        try {
+          const response = await fetch(
+            `${API_URL}/unavailable-dates-bulk?bien_ids=${encodeURIComponent(batchIds.join(","))}`,
+            { credentials: "include" }
+          );
+          if (!response.ok) continue;
+          const rowsByBienId = await response.json();
+          batchIds.forEach((bienId) => {
+            loadedEntries.push([bienId, Array.isArray(rowsByBienId?.[bienId]) ? rowsByBienId[bienId] : []]);
             hydratedSearchUnavailableDateIdsRef.current.add(bienId);
-          } catch {
-            // Ignore per-bien failures and keep existing fallback calendars.
-          }
-        })
-      );
+          });
+        } catch {
+          // Ignore per-batch failures and keep existing fallback calendars.
+        }
+      }
       if (cancelled || loadedEntries.length === 0) return;
       setSearchUnavailableDatesByBienId((prev) => {
         const next = { ...prev };
@@ -4847,7 +4876,10 @@ export default function PropertiesPage() {
                       <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                         {section.rows.map((row) => {
                           const alternativeRanges = row.stayDateAlternative?.start && row.stayDateAlternative?.end
-                            ? [{ start: row.stayDateAlternative.start, end: row.stayDateAlternative.end }]
+                            ? replaceFirstStayRangeWithAlternative(validStayRanges, {
+                                start: row.stayDateAlternative.start,
+                                end: row.stayDateAlternative.end,
+                              })
                             : validStayRanges;
                           const displayProperty = hasStrictStaySearch
                             ? (getPropertyDisplayVariantForStayRanges(row.property, alternativeRanges, resolvePropertyUnavailableDates) || row.property)
@@ -4858,13 +4890,14 @@ export default function PropertiesPage() {
                               property={displayProperty}
                               searchParams={(() => {
                                 const params = new URLSearchParams(searchParams);
-                                if (row.stayDateAlternative?.start) params.set("checkIn", row.stayDateAlternative.start);
-                                if (row.stayDateAlternative?.end) params.set("checkOut", row.stayDateAlternative.end);
                                 if (row.stayDateAlternative?.start || row.stayDateAlternative?.end) {
-                                  params.set("stayRanges", serializeStayRangesParam([{
+                                  const nextRanges = replaceFirstStayRangeWithAlternative(validStayRanges, {
                                     start: row.stayDateAlternative?.start || "",
                                     end: row.stayDateAlternative?.end || "",
-                                  }]));
+                                  });
+                                  params.set("stayRanges", serializeStayRangesParam(nextRanges));
+                                  if (nextRanges[0]?.start) params.set("checkIn", nextRanges[0].start);
+                                  if (nextRanges[0]?.end) params.set("checkOut", nextRanges[0].end);
                                 }
                                 return params.toString();
                               })()}
@@ -4884,16 +4917,16 @@ export default function PropertiesPage() {
                                     <span className="font-semibold text-red-600">{getResolvedPropertyCategoryLabel(displayProperty)}</span>
                                   </p>
                                 )}
-                                {row.hasDateRuleAlternative && stayRanges[0]?.start && stayRanges[0]?.end && row.stayDateAlternative && (
+                                {row.hasDateRuleAlternative && validStayRanges.length > 0 && row.stayDateAlternative && (
                                   <p>
-                                    <span className="text-gray-500 line-through">{formatDateLabel(stayRanges[0].start)} - {formatDateLabel(stayRanges[0].end)}</span>
+                                    <span className="text-gray-500 line-through">{formatStayRangesSummary(validStayRanges)}</span>
                                     {" -> "}
-                                    <span className="font-semibold text-red-600">{formatDateLabel(row.stayDateAlternative.start)} - {formatDateLabel(row.stayDateAlternative.end)}</span>
+                                    <span className="font-semibold text-red-600">{formatStayRangesSummary(alternativeRanges)}</span>
                                   </p>
                                 )}
-                                {row.hasDateRuleAlternative && stayRanges[0]?.start && stayRanges[0]?.end && !row.stayDateAlternative && (
+                                {row.hasDateRuleAlternative && validStayRanges.length > 0 && !row.stayDateAlternative && (
                                   <p>
-                                    <span className="text-gray-500 line-through">{formatDateLabel(stayRanges[0].start)} - {formatDateLabel(stayRanges[0].end)}</span>
+                                    <span className="text-gray-500 line-through">{formatStayRangesSummary(validStayRanges)}</span>
                                     {" -> "}
                                     <span className="font-semibold text-red-600">{formatDateAlternativeReason(row.dateFailureReason)}</span>
                                   </p>

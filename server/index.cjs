@@ -29878,6 +29878,24 @@ app.delete('/api/media/:id', requireAdminSession, async (req, res) => {
 // UNAVAILABLE DATES API
 // ============================================
 
+app.get('/api/unavailable-dates-bulk', async (req, res) => {
+  try {
+    const bienIds = String(req.query?.bien_ids || req.query?.bienIds || '')
+      .split(',')
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    const byBienId = await listUnavailableDatesForBienIds(bienIds);
+    const payload = {};
+    for (const bienId of bienIds) {
+      payload[bienId] = byBienId.get(bienId) || [];
+    }
+    res.json(payload);
+  } catch (error) {
+    console.error('Error fetching bulk unavailable dates:', error);
+    res.status(500).json({ error: 'Failed to fetch bulk unavailable dates' });
+  }
+});
+
 app.get('/api/unavailable-dates/:bien_id', async (req, res) => {
   try {
     await ensureReservationDemandSchema();
