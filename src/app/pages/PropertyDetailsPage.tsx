@@ -1675,32 +1675,6 @@ out body 40;
     }),
     [pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
   );
-  const publicDisplayPricing = useMemo(
-    () => resolveCurrentPricing({
-      today: selectedStart || searchParams.get("checkIn") || undefined,
-      defaultNightlyPrice: Number(property?.pricePerNight || 0),
-      defaultWeeklyPrice: Number(property?.pricePerWeek || 0),
-      pricingPeriods: property?.pricingPeriods || [],
-      amicaleId: null,
-    }),
-    [property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
-  );
-  const heroParticularNightlyPrice = applyPartnerAgencyMargin(Number(publicDisplayPricing.nightlyPrice || 0), partnerAgencyMarginMultiplier);
-  const heroParticularWeeklyPrice = applyPartnerAgencyMargin(Number(publicDisplayPricing.weeklyPrice || 0), partnerAgencyMarginMultiplier);
-  const heroAmicaleNightlyPrice = applyPartnerAgencyMargin(
-    applyAmicaleTtc(
-      Number((pricingAmicaleId ? currentDisplayPricing.nightlyPrice : publicDisplayPricing.nightlyPrice) || 0),
-      true
-    ),
-    partnerAgencyMarginMultiplier
-  );
-  const heroAmicaleWeeklyPrice = applyPartnerAgencyMargin(
-    applyAmicaleTtc(
-      Number((pricingAmicaleId ? currentDisplayPricing.weeklyPrice : publicDisplayPricing.weeklyPrice) || 0),
-      true
-    ),
-    partnerAgencyMarginMultiplier
-  );
   const displayedNightlyPrice = applyPartnerAgencyMargin(
     applyAmicaleTtc(Number(currentDisplayPricing.nightlyPrice || 0), isAmicalePricingActive),
     partnerAgencyMarginMultiplier
@@ -1723,6 +1697,8 @@ out body 40;
         ? Math.round(Number(primaryPreviewFlashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
         : getFlashNightlyAmount(displayedWeeklyPrice, primaryPreviewFlashOffer))
     : displayedWeeklyPrice;
+  const heroPricingLabel = isAmicalePricingActive ? "Amicale" : "Particulier";
+  const heroPricingTaxLabel = isAmicalePricingActive ? "TTC" : "HT";
   const hasCleaningFee = !isSaleProperty
     && (seasonalConfig?.fraisMenageDisponible !== false)
     && Number(property?.cleaningFee || 0) > 0;
@@ -4032,59 +4008,23 @@ out body 40;
                 ))}
               </div>
             </div>
-            {property.priceContext !== "sale" && (heroParticularNightlyPrice > 0 || heroAmicaleNightlyPrice > 0) ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-20 z-20 px-4">
-                <div className="overflow-hidden rounded-[1.7rem] border border-white/30 bg-white/14 p-3 text-white shadow-[0_20px_45px_rgba(15,23,42,0.28)] backdrop-blur-2xl ring-1 ring-white/18">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.32),transparent_42%),linear-gradient(135deg,rgba(255,255,255,0.20),rgba(255,255,255,0.06))]" />
-                  <div className="relative flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-white/78">Tarifs sejour</p>
-                      <p className="mt-1 text-sm font-semibold text-white">Nuitee et semaine visibles avant reservation</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => scrollToSection(calendarSectionRef.current)}
-                      className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-emerald-200/45 bg-emerald-400/18 px-3 py-2 text-[11px] font-semibold text-white shadow-[0_8px_20px_rgba(16,185,129,0.20)] transition-transform duration-200 hover:scale-[1.02]"
-                    >
-                      <span className="relative flex h-6 w-6 items-center justify-center rounded-full bg-white/18">
-                        <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-300/40" />
-                        <Calendar size={13} className="relative" />
-                      </span>
-                      <span>Voir disponibilite</span>
-                    </button>
+            {property.priceContext !== "sale" && (displayedNightlyPrice > 0 || displayedWeeklyPrice > 0) ? (
+              <div className="pointer-events-none absolute inset-x-0 top-[5.25rem] z-20 px-4">
+                <div className="ml-auto w-fit max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.4rem] border border-white/28 bg-white/12 p-2.5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.24)] backdrop-blur-2xl ring-1 ring-white/16">
+                  <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.20),rgba(255,255,255,0.06))]" />
+                  <div className="relative mb-2 flex items-center justify-end">
+                    <span className="rounded-full border border-white/22 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/88">
+                      {heroPricingLabel} {heroPricingTaxLabel}
+                    </span>
                   </div>
-                  <div className="relative mt-3 grid grid-cols-2 gap-2.5">
-                    <div className="rounded-[1.35rem] border border-white/20 bg-white/10 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/80">Particulier</span>
-                        <span className="rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/75">HT</span>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        <div className="rounded-2xl bg-black/12 px-3 py-2.5">
-                          <p className="text-[10px] uppercase tracking-[0.22em] text-white/60">Nuitee</p>
-                          <p className="mt-1 text-lg font-bold leading-none text-white">{formatTnd(heroParticularNightlyPrice)} TND</p>
-                        </div>
-                        <div className="rounded-2xl bg-black/12 px-3 py-2.5">
-                          <p className="text-[10px] uppercase tracking-[0.22em] text-white/60">Semaine</p>
-                          <p className="mt-1 text-base font-semibold leading-none text-white">{formatTnd(heroParticularWeeklyPrice)} TND</p>
-                        </div>
-                      </div>
+                  <div className="relative grid grid-cols-2 gap-2">
+                    <div className="min-w-[112px] rounded-[1.1rem] bg-black/14 px-3 py-2.5">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/62">Nuitee</p>
+                      <p className="mt-1 text-lg font-bold leading-none text-white">{formatTnd(displayedNightlyPrice)} TND</p>
                     </div>
-                    <div className="rounded-[1.35rem] border border-emerald-200/35 bg-[linear-gradient(180deg,rgba(16,185,129,0.20),rgba(15,118,110,0.18))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/88">Amicale</span>
-                        <span className="rounded-full border border-emerald-100/35 bg-white/12 px-2 py-0.5 text-[10px] font-medium text-white/80">TTC</span>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        <div className="rounded-2xl bg-black/12 px-3 py-2.5">
-                          <p className="text-[10px] uppercase tracking-[0.22em] text-white/60">Nuitee</p>
-                          <p className="mt-1 text-lg font-bold leading-none text-white">{formatTnd(heroAmicaleNightlyPrice)} TND</p>
-                        </div>
-                        <div className="rounded-2xl bg-black/12 px-3 py-2.5">
-                          <p className="text-[10px] uppercase tracking-[0.22em] text-white/60">Semaine</p>
-                          <p className="mt-1 text-base font-semibold leading-none text-white">{formatTnd(heroAmicaleWeeklyPrice)} TND</p>
-                        </div>
-                      </div>
+                    <div className="min-w-[112px] rounded-[1.1rem] bg-black/14 px-3 py-2.5">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/62">Semaine</p>
+                      <p className="mt-1 text-lg font-bold leading-none text-white">{formatTnd(displayedWeeklyPrice)} TND</p>
                     </div>
                   </div>
                 </div>
@@ -4100,6 +4040,21 @@ out body 40;
             </div>
           </div>
         </div>
+        {property.priceContext !== "sale" ? (
+          <button
+            type="button"
+            onClick={() => scrollToSection(calendarSectionRef.current)}
+            className="fixed bottom-24 right-4 z-50 inline-flex h-14 w-14 items-center justify-center rounded-full border border-emerald-200/80 bg-white/88 text-emerald-700 shadow-[0_18px_38px_rgba(15,23,42,0.22)] backdrop-blur-xl ring-1 ring-white/80 transition-transform duration-200 hover:scale-[1.03] md:hidden"
+            aria-label="Voir le calendrier"
+          >
+            <span className="pointer-events-none absolute inset-0 rounded-full bg-emerald-100/70 animate-pulse" />
+            <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-3 w-3">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/70" />
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white" />
+            </span>
+            <Calendar size={22} className="relative" />
+          </button>
+        ) : null}
         
         {/* Breadcrumb */}
         <div className="hidden text-sm text-gray-500 mb-6 md:block">
