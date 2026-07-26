@@ -1697,8 +1697,6 @@ out body 40;
         ? Math.round(Number(primaryPreviewFlashOffer.fixedNightlyAmount || 0) * 7 * 100) / 100
         : getFlashNightlyAmount(displayedWeeklyPrice, primaryPreviewFlashOffer))
     : displayedWeeklyPrice;
-  const heroPricingLabel = isAmicalePricingActive ? "Amicale" : "Particulier";
-  const heroPricingTaxLabel = isAmicalePricingActive ? "TTC" : "HT";
   const hasCleaningFee = !isSaleProperty
     && (seasonalConfig?.fraisMenageDisponible !== false)
     && Number(property?.cleaningFee || 0) > 0;
@@ -3920,7 +3918,7 @@ out body 40;
             <button
               type="button"
               onClick={() => scrollToSection(calendarSectionRef.current)}
-              className="group relative flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0,#fff2db)] px-1.5 py-2.5 text-center text-[10px] font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(245,158,11,0.10)] transition-all duration-200 active:scale-[0.98] sm:px-2 sm:py-3 sm:text-[11px]"
+              className="dwira-attention-tab group relative flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0,#fff2db)] px-1.5 py-2.5 text-center text-[10px] font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(245,158,11,0.10)] transition-all duration-200 active:scale-[0.98] sm:px-2 sm:py-3 sm:text-[11px]"
             >
               <span className="pointer-events-none absolute right-2 top-2 flex h-2.5 w-2.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/75" />
@@ -4009,22 +4007,17 @@ out body 40;
               </div>
             </div>
             {property.priceContext !== "sale" && (displayedNightlyPrice > 0 || displayedWeeklyPrice > 0) ? (
-              <div className="pointer-events-none absolute inset-x-0 top-[5.25rem] z-20 px-4">
-                <div className="ml-auto w-fit max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.4rem] border border-white/28 bg-white/12 p-2.5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.24)] backdrop-blur-2xl ring-1 ring-white/16">
-                  <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.20),rgba(255,255,255,0.06))]" />
-                  <div className="relative mb-2 flex items-center justify-end">
-                    <span className="rounded-full border border-white/22 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/88">
-                      {heroPricingLabel} {heroPricingTaxLabel}
-                    </span>
-                  </div>
-                  <div className="relative grid grid-cols-2 gap-2">
-                    <div className="min-w-[112px] rounded-[1.1rem] bg-black/14 px-3 py-2.5">
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/62">Nuitee</p>
-                      <p className="mt-1 text-lg font-bold leading-none text-white">{formatTnd(displayedNightlyPrice)} TND</p>
+              <div className="pointer-events-none absolute inset-x-0 bottom-8 z-20 flex justify-center px-4">
+                <div className="relative w-full max-w-[15.75rem] overflow-hidden rounded-t-[1.45rem] rounded-b-none border-x border-t border-white/28 bg-[linear-gradient(180deg,rgba(255,255,255,0.30),rgba(255,255,255,0.16))] px-3 pb-1.5 pt-1.5 text-white shadow-[0_-8px_18px_rgba(15,23,42,0.10),0_16px_28px_rgba(15,23,42,0.20)] backdrop-blur-2xl ring-1 ring-white/10">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.28),transparent_44%),linear-gradient(135deg,rgba(255,255,255,0.14),rgba(255,255,255,0.04))]" />
+                  <div className="relative grid grid-cols-2 gap-1.5">
+                    <div className="min-w-[90px] rounded-[0.95rem] bg-black/14 px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.10)]">
+                      <p className="text-[9px] uppercase tracking-[0.18em] text-white/62">Nuitee</p>
+                      <p className="mt-1 text-[1.15rem] font-bold leading-none text-white">{formatTnd(displayedNightlyPrice)} TND</p>
                     </div>
-                    <div className="min-w-[112px] rounded-[1.1rem] bg-black/14 px-3 py-2.5">
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/62">Semaine</p>
-                      <p className="mt-1 text-lg font-bold leading-none text-white">{formatTnd(displayedWeeklyPrice)} TND</p>
+                    <div className="min-w-[90px] rounded-[0.95rem] bg-black/14 px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.10)]">
+                      <p className="text-[9px] uppercase tracking-[0.18em] text-white/62">Semaine</p>
+                      <p className="mt-1 text-[1.15rem] font-bold leading-none text-white">{formatTnd(displayedWeeklyPrice)} TND</p>
                     </div>
                   </div>
                 </div>
@@ -4044,10 +4037,10 @@ out body 40;
           <button
             type="button"
             onClick={() => scrollToSection(calendarSectionRef.current)}
-            className="fixed bottom-24 right-4 z-50 inline-flex h-14 w-14 items-center justify-center rounded-full border border-emerald-200/80 bg-white/88 text-emerald-700 shadow-[0_18px_38px_rgba(15,23,42,0.22)] backdrop-blur-xl ring-1 ring-white/80 transition-transform duration-200 hover:scale-[1.03] md:hidden"
+            className="dwira-fab-bubble fixed bottom-24 right-4 z-50 inline-flex h-14 w-14 items-center justify-center rounded-full border border-emerald-200/80 bg-white/88 text-emerald-700 shadow-[0_18px_38px_rgba(15,23,42,0.22)] backdrop-blur-xl ring-1 ring-white/80 transition-transform duration-200 hover:scale-[1.03] md:hidden"
             aria-label="Voir le calendrier"
           >
-            <span className="pointer-events-none absolute inset-0 rounded-full bg-emerald-100/70 animate-pulse" />
+            <span className="pointer-events-none absolute inset-0 rounded-full bg-emerald-100/70" />
             <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-3 w-3">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/70" />
               <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white" />
