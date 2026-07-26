@@ -24922,10 +24922,18 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         }
       } else {
         const unavailableStatus = (nextStatus === 'contrat_realise' || nextStatus === 'succes_paiement') ? 'booked' : 'pending';
+        const nextUnavailableStartDate = startDate || current.start_date || null;
+        const nextUnavailableEndDate = endDate || current.end_date || null;
         if (current.unavailable_date_id) {
           await pool.query(
-            'UPDATE unavailable_dates SET status = ?, payment_deadline = ? WHERE id = ?',
-            [unavailableStatus, finalizationDueAt || current.finalization_due_at || null, current.unavailable_date_id]
+            'UPDATE unavailable_dates SET start_date = ?, end_date = ?, status = ?, payment_deadline = ? WHERE id = ?',
+            [
+              nextUnavailableStartDate,
+              nextUnavailableEndDate,
+              unavailableStatus,
+              finalizationDueAt || current.finalization_due_at || null,
+              current.unavailable_date_id,
+            ]
           );
         } else {
           const createdUnavailableDateId = `ud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -24935,8 +24943,8 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
             [
               createdUnavailableDateId,
               current.bien_id,
-              current.start_date,
-              current.end_date,
+              nextUnavailableStartDate,
+              nextUnavailableEndDate,
               unavailableStatus,
               demandId,
               unavailableStatus === 'booked' ? null : (finalizationDueAt || current.finalization_due_at || null),
