@@ -1239,6 +1239,83 @@ export default function AmicalesPage() {
     setFinancialDrafts((prev) => ({ ...prev, [demand.id]: next }));
   };
 
+  const handleDemandManualFieldChange = (
+    demand: AmicaleDemandRow,
+    patch: Partial<Pick<AmicaleDemandRow, "start_date" | "end_date" | "total_amount">>,
+  ) => {
+    setDemandRows((prev) => prev.map((item) => {
+      if (item.id !== demand.id) return item;
+      const nextTotalAmount = patch.total_amount !== undefined ? patch.total_amount : item.total_amount;
+      return {
+        ...item,
+        ...patch,
+        ...(String(item.source_kind || "").trim() === "hotel"
+          ? {
+              check_in: patch.start_date !== undefined ? patch.start_date : item.start_date,
+              check_out: patch.end_date !== undefined ? patch.end_date : item.end_date,
+              total_price: nextTotalAmount,
+            }
+          : {}),
+      };
+    }));
+  };
+
+  const handleSaveManualDemandDetails = async (demand: AmicaleDemandRow) => {
+    const startDate = formatDateInputValue(demand.start_date);
+    const endDate = formatDateInputValue(demand.end_date);
+    const totalAmount = Number(String(demand.total_amount ?? "").replace(",", "."));
+    if (!startDate || !endDate) {
+      toast.error("Les dates d arrivee et de depart sont obligatoires");
+      return;
+    }
+    if (startDate > endDate) {
+      toast.error("La date de depart doit etre apres la date d arrivee");
+      return;
+    }
+    if (!Number.isFinite(totalAmount) || totalAmount < 0) {
+      toast.error("Le prix total est invalide");
+      return;
+    }
+    setSavingId(demand.id);
+    try {
+      const isHotel = String(demand.source_kind || "").trim() === "hotel";
+      const response = await fetch(
+        `${API_URL}/${isHotel ? "hotel-reservation-demands" : "reservation-demands"}/${encodeURIComponent(demand.id)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(
+            isHotel
+              ? {
+                  check_in: startDate,
+                  check_out: endDate,
+                  total_price: totalAmount,
+                }
+              : {
+                  start_date: startDate,
+                  end_date: endDate,
+                  total_amount: totalAmount,
+                  actor_type: "admin",
+                  actor_id: "admin",
+                }
+          ),
+        }
+      );
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(String(data?.error || "Sauvegarde details impossible"));
+      }
+      await response.json().catch(() => null);
+      toast.success("Dates et prix mis a jour");
+      await loadData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sauvegarde details impossible");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   const handleSaveFinancials = async (demand: AmicaleDemandRow) => {
     const draft = getFinancialDraft(demand);
     const ownerAmount = parseOptionalAmount(draft.ownerAmount);
@@ -2070,6 +2147,50 @@ export default function AmicalesPage() {
                         <p><span className="font-semibold">Periode:</span> {formatDateOnly(demand.start_date)} au {formatDateOnly(demand.end_date)}</p>
                         <p><span className="font-semibold">Total HT:</span> {formatCurrency(demand.total_amount)}</p>
                         <p><span className="font-semibold">Validation agence:</span> {demand.agency_validation_at ? formatDateTime(demand.agency_validation_at) : "-"}</p>
+                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-800">Modification manuelle</p>
+                          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-900">Date arrivee</span>
+                              <input
+                                type="date"
+                                value={formatDateInputValue(demand.start_date)}
+                                onChange={(event) => handleDemandManualFieldChange(demand, { start_date: event.target.value })}
+                                className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-900">Date depart</span>
+                              <input
+                                type="date"
+                                value={formatDateInputValue(demand.end_date)}
+                                onChange={(event) => handleDemandManualFieldChange(demand, { end_date: event.target.value })}
+                                className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-900">Prix total HT</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={demand.total_amount === null || demand.total_amount === undefined ? "" : String(demand.total_amount)}
+                                onChange={(event) => handleDemandManualFieldChange(demand, { total_amount: event.target.value === "" ? null : Number(event.target.value) })}
+                                className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </label>
+                          </div>
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              type="button"
+                              disabled={savingId === demand.id}
+                              onClick={() => void handleSaveManualDemandDetails(demand)}
+                              className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+                            >
+                              {savingId === demand.id ? "Enregistrement..." : "Enregistrer details"}
+                            </button>
+                          </div>
+                        </div>
                         {isHotelDemand ? (
                           <>
                             <p>

@@ -24798,6 +24798,12 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     const paymentMode = body.payment_mode !== undefined
       ? normalizePaymentMode(body.payment_mode, current.payment_mode || 'avance')
       : normalizePaymentMode(current.payment_mode, 'avance');
+    const startDate = body.start_date !== undefined
+      ? (String(body.start_date || '').trim() || null)
+      : (current.start_date || null);
+    const endDate = body.end_date !== undefined
+      ? (String(body.end_date || '').trim() || null)
+      : (current.end_date || null);
     const totalAmount = body.total_amount !== undefined
       ? (Number.isFinite(Number(body.total_amount)) ? Number(body.total_amount) : null)
       : (current.total_amount === null || current.total_amount === undefined ? null : Number(current.total_amount));
@@ -24851,7 +24857,7 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
     await pool.query(
       `UPDATE reservation_demands
        SET status = ?, owner_notified_at = ?, owner_response_at = ?, client_confirmation_clicked_at = ?,
-           payment_mode = ?, total_amount = ?, amount_due_now = ?,
+           payment_mode = ?, start_date = ?, end_date = ?, total_amount = ?, amount_due_now = ?,
            montant_donne_proprietaire = ?, montant_total_proprietaire = ?, profit_net = ?,
            selected_fixed_services_json = ?, selected_variable_services_json = ?, variable_services_quote_json = ?, variable_services_quote_total = ?, variable_services_quote_status = ?,
            identity_document_type = ?, identity_document_number = ?, identity_document_country = ?,
@@ -24866,6 +24872,8 @@ app.put('/api/reservation-demands/:id', requireAuthenticatedSession, reservation
         ownerResponseAt || null,
         clientConfirmationClickedAt || null,
         paymentMode,
+        startDate,
+        endDate,
         totalAmount,
         amountDueNow,
         ownerPaid,
