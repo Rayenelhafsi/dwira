@@ -1675,6 +1675,32 @@ out body 40;
     }),
     [pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
   );
+  const publicDisplayPricing = useMemo(
+    () => resolveCurrentPricing({
+      today: selectedStart || searchParams.get("checkIn") || undefined,
+      defaultNightlyPrice: Number(property?.pricePerNight || 0),
+      defaultWeeklyPrice: Number(property?.pricePerWeek || 0),
+      pricingPeriods: property?.pricingPeriods || [],
+      amicaleId: null,
+    }),
+    [property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
+  );
+  const heroParticularNightlyPrice = applyPartnerAgencyMargin(Number(publicDisplayPricing.nightlyPrice || 0), partnerAgencyMarginMultiplier);
+  const heroParticularWeeklyPrice = applyPartnerAgencyMargin(Number(publicDisplayPricing.weeklyPrice || 0), partnerAgencyMarginMultiplier);
+  const heroAmicaleNightlyPrice = applyPartnerAgencyMargin(
+    applyAmicaleTtc(
+      Number((pricingAmicaleId ? currentDisplayPricing.nightlyPrice : publicDisplayPricing.nightlyPrice) || 0),
+      true
+    ),
+    partnerAgencyMarginMultiplier
+  );
+  const heroAmicaleWeeklyPrice = applyPartnerAgencyMargin(
+    applyAmicaleTtc(
+      Number((pricingAmicaleId ? currentDisplayPricing.weeklyPrice : publicDisplayPricing.weeklyPrice) || 0),
+      true
+    ),
+    partnerAgencyMarginMultiplier
+  );
   const displayedNightlyPrice = applyPartnerAgencyMargin(
     applyAmicaleTtc(Number(currentDisplayPricing.nightlyPrice || 0), isAmicalePricingActive),
     partnerAgencyMarginMultiplier
@@ -3918,8 +3944,12 @@ out body 40;
             <button
               type="button"
               onClick={() => scrollToSection(calendarSectionRef.current)}
-              className="group flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0,#fff2db)] px-1.5 py-2.5 text-center text-[10px] font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(245,158,11,0.10)] transition-all duration-200 active:scale-[0.98] sm:px-2 sm:py-3 sm:text-[11px]"
+              className="group relative flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-100 bg-[linear-gradient(180deg,#fffaf0,#fff2db)] px-1.5 py-2.5 text-center text-[10px] font-semibold text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_rgba(245,158,11,0.10)] transition-all duration-200 active:scale-[0.98] sm:px-2 sm:py-3 sm:text-[11px]"
             >
+              <span className="pointer-events-none absolute right-2 top-2 flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white/80" />
+              </span>
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/95 text-amber-700 shadow-sm">
                 <Calendar size={13} />
               </span>
@@ -4002,6 +4032,64 @@ out body 40;
                 ))}
               </div>
             </div>
+            {property.priceContext !== "sale" && (heroParticularNightlyPrice > 0 || heroAmicaleNightlyPrice > 0) ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-20 z-20 px-4">
+                <div className="overflow-hidden rounded-[1.7rem] border border-white/30 bg-white/14 p-3 text-white shadow-[0_20px_45px_rgba(15,23,42,0.28)] backdrop-blur-2xl ring-1 ring-white/18">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.32),transparent_42%),linear-gradient(135deg,rgba(255,255,255,0.20),rgba(255,255,255,0.06))]" />
+                  <div className="relative flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-white/78">Tarifs sejour</p>
+                      <p className="mt-1 text-sm font-semibold text-white">Nuitee et semaine visibles avant reservation</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => scrollToSection(calendarSectionRef.current)}
+                      className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-emerald-200/45 bg-emerald-400/18 px-3 py-2 text-[11px] font-semibold text-white shadow-[0_8px_20px_rgba(16,185,129,0.20)] transition-transform duration-200 hover:scale-[1.02]"
+                    >
+                      <span className="relative flex h-6 w-6 items-center justify-center rounded-full bg-white/18">
+                        <span className="absolute h-full w-full animate-ping rounded-full bg-emerald-300/40" />
+                        <Calendar size={13} className="relative" />
+                      </span>
+                      <span>Voir disponibilite</span>
+                    </button>
+                  </div>
+                  <div className="relative mt-3 grid grid-cols-2 gap-2.5">
+                    <div className="rounded-[1.35rem] border border-white/20 bg-white/10 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/80">Particulier</span>
+                        <span className="rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/75">HT</span>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <div className="rounded-2xl bg-black/12 px-3 py-2.5">
+                          <p className="text-[10px] uppercase tracking-[0.22em] text-white/60">Nuitee</p>
+                          <p className="mt-1 text-lg font-bold leading-none text-white">{formatTnd(heroParticularNightlyPrice)} TND</p>
+                        </div>
+                        <div className="rounded-2xl bg-black/12 px-3 py-2.5">
+                          <p className="text-[10px] uppercase tracking-[0.22em] text-white/60">Semaine</p>
+                          <p className="mt-1 text-base font-semibold leading-none text-white">{formatTnd(heroParticularWeeklyPrice)} TND</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-[1.35rem] border border-emerald-200/35 bg-[linear-gradient(180deg,rgba(16,185,129,0.20),rgba(15,118,110,0.18))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/88">Amicale</span>
+                        <span className="rounded-full border border-emerald-100/35 bg-white/12 px-2 py-0.5 text-[10px] font-medium text-white/80">TTC</span>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <div className="rounded-2xl bg-black/12 px-3 py-2.5">
+                          <p className="text-[10px] uppercase tracking-[0.22em] text-white/60">Nuitee</p>
+                          <p className="mt-1 text-lg font-bold leading-none text-white">{formatTnd(heroAmicaleNightlyPrice)} TND</p>
+                        </div>
+                        <div className="rounded-2xl bg-black/12 px-3 py-2.5">
+                          <p className="text-[10px] uppercase tracking-[0.22em] text-white/60">Semaine</p>
+                          <p className="mt-1 text-base font-semibold leading-none text-white">{formatTnd(heroAmicaleWeeklyPrice)} TND</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 gap-1.5 rounded-full bg-black/30 px-3 py-2 backdrop-blur-md">
               {galleryImages.slice(0, Math.min(galleryImages.length, 5)).map((_, index) => (
                 <span
@@ -4250,12 +4338,24 @@ out body 40;
                     className="pointer-events-none absolute -right-3 -bottom-5 text-emerald-300/45 transition-transform duration-300 group-hover:scale-105"
                   />
                   <div className="relative flex items-start gap-3">
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/90 text-emerald-700 shadow-[0_10px_24px_rgba(255,255,255,0.6)] ring-1 ring-white/80">
-                      <Calendar size={22} />
+                    <span className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/90 text-emerald-700 shadow-[0_10px_24px_rgba(255,255,255,0.6)] ring-1 ring-white/80">
+                      <span className="absolute inset-0 animate-pulse rounded-2xl bg-emerald-200/60" />
+                      <span className="absolute right-1 top-1 flex h-2.5 w-2.5">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/70" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-600" />
+                      </span>
+                      <Calendar size={22} className="relative" />
                     </span>
                     <div className="min-w-0 flex-1">
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-950/6 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">
                         Calendrier
+                      </span>
+                      <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/75 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-700 shadow-sm">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/70" />
+                          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-600" />
+                        </span>
+                        Disponibilite
                       </span>
                       <p className="mt-3 text-lg font-semibold text-slate-950">Voir disponibilité</p>
                       <p className="mt-1 max-w-[18rem] text-sm leading-6 text-slate-600">
@@ -4263,7 +4363,7 @@ out body 40;
                       </p>
                     </div>
                     <span className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/85 text-emerald-700 transition-transform duration-200 group-hover:translate-y-0.5">
-                      <ChevronDown size={18} />
+                      <ChevronDown size={18} className="animate-bounce" />
                     </span>
                   </div>
                 </button>
