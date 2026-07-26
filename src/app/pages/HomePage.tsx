@@ -409,6 +409,15 @@ function flattenHotelRoomChildAges(roomTravellers: HotelRoomTravellerSelection[]
     : [];
 }
 
+function getHotelRoomTravellerTotals(roomTravellers: HotelRoomTravellerSelection[]) {
+  const normalizedRooms = Array.isArray(roomTravellers) ? roomTravellers : [];
+  return {
+    adults: normalizedRooms.reduce((sum, room) => sum + Math.max(1, Number(room?.adults) || 1), 0),
+    children: normalizedRooms.reduce((sum, room) => sum + Math.max(0, Number(room?.children) || 0), 0),
+    childAges: flattenHotelRoomChildAges(normalizedRooms),
+  };
+}
+
 function buildHotelRoomTravellersFromFilters(
   roomCount: number,
   adults: number,
@@ -1797,9 +1806,17 @@ export default function HomePage({
       return `${hotelCheckIn} - ${hotelCheckOut}`;
     }
   }, [hotelCheckIn, hotelCheckOut]);
-  const hasHotelTravellerSelection = hotelAdults > 0 || hotelChildAges.length > 0;
+  const hotelTravellerRooms = useMemo(
+    () => normalizeHotelRoomTravellers(sharedHotelRoomTravellers, sharedHotelRoomCount),
+    [sharedHotelRoomCount, sharedHotelRoomTravellers]
+  );
+  const hotelTravellerTotals = useMemo(
+    () => getHotelRoomTravellerTotals(hotelTravellerRooms),
+    [hotelTravellerRooms]
+  );
+  const hasHotelTravellerSelection = hotelTravellerTotals.adults > 0 || hotelTravellerTotals.children > 0;
   const hasCompleteHotelCriteria = hasValidHotelSearchDates(hotelCheckIn, hotelCheckOut) && hasHotelTravellerSelection;
-  const hotelTravellersLabel = `${sharedHotelRoomCount} chambre${sharedHotelRoomCount > 1 ? "s" : ""} - ${hotelAdults} adulte${hotelAdults > 1 ? "s" : ""} - ${hotelChildAges.length} enfant${hotelChildAges.length > 1 ? "s" : ""}`;
+  const hotelTravellersLabel = `${sharedHotelRoomCount} chambre${sharedHotelRoomCount > 1 ? "s" : ""} - ${hotelTravellerTotals.adults} adulte${hotelTravellerTotals.adults > 1 ? "s" : ""} - ${hotelTravellerTotals.children} enfant${hotelTravellerTotals.children > 1 ? "s" : ""}`;
   const hotelSearchInfoMessage =
     hasCompleteHotelCriteria
     && selectedHotelId > 0
@@ -2920,7 +2937,15 @@ export default function HomePage({
     setHotelAdults(Math.max(1, Number(cachedSearch.hotelAdults || 1)));
     setHotelChildAges(Array.isArray(cachedSearch.hotelChildAges) ? cachedSearch.hotelChildAges : []);
     setSharedHotelRoomCount(Math.max(1, Number(cachedSearch.sharedHotelRoomCount || 1)));
-    setSharedHotelRoomTravellers(Array.isArray(cachedSearch.sharedHotelRoomTravellers) ? cachedSearch.sharedHotelRoomTravellers : []);
+    setSharedHotelRoomTravellers(
+      Array.isArray(cachedSearch.sharedHotelRoomTravellers) && cachedSearch.sharedHotelRoomTravellers.length > 0
+        ? cachedSearch.sharedHotelRoomTravellers
+        : buildHotelRoomTravellersFromFilters(
+            Math.max(1, Number(cachedSearch.sharedHotelRoomCount || 1)),
+            Math.max(1, Number(cachedSearch.hotelAdults || 1)),
+            Array.isArray(cachedSearch.hotelChildAges) ? cachedSearch.hotelChildAges : []
+          )
+    );
     setLocalRoomSelectionsByHotel(cachedSearch.localRoomSelectionsByHotel && typeof cachedSearch.localRoomSelectionsByHotel === "object" ? cachedSearch.localRoomSelectionsByHotel : {});
     setHotelAvailabilitySignatureByHotel(cachedSearch.hotelAvailabilitySignatureByHotel && typeof cachedSearch.hotelAvailabilitySignatureByHotel === "object" ? cachedSearch.hotelAvailabilitySignatureByHotel : {});
     setHotelResultsView(cachedSearch.hotelResultsView === "list" ? "list" : "grid");
@@ -3410,7 +3435,6 @@ export default function HomePage({
   const setHotelRoomCount = (nextRoomCount: number) => {
     const safeRoomCount = Math.max(1, Math.min(4, Math.floor(Number(nextRoomCount) || 1)));
     setSharedHotelRoomCount(safeRoomCount);
-    setHotelAdults((prev) => Math.max(safeRoomCount, Math.min(8, Math.floor(Number(prev) || hotelDefaults.adults || safeRoomCount))));
     setSharedHotelRoomTravellers((prev) => {
       const seededCurrent = Array.isArray(prev) && prev.length > 0
         ? prev
@@ -3422,9 +3446,16 @@ export default function HomePage({
   };
 
   useEffect(() => {
-    setSharedHotelRoomTravellers(buildHotelRoomTravellersFromFilters(sharedHotelRoomCount, hotelAdults, hotelChildAges));
+    const normalized = normalizeHotelRoomTravellers(sharedHotelRoomTravellers, sharedHotelRoomCount);
+    const totals = getHotelRoomTravellerTotals(normalized);
+    if (hotelAdults !== totals.adults) {
+      setHotelAdults(totals.adults);
+    }
+    if (JSON.stringify(hotelChildAges) !== JSON.stringify(totals.childAges)) {
+      setHotelChildAges(totals.childAges);
+    }
     setHotelAvailabilitySignatureByHotel({});
-  }, [sharedHotelRoomCount, hotelAdults, hotelChildAges]);
+  }, [hotelAdults, hotelChildAges, sharedHotelRoomCount, sharedHotelRoomTravellers]);
 
   useEffect(() => {
     setVisibleHotelDestinationCount(HOTEL_DESTINATION_PAGE_SIZE);
@@ -5024,44 +5055,126 @@ export default function HomePage({
                           <button type="button" onClick={() => setHotelRoomCount(sharedHotelRoomCount + 1)} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Plus size={14} /></button>
                         </div>
                       </div>
-                      <div className="mt-3 flex items-center justify-between">
-                        <p className="text-sm font-semibold text-slate-900">Adultes</p>
-                        <div className="flex items-center gap-2 text-slate-900">
-                          <button type="button" onClick={() => updateHotelAdults(hotelAdults - 1)} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Minus size={14} /></button>
-                          <span className="w-6 text-center font-semibold text-slate-900">{hotelAdults}</span>
-                          <button type="button" onClick={() => updateHotelAdults(hotelAdults + 1)} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Plus size={14} /></button>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between">
-                        <p className="text-sm font-semibold text-slate-900">Enfants</p>
-                        <div className="flex items-center gap-2 text-slate-900">
-                          <button type="button" onClick={() => setHotelChildAges((prev) => prev.slice(0, Math.max(0, prev.length - 1)))} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Minus size={14} /></button>
-                          <span className="w-6 text-center font-semibold text-slate-900">{hotelChildAges.length}</span>
-                          <button type="button" onClick={() => setHotelChildAges((prev) => [...prev, 0])} className="rounded-lg border border-slate-300 p-2 text-slate-900 hover:bg-white"><Plus size={14} /></button>
-                        </div>
-                      </div>
-                      {hotelChildAges.length > 0 && (
-                        <div className="mt-3 grid gap-2 md:grid-cols-3">
-                          {hotelChildAges.map((age, index) => (
-                            <label key={`home-child-age-${index}`} className="text-xs text-slate-600">
-                              Age enfant {index + 1}
-                              <select
-                                value={age}
-                                onChange={(event) => setHotelChildAges((prev) => {
-                                  const next = [...prev];
-                                  next[index] = Number(event.target.value) || 0;
-                                  return next;
-                                })}
-                                className="mt-1 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900"
-                              >
-                                {Array.from({ length: 18 }).map((_, ageOption) => (
-                                  <option key={`home-age-opt-${index}-${ageOption}`} value={ageOption}>{ageOption} ans</option>
+                      <div className="mt-4 space-y-3">
+                        {hotelTravellerRooms.map((room, roomIndex) => (
+                          <div key={`home-room-travellers-${roomIndex}`} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-slate-900">Chambre {roomIndex + 1}</p>
+                              <span className="text-xs text-slate-500">
+                                {room.adults} adulte{room.adults > 1 ? "s" : ""}{room.children > 0 ? ` • ${room.children} enfant${room.children > 1 ? "s" : ""}` : ""}
+                              </span>
+                            </div>
+                            <div className="mt-3 grid gap-3 md:grid-cols-2">
+                              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                <p className="text-sm font-medium text-slate-900">Adultes</p>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                      const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                      current[roomIndex] = {
+                                        ...current[roomIndex],
+                                        adults: Math.max(1, (current[roomIndex]?.adults || 1) - 1),
+                                      };
+                                      return current;
+                                    })}
+                                    className="rounded-lg border border-slate-300 bg-white p-2 text-slate-900 hover:bg-slate-50"
+                                  >
+                                    <Minus size={14} />
+                                  </button>
+                                  <span className="w-6 text-center font-semibold text-slate-900">{room.adults}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                      const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                      current[roomIndex] = {
+                                        ...current[roomIndex],
+                                        adults: Math.min(8, (current[roomIndex]?.adults || 1) + 1),
+                                      };
+                                      return current;
+                                    })}
+                                    className="rounded-lg border border-slate-300 bg-white p-2 text-slate-900 hover:bg-slate-50"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                <p className="text-sm font-medium text-slate-900">Enfants</p>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                      const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                      current[roomIndex] = {
+                                        ...current[roomIndex],
+                                        children: Math.max(0, (current[roomIndex]?.children || 0) - 1),
+                                      };
+                                      current[roomIndex].childAges = normalizeHotelRoomChildAges(
+                                        current[roomIndex]?.childAges,
+                                        current[roomIndex]?.children || 0
+                                      );
+                                      return current;
+                                    })}
+                                    className="rounded-lg border border-slate-300 bg-white p-2 text-slate-900 hover:bg-slate-50"
+                                  >
+                                    <Minus size={14} />
+                                  </button>
+                                  <span className="w-6 text-center font-semibold text-slate-900">{room.children}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                      const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                      current[roomIndex] = {
+                                        ...current[roomIndex],
+                                        children: Math.min(8, (current[roomIndex]?.children || 0) + 1),
+                                      };
+                                      current[roomIndex].childAges = normalizeHotelRoomChildAges(
+                                        current[roomIndex]?.childAges,
+                                        current[roomIndex]?.children || 0
+                                      );
+                                      return current;
+                                    })}
+                                    className="rounded-lg border border-slate-300 bg-white p-2 text-slate-900 hover:bg-slate-50"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            {room.children > 0 && (
+                              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                                {normalizeHotelRoomChildAges(room.childAges, room.children).map((age, childIndex) => (
+                                  <label key={`home-room-${roomIndex}-child-age-${childIndex}`} className="text-xs text-slate-600">
+                                    Chambre {roomIndex + 1} • enfant {childIndex + 1}
+                                    <select
+                                      value={age}
+                                      onChange={(event) => {
+                                        const nextAge = Math.max(0, Math.min(17, Math.floor(Number(event.target.value) || 0)));
+                                        setSharedHotelRoomTravellers((prev) => {
+                                          const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                          const nextChildAges = normalizeHotelRoomChildAges(current[roomIndex]?.childAges, current[roomIndex]?.children || 0);
+                                          nextChildAges[childIndex] = nextAge;
+                                          current[roomIndex] = {
+                                            ...current[roomIndex],
+                                            childAges: nextChildAges,
+                                          };
+                                          return current;
+                                        });
+                                      }}
+                                      className="mt-1 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900"
+                                    >
+                                      {Array.from({ length: 18 }).map((_, ageOption) => (
+                                        <option key={`home-room-${roomIndex}-age-opt-${childIndex}-${ageOption}`} value={ageOption}>{ageOption} ans</option>
+                                      ))}
+                                    </select>
+                                  </label>
                                 ))}
-                              </select>
-                            </label>
-                          ))}
-                        </div>
-                      )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -7902,46 +8015,129 @@ export default function HomePage({
                       <button type="button" className="text-sky-600" onClick={() => setHotelRoomCount(sharedHotelRoomCount + 1)}><Plus size={18} /></button>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <p className="text-[16px] font-medium text-slate-900">Adultes</p>
-                    <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-300 bg-slate-50 px-5 py-3 text-slate-900">
-                      <button type="button" className="text-sky-600" onClick={() => updateHotelAdults(hotelAdults - 1)}><Minus size={18} /></button>
-                      <span className="w-8 text-center text-[18px] font-semibold text-slate-900">{hotelAdults}</span>
-                      <button type="button" className="text-sky-600" onClick={() => updateHotelAdults(hotelAdults + 1)}><Plus size={18} /></button>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <p className="text-[16px] font-medium text-slate-900">Enfants</p>
-                    <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-300 bg-slate-50 px-5 py-3 text-slate-900">
-                      <button type="button" className="text-sky-600" onClick={() => setHotelChildAges((prev) => prev.slice(0, Math.max(0, prev.length - 1)))}><Minus size={18} /></button>
-                      <span className="w-8 text-center text-[18px] font-semibold text-slate-900">{hotelChildAges.length}</span>
-                      <button type="button" className="text-sky-600" onClick={() => setHotelChildAges((prev) => [...prev, 0])}><Plus size={18} /></button>
-                    </div>
-                  </div>
-                  {hotelChildAges.length > 0 && (
-                    <div className="space-y-3 border-t border-slate-200 pt-5">
-                      <p className="text-[16px] font-semibold text-slate-900">Âge des enfants à la fin du séjour (obligatoire)</p>
-                      <p className="text-[13px] leading-relaxed text-slate-500">L'indication des âges réels nous permet de vous proposer les options et tarifs qui correspondent le mieux à votre famille.</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        {hotelChildAges.map((age, index) => (
-                          <select
-                            key={`mobile-home-age-${index}`}
-                            value={age}
-                            onChange={(event) => setHotelChildAges((prev) => {
-                              const next = [...prev];
-                              next[index] = Number(event.target.value) || 0;
-                              return next;
-                            })}
-                            className="h-12 rounded-xl border border-rose-400 bg-white px-3 text-[14px] text-slate-900"
-                          >
-                            {Array.from({ length: 18 }).map((_, ageOption) => (
-                              <option key={`mobile-age-opt-${index}-${ageOption}`} value={ageOption}>{ageOption} ans</option>
-                            ))}
-                          </select>
-                        ))}
+                  <div className="space-y-4 border-t border-slate-200 pt-5">
+                    <p className="text-[16px] font-semibold text-slate-900">Répartition par chambre</p>
+                    <p className="text-[13px] leading-relaxed text-slate-500">Précisez les adultes et enfants dans chaque chambre.</p>
+                    {hotelTravellerRooms.map((room, roomIndex) => (
+                      <div key={`mobile-home-room-${roomIndex}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[15px] font-semibold text-slate-900">Chambre {roomIndex + 1}</p>
+                          <span className="text-[12px] text-slate-500">
+                            {room.adults} adulte{room.adults > 1 ? "s" : ""}{room.children > 0 ? ` • ${room.children} enfant${room.children > 1 ? "s" : ""}` : ""}
+                          </span>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          <div className="flex items-center justify-between gap-4">
+                            <p className="text-[16px] font-medium text-slate-900">Adultes</p>
+                            <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-300 bg-white px-5 py-3 text-slate-900">
+                              <button
+                                type="button"
+                                className="text-sky-600"
+                                onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                  const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                  current[roomIndex] = {
+                                    ...current[roomIndex],
+                                    adults: Math.max(1, (current[roomIndex]?.adults || 1) - 1),
+                                  };
+                                  return current;
+                                })}
+                              >
+                                <Minus size={18} />
+                              </button>
+                              <span className="w-8 text-center text-[18px] font-semibold text-slate-900">{room.adults}</span>
+                              <button
+                                type="button"
+                                className="text-sky-600"
+                                onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                  const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                  current[roomIndex] = {
+                                    ...current[roomIndex],
+                                    adults: Math.min(8, (current[roomIndex]?.adults || 1) + 1),
+                                  };
+                                  return current;
+                                })}
+                              >
+                                <Plus size={18} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <p className="text-[16px] font-medium text-slate-900">Enfants</p>
+                            <div className="flex min-w-[168px] items-center justify-between rounded-xl border border-slate-300 bg-white px-5 py-3 text-slate-900">
+                              <button
+                                type="button"
+                                className="text-sky-600"
+                                onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                  const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                  current[roomIndex] = {
+                                    ...current[roomIndex],
+                                    children: Math.max(0, (current[roomIndex]?.children || 0) - 1),
+                                  };
+                                  current[roomIndex].childAges = normalizeHotelRoomChildAges(
+                                    current[roomIndex]?.childAges,
+                                    current[roomIndex]?.children || 0
+                                  );
+                                  return current;
+                                })}
+                              >
+                                <Minus size={18} />
+                              </button>
+                              <span className="w-8 text-center text-[18px] font-semibold text-slate-900">{room.children}</span>
+                              <button
+                                type="button"
+                                className="text-sky-600"
+                                onClick={() => setSharedHotelRoomTravellers((prev) => {
+                                  const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                  current[roomIndex] = {
+                                    ...current[roomIndex],
+                                    children: Math.min(8, (current[roomIndex]?.children || 0) + 1),
+                                  };
+                                  current[roomIndex].childAges = normalizeHotelRoomChildAges(
+                                    current[roomIndex]?.childAges,
+                                    current[roomIndex]?.children || 0
+                                  );
+                                  return current;
+                                })}
+                              >
+                                <Plus size={18} />
+                              </button>
+                            </div>
+                          </div>
+                          {room.children > 0 && (
+                            <div className="space-y-3 border-t border-slate-200 pt-4">
+                              <p className="text-[14px] font-semibold text-slate-900">Âge des enfants chambre {roomIndex + 1}</p>
+                              <div className="grid grid-cols-2 gap-3">
+                                {normalizeHotelRoomChildAges(room.childAges, room.children).map((age, childIndex) => (
+                                  <select
+                                    key={`mobile-home-room-${roomIndex}-age-${childIndex}`}
+                                    value={age}
+                                    onChange={(event) => {
+                                      const nextAge = Number(event.target.value) || 0;
+                                      setSharedHotelRoomTravellers((prev) => {
+                                        const current = normalizeHotelRoomTravellers(prev, sharedHotelRoomCount);
+                                        const nextChildAges = normalizeHotelRoomChildAges(current[roomIndex]?.childAges, current[roomIndex]?.children || 0);
+                                        nextChildAges[childIndex] = nextAge;
+                                        current[roomIndex] = {
+                                          ...current[roomIndex],
+                                          childAges: nextChildAges,
+                                        };
+                                        return current;
+                                      });
+                                    }}
+                                    className="h-12 rounded-xl border border-rose-400 bg-white px-3 text-[14px] text-slate-900"
+                                  >
+                                    {Array.from({ length: 18 }).map((_, ageOption) => (
+                                      <option key={`mobile-room-age-opt-${roomIndex}-${childIndex}-${ageOption}`} value={ageOption}>{ageOption} ans</option>
+                                    ))}
+                                  </select>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
