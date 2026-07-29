@@ -1,5 +1,5 @@
 export const PUBLIC_COMING_SOON = {
-  ventes: true,
+  ventes: false,
   locationAnnuelle: true,
   apps: true,
   packs: false,

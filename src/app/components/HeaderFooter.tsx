@@ -258,11 +258,20 @@ export function Header() {
     };
 
     const revealHeader = () => {
+      const currentY = typeof window !== "undefined" ? Math.max(window.scrollY, 0) : 0;
       setIsAutoHidden(false);
+      if (currentY <= 24) {
+        if (timeoutId) clearTimeout(timeoutId);
+        return;
+      }
       scheduleHide();
     };
 
-    scheduleHide();
+    if ((typeof window !== "undefined" ? Math.max(window.scrollY, 0) : 0) > 24) {
+      scheduleHide();
+    } else {
+      setIsAutoHidden(false);
+    }
     window.addEventListener("scroll", revealHeader, { passive: true });
     window.addEventListener("mousemove", revealHeader, { passive: true });
     window.addEventListener("touchstart", revealHeader, { passive: true });

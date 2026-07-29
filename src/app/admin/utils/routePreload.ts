@@ -9,6 +9,7 @@ const adminRoutePreloaders: Record<string, () => Promise<unknown>> = {
   "/admin/paiements": () => import("../pages/PaiementsPage"),
   "/admin/amicales": () => import("../pages/AmicalesPage"),
   "/admin/comptabilite": () => import("../pages/ComptabilitePage"),
+  "/admin/ventes": () => import("../pages/VentesAdminPage"),
   "/admin/hotels": () => import("../pages/HotelsPage"),
   "/admin/reservations-hotels": () => import("../pages/HotelReservationsPage"),
   "/admin/maintenance": () => import("../pages/MaintenancePage"),
@@ -44,5 +45,6 @@ export function preloadImportantAdminRoutes() {
     "/admin/contrats",
     "/admin/paiements",
     "/admin/comptabilite",
+    "/admin/ventes",
   ].forEach(preloadAdminRoute);
 }

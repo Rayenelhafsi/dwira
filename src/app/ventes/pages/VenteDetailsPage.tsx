@@ -1,10 +1,10 @@
 import { Navigate, useParams } from 'react-router';
 import { useProperties } from '../../context/PropertiesContext';
-import PublicBienPageView from '../components/PublicBienPageView';
+import { getPropertyRouteToken } from '../../utils/propertyRouting';
 
 export default function VenteDetailsPage() {
   const { id, type } = useParams();
-  const { biens, zones, isLoading } = useProperties();
+  const { biens, isLoading } = useProperties();
   const bien = biens.find((item) => item.mode === 'vente' && item.visible_sur_site !== false && item.id === id);
 
   if (isLoading) {
@@ -23,5 +23,5 @@ export default function VenteDetailsPage() {
     return <Navigate to={`/ventes/${bien.type}/${bien.id}`} replace />;
   }
 
-  return <PublicBienPageView bien={bien} zones={zones} backHref="/ventes" backLabel="Retour a la liste" />;
+  return <Navigate to={`/properties/${encodeURIComponent(getPropertyRouteToken(bien))}`} replace />;
 }

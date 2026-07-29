@@ -31,6 +31,7 @@ interface AvailabilityCalendarProps {
   onDateRangeSelect: (startDate: Date | null, endDate: Date | null) => void;
   selectedStart: Date | null;
   selectedEnd: Date | null;
+  selectionMode?: "range" | "single";
   allowedRange?: { start: string; end: string } | null;
   allowedRanges?: Array<{ start: string; end: string }>;
   highlightedRanges?: Array<{ start: string; end: string }>;
@@ -42,6 +43,7 @@ export default function AvailabilityCalendar({
   onDateRangeSelect,
   selectedStart,
   selectedEnd,
+  selectionMode = "range",
   allowedRange = null,
   allowedRanges = [],
   highlightedRanges = [],
@@ -155,6 +157,12 @@ export default function AvailabilityCalendar({
   const handleDateClick = (date: Date) => {
     if (isOutsideAllowedRange(date)) return;
 
+    if (selectionMode === "single") {
+      if (isDateUnavailable(date)) return;
+      onDateRangeSelect(date, date);
+      return;
+    }
+
     if (isDateUnavailable(date)) {
       if ((!selectedStart || (selectedStart && selectedEnd)) && canUseAsCheckinBoundary(date)) {
         onDateRangeSelect(date, null);
@@ -233,6 +241,9 @@ export default function AvailabilityCalendar({
   };
 
   const getSplitDayVisual = (date: Date): { enabled: boolean; leftClass: string; rightClass: string } => {
+    if (selectionMode === "single") {
+      return { enabled: false, leftClass: "", rightClass: "" };
+    }
     if (!isSameMonth(date, currentMonth) || isOutsideAllowedRange(date) || isBefore(date, today)) {
       return { enabled: false, leftClass: "", rightClass: "" };
     }
@@ -324,6 +335,9 @@ export default function AvailabilityCalendar({
   const getDayLabel = (date: Date): string | null => {
     if (!isSameMonth(date, currentMonth) || isOutsideAllowedRange(date) || isBefore(date, today)) {
       return null;
+    }
+    if (selectionMode === "single") {
+      return selectedStart && isSameDay(date, selectedStart) ? "Visite" : null;
     }
     if (selectedStart && isSameDay(date, selectedStart)) return "Arrivee";
     if (selectedEnd && isSameDay(date, selectedEnd)) return "Depart";
@@ -465,14 +479,16 @@ export default function AvailabilityCalendar({
         </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-emerald-600 rounded"></div>
-          <span className="text-gray-600">Selectionne</span>
+          <span className="text-gray-600">{selectionMode === "single" ? "Date de visite" : "Selectionne"}</span>
         </div>
       </div>
 
       {selectedStart && selectedEnd && (
         <div className="mt-4 rounded-lg bg-emerald-50 p-3 sm:p-4">
           <p className="text-sm font-medium text-emerald-800">
-            Dates selectionnees : {format(selectedStart, "d MMM", { locale: fr })} - {format(selectedEnd, "d MMM yyyy", { locale: fr })}
+            {selectionMode === "single"
+              ? `Date de visite selectionnee : ${format(selectedStart, "d MMM yyyy", { locale: fr })}`
+              : `Dates selectionnees : ${format(selectedStart, "d MMM", { locale: fr })} - ${format(selectedEnd, "d MMM yyyy", { locale: fr })}`}
           </p>
         </div>
       )}

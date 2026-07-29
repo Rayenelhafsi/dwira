@@ -3506,7 +3506,13 @@ function canUseProviderForMedia(provider, mediaType) {
   return false;
 }
 
-function getUploadProviderCandidates(mediaType) {
+function getUploadProviderCandidates(mediaType, preferredProvider) {
+  const normalizedPreferredProvider = String(preferredProvider || '').trim().toLowerCase();
+  if (normalizedPreferredProvider && normalizedPreferredProvider !== 'auto') {
+    return canUseProviderForMedia(normalizedPreferredProvider, mediaType)
+      ? [normalizedPreferredProvider]
+      : [];
+  }
   const normalizedProvider = String(MEDIA_UPLOAD_PROVIDER || 'auto').trim().toLowerCase();
   if (normalizedProvider && normalizedProvider !== 'auto') {
     return [normalizedProvider, 'local'];
@@ -11299,6 +11305,131 @@ async function ensureLocataireClienteleProfile({ locataireId, email, cin, guests
   );
 }
 
+function mapSalesStageToAcheteurStatus(stage) {
+  const normalized = String(stage || '').trim().toLowerCase();
+  if (normalized === 'visite_planifiee') return 'visite_planifiee';
+  if (normalized === 'visite_effectuee') return 'visite_planifiee';
+  if (normalized === 'offre_en_cours') return 'offre_en_cours';
+  if (normalized === 'compromis_signe') return 'compromis_signe';
+  if (normalized === 'vendu') return 'vendu';
+  if (normalized === 'perdu') return 'perdu';
+  if (normalized === 'a_rappeler') return 'qualifie';
+  return 'lead_brut';
+}
+
+function mapSalesStageToAcheteurNextAction(stage) {
+  const normalized = String(stage || '').trim().toLowerCase();
+  if (normalized === 'a_rappeler') return 'rappeler';
+  if (normalized === 'visite_planifiee' || normalized === 'nouvelle_demande') return 'programmer_visite';
+  if (normalized === 'offre_en_cours') return 'envoyer_offres';
+  return null;
+}
+
+async function ensureAcheteurClienteleProfileFromReservationDemand(demand, bien) {
+  if (!demand || String(demand.request_type || '').trim() !== 'visite') return;
+  if (String(bien?.mode || '').trim() !== 'vente') return;
+
+  await ensureClientelesSchema();
+
+  const normalizedUserId = String(demand.client_user_id || '').trim();
+  const normalizedEmail = normalizeEmailForCompare(demand.client_email);
+  if (!normalizedUserId && !normalizedEmail) return;
+
+  let sourceTable = 'utilisateurs';
+  let sourceId = normalizedUserId;
+
+  if (!sourceId && normalizedEmail) {
+    const [userRows] = await pool.query(
+      `SELECT id
+       FROM utilisateurs
+       WHERE LOWER(TRIM(email)) = ?
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT 1`,
+      [normalizedEmail]
+    );
+    sourceId = String(userRows?.[0]?.id || '').trim();
+  }
+
+  if (!sourceId) return;
+
+  const now = getAgencySqlDateTime();
+  const zoneCandidates = [
+    String(bien?.zone_nom || '').trim(),
+    String(bien?.zone_id || '').trim(),
+  ].filter(Boolean);
+  const typeCandidate = String(bien?.type || '').trim();
+  const priceCandidate = Number(
+    bien?.prix_affiche_client
+    || bien?.prix_final
+    || bien?.terrain_prix_affiche_total
+    || bien?.lotissement_prix_total
+    || 0
+  );
+  const surfaceCandidate = Number(
+    bien?.superficie_m2
+    || bien?.terrain_surface_m2
+    || bien?.immeuble_surface_batie_m2
+    || 0
+  );
+  const preferredStage = String(demand.sales_stage || 'nouvelle_demande').trim() || 'nouvelle_demande';
+  const preferredStatus = mapSalesStageToAcheteurStatus(preferredStage);
+  const preferredNextAction = mapSalesStageToAcheteurNextAction(preferredStage);
+  const preferredActionDueAt = String(demand.visit_preferred_date || '').trim()
+    ? `${String(demand.visit_preferred_date).slice(0, 10)} 09:00:00`
+    : null;
+  const profileId = `cp_utilisateurs_${sourceId}`.replace(/[^a-zA-Z0-9_]/g, '_');
+
+  await pool.query(
+    `INSERT INTO clienteles_profiles (
+      id, source_table, source_id, linked_user_id, email, global_status, canal_entree,
+      active_roles_json, acheteur_status, acheteur_zones_json, acheteur_types_json,
+      acheteur_budget_max, acheteur_surface_min, acheteur_next_action, acheteur_action_due_at,
+      last_interaction_at, last_interaction_note, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'prospect', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      linked_user_id = COALESCE(VALUES(linked_user_id), linked_user_id),
+      email = COALESCE(VALUES(email), email),
+      canal_entree = COALESCE(VALUES(canal_entree), canal_entree),
+      active_roles_json = VALUES(active_roles_json),
+      acheteur_status = VALUES(acheteur_status),
+      acheteur_zones_json = CASE
+        WHEN (acheteur_zones_json IS NULL OR acheteur_zones_json = '' OR acheteur_zones_json = '[]') THEN VALUES(acheteur_zones_json)
+        ELSE acheteur_zones_json
+      END,
+      acheteur_types_json = CASE
+        WHEN (acheteur_types_json IS NULL OR acheteur_types_json = '' OR acheteur_types_json = '[]') THEN VALUES(acheteur_types_json)
+        ELSE acheteur_types_json
+      END,
+      acheteur_budget_max = COALESCE(acheteur_budget_max, VALUES(acheteur_budget_max)),
+      acheteur_surface_min = COALESCE(acheteur_surface_min, VALUES(acheteur_surface_min)),
+      acheteur_next_action = VALUES(acheteur_next_action),
+      acheteur_action_due_at = COALESCE(VALUES(acheteur_action_due_at), acheteur_action_due_at),
+      last_interaction_at = VALUES(last_interaction_at),
+      last_interaction_note = VALUES(last_interaction_note),
+      updated_at = VALUES(updated_at)`,
+    [
+      profileId,
+      sourceTable,
+      sourceId,
+      sourceId,
+      normalizedEmail || null,
+      String(demand.sales_source || 'site_web').trim() || 'site_web',
+      JSON.stringify(['acheteur']),
+      preferredStatus,
+      JSON.stringify(zoneCandidates),
+      JSON.stringify(typeCandidate ? [typeCandidate] : []),
+      priceCandidate > 0 ? priceCandidate : null,
+      surfaceCandidate > 0 ? surfaceCandidate : null,
+      preferredNextAction,
+      preferredActionDueAt,
+      now,
+      String(demand.sales_last_note || demand.client_note || `Demande de visite ${demand.id}`).trim().slice(0, 1000),
+      now,
+      now,
+    ]
+  );
+}
+
 async function resolvePublicationVisibilityFromOwner(resolvedVisibleSurSite, proprietaireId, mode) {
   if (resolvedVisibleSurSite !== 1) return 0;
   const normalizedProprietaireId = String(proprietaireId || '').trim();
@@ -13886,6 +14017,7 @@ function formatReservationDemandRow(row) {
     reservation_group_refs: parseJsonArray(row.reservation_group_refs_json),
     reservation_group_item_bien_ids: parseJsonArray(row.reservation_group_item_bien_ids_json),
     request_type: row.request_type === 'visite' ? 'visite' : 'reservation',
+    sales_source: row.sales_source || null,
     payment_mode: normalizePaymentMode(row.payment_mode, 'avance'),
     partner_agency_id: row.partner_agency_id || null,
     partner_agency_name: row.partner_agency_name || null,
@@ -13909,6 +14041,10 @@ function formatReservationDemandRow(row) {
     guests: Number(row.guests || 1),
     adult_guests: Number(row.adult_guests || row.guests || 1),
     child_guests: Number(row.child_guests || 0),
+    visit_preferred_date: row.visit_preferred_date || null,
+    visit_time_slot: row.visit_time_slot || null,
+    visit_confirmed_at: row.visit_confirmed_at || null,
+    visit_assigned_admin_id: row.visit_assigned_admin_id || null,
     total_amount: row.total_amount === null || row.total_amount === undefined ? null : Number(row.total_amount),
     amount_due_now: row.amount_due_now === null || row.amount_due_now === undefined ? null : Number(row.amount_due_now),
     flash_offer: safeParseJson(row.flash_offer_json, null),
@@ -13951,6 +14087,8 @@ function formatReservationDemandRow(row) {
     identity_last_name: row.identity_last_name || null,
     identity_submitted_at: row.identity_submitted_at || null,
     contract_generated_at: row.contract_generated_at || null,
+    sales_stage: row.sales_stage || null,
+    sales_last_note: row.sales_last_note || null,
     contract_id: row.contract_id || null,
     contract_url: row.contract_url || null,
     owner_contract_url: row.owner_contract_url || null,
@@ -14016,6 +14154,352 @@ async function fetchReservationDemandDetailsById(demandId) {
   );
   return formatReservationDemandRow(rows?.[0] || null);
 }
+
+const SALES_STAGE_VALUES = new Set([
+  'nouvelle_demande',
+  'a_rappeler',
+  'visite_planifiee',
+  'visite_effectuee',
+  'offre_en_cours',
+  'compromis_signe',
+  'vendu',
+  'perdu',
+]);
+
+function normalizeSalesStage(value, fallback = 'nouvelle_demande') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return SALES_STAGE_VALUES.has(normalized) ? normalized : fallback;
+}
+
+async function fetchSalesDemandById(demandId) {
+  const normalizedDemandId = String(demandId || '').trim();
+  if (!normalizedDemandId) return null;
+  const [rows] = await pool.query(
+    `SELECT
+       d.*,
+       b.titre AS bien_titre,
+       b.reference AS bien_reference,
+       b.mode AS bien_mode,
+       b.type AS bien_type,
+       b.zone_id AS bien_zone_id,
+       z.nom AS bien_zone_nom,
+       b.prix_affiche_client AS bien_prix_affiche_client,
+       b.prix_final AS bien_prix_final,
+       b.terrain_prix_affiche_total AS bien_terrain_prix_affiche_total,
+       b.lotissement_prix_total AS bien_lotissement_prix_total,
+       b.superficie_m2 AS bien_superficie_m2,
+       b.terrain_surface_m2 AS bien_terrain_surface_m2,
+       b.immeuble_surface_batie_m2 AS bien_immeuble_surface_batie_m2,
+       b.visible_sur_site AS bien_visible_sur_site,
+       p.nom AS proprietaire_nom,
+       p.telephone AS proprietaire_telephone,
+       assignee.nom AS visit_assigned_admin_name,
+       DATE_FORMAT(d.visit_confirmed_at, '%Y-%m-%d %H:%i:%s') AS visit_confirmed_at,
+       DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+       DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM reservation_demands d
+     LEFT JOIN biens b ON b.id = d.bien_id
+     LEFT JOIN zones z ON z.id = b.zone_id
+     LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+     LEFT JOIN utilisateurs assignee ON assignee.id = d.visit_assigned_admin_id
+     WHERE d.id = ?
+       AND d.request_type = 'visite'
+       AND b.mode = 'vente'
+     LIMIT 1`,
+    [normalizedDemandId]
+  );
+  return formatReservationDemandRow(rows?.[0] || null);
+}
+
+app.get('/api/admin/sales-demands', requireAdminSession, async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    await ensureClientelesSchema();
+    const where = [`d.request_type = 'visite'`, `b.mode = 'vente'`];
+    const params = [];
+    const salesStage = String(req.query?.sales_stage || '').trim();
+    const assignedAdminId = String(req.query?.assigned_admin_id || '').trim();
+    const bienId = String(req.query?.bien_id || '').trim();
+    const dateFrom = String(req.query?.date_from || '').trim();
+    const dateTo = String(req.query?.date_to || '').trim();
+    const search = String(req.query?.search || '').trim().toLowerCase();
+
+    if (salesStage && SALES_STAGE_VALUES.has(salesStage)) {
+      where.push('COALESCE(d.sales_stage, ?) = ?');
+      params.push('nouvelle_demande', salesStage);
+    }
+    if (assignedAdminId) {
+      where.push('d.visit_assigned_admin_id = ?');
+      params.push(assignedAdminId);
+    }
+    if (bienId) {
+      where.push('d.bien_id = ?');
+      params.push(bienId);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+      where.push('COALESCE(d.visit_preferred_date, d.start_date) >= ?');
+      params.push(dateFrom);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+      where.push('COALESCE(d.visit_preferred_date, d.start_date) <= ?');
+      params.push(dateTo);
+    }
+    if (search) {
+      where.push(`(
+        CAST(d.id AS CHAR) LIKE ?
+        OR LOWER(TRIM(COALESCE(d.client_name, ''))) LIKE ?
+        OR LOWER(TRIM(COALESCE(d.client_email, ''))) LIKE ?
+        OR LOWER(TRIM(COALESCE(d.client_phone, ''))) LIKE ?
+        OR LOWER(TRIM(COALESCE(d.reference_code, ''))) LIKE ?
+        OR LOWER(TRIM(COALESCE(b.reference, ''))) LIKE ?
+        OR LOWER(TRIM(COALESCE(b.titre, ''))) LIKE ?
+      )`);
+      params.push(
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`
+      );
+    }
+
+    const [rows] = await pool.query(
+      `SELECT
+         d.*,
+         b.titre AS bien_titre,
+         b.reference AS bien_reference,
+         b.mode AS bien_mode,
+         b.type AS bien_type,
+         b.zone_id AS bien_zone_id,
+         z.nom AS bien_zone_nom,
+         b.prix_affiche_client AS bien_prix_affiche_client,
+         b.prix_final AS bien_prix_final,
+         b.terrain_prix_affiche_total AS bien_terrain_prix_affiche_total,
+         b.lotissement_prix_total AS bien_lotissement_prix_total,
+         b.superficie_m2 AS bien_superficie_m2,
+         b.terrain_surface_m2 AS bien_terrain_surface_m2,
+         b.immeuble_surface_batie_m2 AS bien_immeuble_surface_batie_m2,
+         b.visible_sur_site AS bien_visible_sur_site,
+         p.nom AS proprietaire_nom,
+         p.telephone AS proprietaire_telephone,
+         assignee.nom AS visit_assigned_admin_name,
+         DATE_FORMAT(d.visit_confirmed_at, '%Y-%m-%d %H:%i:%s') AS visit_confirmed_at,
+         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         DATE_FORMAT(d.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM reservation_demands d
+       INNER JOIN biens b ON b.id = d.bien_id
+       LEFT JOIN zones z ON z.id = b.zone_id
+       LEFT JOIN proprietaires p ON p.id = d.proprietaire_id
+       LEFT JOIN utilisateurs assignee ON assignee.id = d.visit_assigned_admin_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY
+         COALESCE(d.visit_preferred_date, d.start_date) ASC,
+         d.created_at DESC`,
+      params
+    );
+    res.json((rows || []).map((row) => formatReservationDemandRow(row)));
+  } catch (error) {
+    console.error('Error fetching sales demands:', error);
+    res.status(500).json({ error: 'Impossible de charger les demandes ventes' });
+  }
+});
+
+app.patch('/api/admin/sales-demands/:id', requireAdminSession, express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande vente introuvable' });
+    const current = await fetchSalesDemandById(demandId);
+    if (!current) return res.status(404).json({ error: 'Demande vente introuvable' });
+
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const nextSalesStage = body.sales_stage !== undefined
+      ? normalizeSalesStage(body.sales_stage, String(current.sales_stage || 'nouvelle_demande'))
+      : String(current.sales_stage || 'nouvelle_demande');
+    const nextAssignedAdminId = body.visit_assigned_admin_id !== undefined
+      ? (String(body.visit_assigned_admin_id || '').trim() || null)
+      : (String(current.visit_assigned_admin_id || '').trim() || null);
+    const nextVisitPreferredDate = body.visit_preferred_date !== undefined
+      ? (/^\d{4}-\d{2}-\d{2}$/.test(String(body.visit_preferred_date || '').trim()) ? String(body.visit_preferred_date).trim() : null)
+      : (String(current.visit_preferred_date || '').trim() || null);
+    const nextVisitTimeSlot = body.visit_time_slot !== undefined
+      ? (String(body.visit_time_slot || '').trim().slice(0, 80) || null)
+      : (String(current.visit_time_slot || '').trim() || null);
+    const nextSalesLastNote = body.sales_last_note !== undefined
+      ? (String(body.sales_last_note || '').trim() || null)
+      : (String(current.sales_last_note || '').trim() || null);
+    const now = getAgencySqlDateTime();
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET sales_stage = ?,
+           visit_assigned_admin_id = ?,
+           visit_preferred_date = ?,
+           visit_time_slot = ?,
+           sales_last_note = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [nextSalesStage, nextAssignedAdminId, nextVisitPreferredDate, nextVisitTimeSlot, nextSalesLastNote, now, demandId]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      String(current.status || 'en_attente_reponse_proprietaire'),
+      'admin',
+      String(req.authUser?.id || 'admin').trim(),
+      `Mise a jour vente: etape ${nextSalesStage}${nextVisitPreferredDate ? `, visite ${nextVisitPreferredDate}` : ''}${nextVisitTimeSlot ? ` (${nextVisitTimeSlot})` : ''}`,
+      now
+    );
+
+    const updated = await fetchSalesDemandById(demandId);
+    if (updated) {
+      await ensureAcheteurClienteleProfileFromReservationDemand(updated, {
+        mode: updated.bien_mode,
+        type: updated.bien_type,
+        zone_id: updated.bien_zone_id,
+        zone_nom: updated.bien_zone_nom,
+        prix_affiche_client: updated.bien_prix_affiche_client,
+        prix_final: updated.bien_prix_final,
+        terrain_prix_affiche_total: updated.bien_terrain_prix_affiche_total,
+        lotissement_prix_total: updated.bien_lotissement_prix_total,
+        superficie_m2: updated.bien_superficie_m2,
+        terrain_surface_m2: updated.bien_terrain_surface_m2,
+        immeuble_surface_batie_m2: updated.bien_immeuble_surface_batie_m2,
+      }).catch((error) => {
+        console.warn('sales_clientele_sync_failed:', error?.message || error);
+      });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating sales demand:', error);
+    res.status(500).json({ error: 'Impossible de mettre a jour la demande vente' });
+  }
+});
+
+app.post('/api/admin/sales-demands/:id/schedule', requireAdminSession, express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande vente introuvable' });
+    const current = await fetchSalesDemandById(demandId);
+    if (!current) return res.status(404).json({ error: 'Demande vente introuvable' });
+
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const visitDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.visit_preferred_date || '').trim())
+      ? String(body.visit_preferred_date).trim()
+      : String(current.visit_preferred_date || '').trim();
+    const visitTimeSlot = String(body.visit_time_slot || '').trim().slice(0, 80) || String(current.visit_time_slot || '').trim();
+    const assignedAdminId = String(body.visit_assigned_admin_id || req.authUser?.id || '').trim() || String(current.visit_assigned_admin_id || '').trim();
+    if (!visitDate) return res.status(400).json({ error: 'Date de visite requise' });
+    if (!visitTimeSlot) return res.status(400).json({ error: 'Creneau de visite requis' });
+    const now = getAgencySqlDateTime();
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET sales_stage = ?,
+           visit_preferred_date = ?,
+           visit_time_slot = ?,
+           visit_assigned_admin_id = ?,
+           visit_confirmed_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      ['visite_planifiee', visitDate, visitTimeSlot, assignedAdminId || null, now, now, demandId]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      String(current.status || 'en_attente_reponse_proprietaire'),
+      'admin',
+      String(req.authUser?.id || 'admin').trim(),
+      `Visite planifiee le ${visitDate} (${visitTimeSlot})`,
+      now
+    );
+
+    const updated = await fetchSalesDemandById(demandId);
+    if (updated) {
+      await ensureAcheteurClienteleProfileFromReservationDemand(updated, {
+        mode: updated.bien_mode,
+        type: updated.bien_type,
+        zone_id: updated.bien_zone_id,
+        zone_nom: updated.bien_zone_nom,
+        prix_affiche_client: updated.bien_prix_affiche_client,
+        prix_final: updated.bien_prix_final,
+        terrain_prix_affiche_total: updated.bien_terrain_prix_affiche_total,
+        lotissement_prix_total: updated.bien_lotissement_prix_total,
+        superficie_m2: updated.bien_superficie_m2,
+        terrain_surface_m2: updated.bien_terrain_surface_m2,
+        immeuble_surface_batie_m2: updated.bien_immeuble_surface_batie_m2,
+      }).catch((error) => {
+        console.warn('sales_clientele_sync_failed:', error?.message || error);
+      });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error('Error scheduling sales demand:', error);
+    res.status(500).json({ error: 'Impossible de planifier la visite' });
+  }
+});
+
+app.post('/api/admin/sales-demands/:id/close', requireAdminSession, express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    const demandId = String(req.params?.id || '').trim();
+    if (!demandId) return res.status(400).json({ error: 'Demande vente introuvable' });
+    const current = await fetchSalesDemandById(demandId);
+    if (!current) return res.status(404).json({ error: 'Demande vente introuvable' });
+
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const nextSalesStage = normalizeSalesStage(body.sales_stage, String(current.sales_stage || 'nouvelle_demande'));
+    if (!['vendu', 'perdu', 'compromis_signe'].includes(nextSalesStage)) {
+      return res.status(400).json({ error: 'Etape de cloture vente invalide' });
+    }
+    const nextSalesLastNote = String(body.sales_last_note || body.note || '').trim() || String(current.sales_last_note || '').trim() || null;
+    const now = getAgencySqlDateTime();
+
+    await pool.query(
+      `UPDATE reservation_demands
+       SET sales_stage = ?,
+           sales_last_note = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [nextSalesStage, nextSalesLastNote, now, demandId]
+    );
+
+    await appendReservationDemandHistory(
+      demandId,
+      String(current.status || 'en_attente_reponse_proprietaire'),
+      'admin',
+      String(req.authUser?.id || 'admin').trim(),
+      `Cloture vente: ${nextSalesStage}${nextSalesLastNote ? ` - ${nextSalesLastNote}` : ''}`,
+      now
+    );
+
+    const updated = await fetchSalesDemandById(demandId);
+    if (updated) {
+      await ensureAcheteurClienteleProfileFromReservationDemand(updated, {
+        mode: updated.bien_mode,
+        type: updated.bien_type,
+        zone_id: updated.bien_zone_id,
+        zone_nom: updated.bien_zone_nom,
+        prix_affiche_client: updated.bien_prix_affiche_client,
+        prix_final: updated.bien_prix_final,
+        terrain_prix_affiche_total: updated.bien_terrain_prix_affiche_total,
+        lotissement_prix_total: updated.bien_lotissement_prix_total,
+        superficie_m2: updated.bien_superficie_m2,
+        terrain_surface_m2: updated.bien_terrain_surface_m2,
+        immeuble_surface_batie_m2: updated.bien_immeuble_surface_batie_m2,
+      }).catch((error) => {
+        console.warn('sales_clientele_sync_failed:', error?.message || error);
+      });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error('Error closing sales demand:', error);
+    res.status(500).json({ error: 'Impossible de cloturer la demande vente' });
+  }
+});
 
 async function notifyChatbotReservationDemandChange(demandId) {
   const normalizedId = String(demandId || '').trim();
@@ -16817,6 +17301,61 @@ app.put('/api/site-mode-priorities', requireAdminSession, async (req, res) => {
   } catch (error) {
     console.error('Error updating site mode priorities:', error);
     res.status(500).json({ error: 'Impossible de sauvegarder les priorites des modes' });
+  }
+});
+
+async function ensureSalesHeroSettingsSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sales_hero_settings (
+      id TINYINT NOT NULL PRIMARY KEY,
+      image_url TEXT NULL,
+      title VARCHAR(255) NULL,
+      subtitle TEXT NULL,
+      updated_at DATETIME NOT NULL
+    )
+  `);
+  const [rows] = await pool.query('SELECT id FROM sales_hero_settings WHERE id = 1 LIMIT 1');
+  if (!Array.isArray(rows) || rows.length === 0) {
+    await pool.query(
+      'INSERT INTO sales_hero_settings (id, image_url, title, subtitle, updated_at) VALUES (1, NULL, NULL, NULL, ?)',
+      [getAgencySqlDateTime()]
+    );
+  }
+}
+
+app.get('/api/sales-hero-settings', async (_req, res) => {
+  try {
+    await ensureSalesHeroSettingsSchema();
+    const [rows] = await pool.query(
+      `SELECT image_url, title, subtitle, updated_at
+       FROM sales_hero_settings
+       WHERE id = 1
+       LIMIT 1`
+    );
+    res.json(rows?.[0] || { image_url: null, title: null, subtitle: null, updated_at: null });
+  } catch (error) {
+    console.error('Error fetching sales hero settings:', error);
+    res.status(500).json({ error: 'Impossible de charger le hero ventes' });
+  }
+});
+
+app.put('/api/sales-hero-settings', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSalesHeroSettingsSchema();
+    const imageUrl = String(req.body?.image_url || '').trim() || null;
+    const title = String(req.body?.title || '').trim().slice(0, 255) || null;
+    const subtitle = String(req.body?.subtitle || '').trim().slice(0, 2000) || null;
+    const now = getAgencySqlDateTime();
+    await pool.query(
+      `UPDATE sales_hero_settings
+       SET image_url = ?, title = ?, subtitle = ?, updated_at = ?
+       WHERE id = 1`,
+      [imageUrl, title, subtitle, now]
+    );
+    res.json({ image_url: imageUrl, title, subtitle, updated_at: now });
+  } catch (error) {
+    console.error('Error saving sales hero settings:', error);
+    res.status(500).json({ error: 'Impossible de sauvegarder le hero ventes' });
   }
 });
 
@@ -23365,6 +23904,7 @@ app.get('/api/reservation-demands', requireAuthenticatedSession, async (req, res
         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
         DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
         DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+        DATE_FORMAT(d.visit_confirmed_at, '%Y-%m-%d %H:%i:%s') AS visit_confirmed_at,
         DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
         DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
         DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
@@ -23499,6 +24039,10 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       amicale_phone,
       amicale_code,
       group_reservation,
+      visit_preferred_date,
+      visit_time_slot,
+      sales_source,
+      sales_last_note,
       turnstileToken,
       sessionId,
     } = req.body || {};
@@ -23511,6 +24055,12 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
     const normalizedAmicaleMatricule = String(amicale_matricule || req.body?.amicaleMatricule || '').trim() || null;
     const normalizedAmicalePhone = normalizePhoneNumber(amicale_phone || req.body?.amicalePhone || '');
     const normalizedAmicaleCode = String(amicale_code || req.body?.amicaleCode || '').trim() || null;
+    const normalizedVisitPreferredDate = /^\d{4}-\d{2}-\d{2}$/.test(String(visit_preferred_date || '').trim())
+      ? String(visit_preferred_date).trim()
+      : null;
+    const normalizedVisitTimeSlot = String(visit_time_slot || req.body?.visitTimeSlot || '').trim().slice(0, 80) || null;
+    const normalizedSalesSource = String(sales_source || req.body?.salesSource || 'site_web').trim().slice(0, 40) || 'site_web';
+    const normalizedSalesLastNote = String(sales_last_note || req.body?.salesLastNote || client_note || '').trim() || null;
     const isAmicaleFlow = normalizedPaymentMode === 'amicale';
     const isPartnerAgencyFlow = Boolean(normalizedPartnerAgencyId);
 
@@ -23535,7 +24085,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       : (requester ? (String(requester.name || '').trim() || null) : normalizedAmicaleName);
     let resolvedClientTelephone = requester?.role === 'admin'
       ? normalizePhoneNumber(req.body?.client_telephone || '')
-      : (requester ? normalizePhoneNumber(requester.telephone || '') : normalizedAmicalePhone);
+      : (requester ? normalizePhoneNumber(req.body?.client_telephone || requester.telephone || '') : normalizedAmicalePhone);
     let resolvedClientCin = requester?.role === 'admin'
       ? String(req.body?.client_cin || '').trim()
       : (requester ? String(requester.cin || '').trim() : null);
@@ -23908,6 +24458,8 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
       },
     }).catch(() => {});
     const requestType = bien.mode === 'vente' ? 'visite' : (request_type === 'visite' ? 'visite' : 'reservation');
+    const isSalesVisitDemand = requestType === 'visite' && String(bien.mode || '').trim() === 'vente';
+    const initialSalesStage = isSalesVisitDemand ? 'nouvelle_demande' : null;
     const normalizedTotalAmount = Number.isFinite(Number(total_amount)) ? Number(total_amount) : null;
     const normalizedAmountDueNow = Number.isFinite(Number(amount_due_now)) ? Number(amount_due_now) : null;
     const normalizedFlashOffer = (() => {
@@ -24164,12 +24716,12 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
 
     await pool.query(
       `INSERT INTO reservation_demands (
-        id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, proprietaire_id, owner_user_id,
-        start_date, end_date, guests, adult_guests, child_guests, payment_mode, partner_agency_id, partner_agency_margin_multiplier, pricing_amicale_id, amicale_matricule, amicale_phone, amicale_code,
+        id, bien_id, request_type, unavailable_date_id, client_user_id, client_email, client_name, client_phone, sales_source, proprietaire_id, owner_user_id,
+        start_date, end_date, visit_preferred_date, visit_time_slot, guests, adult_guests, child_guests, payment_mode, partner_agency_id, partner_agency_margin_multiplier, pricing_amicale_id, amicale_matricule, amicale_phone, amicale_code,
         total_amount, amount_due_now, flash_offer_json, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status,
-        partner_agency_validation_at, amicale_validation_at, agency_validation_at, voucher_id, voucher_number, voucher_url, voucher_generated_at, owner_notified_at, owner_response_at, admin_note, client_note,
+        partner_agency_validation_at, amicale_validation_at, agency_validation_at, voucher_id, voucher_number, voucher_url, voucher_generated_at, owner_notified_at, owner_response_at, sales_stage, sales_last_note, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         demandId,
         bien_id,
@@ -24178,10 +24730,14 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         resolvedClientUserId,
         resolvedClientEmail,
         resolvedClientName,
+        resolvedClientTelephone || null,
+        isSalesVisitDemand ? normalizedSalesSource : null,
         bien.proprietaire_id || null,
         ownerUserId,
         start_date,
         end_date,
+        isSalesVisitDemand ? normalizedVisitPreferredDate : null,
+        isSalesVisitDemand ? normalizedVisitTimeSlot : null,
         normalizedGuests,
         balancedAdultGuests,
         balancedChildGuests,
@@ -24210,6 +24766,8 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         null,
         null,
         null,
+        initialSalesStage,
+        isSalesVisitDemand ? normalizedSalesLastNote : null,
         null,
         client_note || null,
         paymentDeadline,
@@ -24361,9 +24919,10 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         b.mode AS bien_mode,
         p.nom AS proprietaire_nom,
         DATE_FORMAT(d.owner_notified_at, '%Y-%m-%d %H:%i:%s') AS owner_notified_at,
-        DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
-        DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
-        DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
+       DATE_FORMAT(d.owner_response_at, '%Y-%m-%d %H:%i:%s') AS owner_response_at,
+       DATE_FORMAT(d.client_confirmation_clicked_at, '%Y-%m-%d %H:%i:%s') AS client_confirmation_clicked_at,
+       DATE_FORMAT(d.visit_confirmed_at, '%Y-%m-%d %H:%i:%s') AS visit_confirmed_at,
+       DATE_FORMAT(d.identity_submitted_at, '%Y-%m-%d %H:%i:%s') AS identity_submitted_at,
         DATE_FORMAT(d.contract_generated_at, '%Y-%m-%d %H:%i:%s') AS contract_generated_at,
         DATE_FORMAT(d.finalization_due_at, '%Y-%m-%d %H:%i:%s') AS finalization_due_at,
         DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
@@ -25462,6 +26021,22 @@ app.post('/api/reservation-demands/:id/regenerate-voucher', requireAdminSession,
       `Voucher regenere (${voucherNumber})`,
       now
     );
+
+    if (isSalesVisitDemand) {
+      await ensureAcheteurClienteleProfileFromReservationDemand({
+        id: demandId,
+        client_user_id: resolvedClientUserId,
+        client_email: resolvedClientEmail,
+        client_note,
+        request_type: requestType,
+        sales_source: normalizedSalesSource,
+        sales_stage: initialSalesStage,
+        sales_last_note: normalizedSalesLastNote,
+        visit_preferred_date: normalizedVisitPreferredDate,
+      }, bien).catch((error) => {
+        console.warn('sales_clientele_sync_failed:', error?.message || error);
+      });
+    }
     await trackBusinessAnalyticsEvent(req, 'voucher_generated', {
       demandId,
       clientUserId: detailedCurrent.client_user_id,
@@ -28532,10 +29107,15 @@ async function ensureReservationDemandSchema() {
       client_email VARCHAR(255) NULL,
       client_name VARCHAR(255) NULL,
       client_phone VARCHAR(40) NULL,
+      sales_source VARCHAR(40) NULL,
       proprietaire_id VARCHAR(100) NULL,
       owner_user_id VARCHAR(100) NULL,
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
+      visit_preferred_date DATE NULL,
+      visit_time_slot VARCHAR(80) NULL,
+      visit_confirmed_at DATETIME NULL,
+      visit_assigned_admin_id VARCHAR(100) NULL,
       arrival_time VARCHAR(20) NULL,
       departure_time VARCHAR(20) NULL,
       guests INT NOT NULL DEFAULT 1,
@@ -28576,6 +29156,8 @@ async function ensureReservationDemandSchema() {
       identity_ocr_text LONGTEXT NULL,
       identity_submitted_at DATETIME NULL,
       contract_generated_at DATETIME NULL,
+      sales_stage VARCHAR(40) NULL,
+      sales_last_note TEXT NULL,
       admin_note TEXT NULL,
       client_note TEXT NULL,
       finalization_due_at DATETIME NULL,
@@ -28609,7 +29191,8 @@ async function ensureReservationDemandSchema() {
       KEY idx_reservation_demands_amicale_status (pricing_amicale_id, status),
       KEY idx_reservation_demands_owner (proprietaire_id, owner_user_id),
       KEY idx_reservation_demands_voucher (voucher_id),
-      KEY idx_reservation_demands_status (status)
+      KEY idx_reservation_demands_status (status),
+      KEY idx_reservation_demands_sales_stage (sales_stage, visit_preferred_date)
     )
   `);
 
@@ -28688,8 +29271,11 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'client_phone'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_phone VARCHAR(40) NULL AFTER client_name');
   }
+  if (!(await columnExists('reservation_demands', 'sales_source'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN sales_source VARCHAR(40) NULL AFTER client_phone');
+  }
   if (!(await columnExists('reservation_demands', 'proprietaire_id'))) {
-    await pool.query('ALTER TABLE reservation_demands ADD COLUMN proprietaire_id VARCHAR(100) NULL AFTER client_phone');
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN proprietaire_id VARCHAR(100) NULL AFTER sales_source');
   }
   if (!(await columnExists('reservation_demands', 'owner_user_id'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN owner_user_id VARCHAR(100) NULL AFTER proprietaire_id');
@@ -28733,8 +29319,20 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'arrival_time'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN arrival_time VARCHAR(20) NULL AFTER end_date');
   }
+  if (!(await columnExists('reservation_demands', 'visit_preferred_date'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN visit_preferred_date DATE NULL AFTER end_date');
+  }
+  if (!(await columnExists('reservation_demands', 'visit_time_slot'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN visit_time_slot VARCHAR(80) NULL AFTER visit_preferred_date');
+  }
+  if (!(await columnExists('reservation_demands', 'visit_confirmed_at'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN visit_confirmed_at DATETIME NULL AFTER visit_time_slot');
+  }
+  if (!(await columnExists('reservation_demands', 'visit_assigned_admin_id'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN visit_assigned_admin_id VARCHAR(100) NULL AFTER visit_confirmed_at');
+  }
   if (!(await columnExists('reservation_demands', 'departure_time'))) {
-    await pool.query('ALTER TABLE reservation_demands ADD COLUMN departure_time VARCHAR(20) NULL AFTER arrival_time');
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN departure_time VARCHAR(20) NULL AFTER visit_assigned_admin_id');
   }
   if (!(await columnExists('reservation_demands', 'partner_agency_validation_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN partner_agency_validation_at DATETIME NULL AFTER status');
@@ -28871,8 +29469,21 @@ async function ensureReservationDemandSchema() {
   if (!(await columnExists('reservation_demands', 'contract_generated_at'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN contract_generated_at DATETIME NULL AFTER identity_submitted_at');
   }
+  if (!(await columnExists('reservation_demands', 'sales_stage'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN sales_stage VARCHAR(40) NULL AFTER contract_generated_at');
+  }
+  if (!(await columnExists('reservation_demands', 'sales_last_note'))) {
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN sales_last_note TEXT NULL AFTER sales_stage');
+  }
+  if (
+    !(await indexExists('reservation_demands', 'idx_reservation_demands_sales_stage'))
+    && (await columnExists('reservation_demands', 'sales_stage'))
+    && (await columnExists('reservation_demands', 'visit_preferred_date'))
+  ) {
+    await pool.query('ALTER TABLE reservation_demands ADD KEY idx_reservation_demands_sales_stage (sales_stage, visit_preferred_date)');
+  }
   if (!(await columnExists('reservation_demands', 'admin_note'))) {
-    await pool.query('ALTER TABLE reservation_demands ADD COLUMN admin_note TEXT NULL AFTER contract_generated_at');
+    await pool.query('ALTER TABLE reservation_demands ADD COLUMN admin_note TEXT NULL AFTER sales_last_note');
   }
   if (!(await columnExists('reservation_demands', 'client_note'))) {
     await pool.query('ALTER TABLE reservation_demands ADD COLUMN client_note TEXT NULL AFTER admin_note');
@@ -29598,8 +30209,18 @@ app.post('/api/upload', requireAuthenticatedSession, uploadMediaMiddleware, asyn
       : uploadScope === 'amicale' ? 'amicales'
       : 'biens';
     const dynamicFolder = `${CLOUDINARY_UPLOAD_FOLDER ? `${CLOUDINARY_UPLOAD_FOLDER}/` : ''}${scopeFolder}/${folderKey}`;
-    const candidateProviders = getUploadProviderCandidates(mediaType);
+    const preferredProviderRaw = Array.isArray(req.body?.preferred_provider) ? req.body.preferred_provider[0] : req.body?.preferred_provider;
+    const preferredProvider = String(preferredProviderRaw || '').trim().toLowerCase();
+    const candidateProviders = getUploadProviderCandidates(mediaType, preferredProvider);
     let lastProviderError = null;
+
+    if (candidateProviders.length === 0) {
+      return res.status(400).json({
+        error: preferredProvider
+          ? `Provider ${preferredProvider} indisponible pour cet upload`
+          : 'Aucun provider d upload disponible',
+      });
+    }
 
     for (const provider of candidateProviders) {
       if (provider === 'r2') {

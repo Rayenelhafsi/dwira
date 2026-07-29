@@ -425,6 +425,11 @@ export default function ReservationConfirmationPage() {
           amicale_matricule: isAmicaleFlow ? String(draft.amicaleMatricule || "").trim() : undefined,
           amicale_phone: isAmicaleFlow ? String(draft.amicalePhone || "").trim() : undefined,
           amicale_code: isAmicaleFlow ? String(draft.amicaleCode || "").trim() : undefined,
+          client_telephone: isVisitRequest ? String(draft.visitContactPhone || user?.telephone || "").trim() || undefined : undefined,
+          visit_preferred_date: isVisitRequest ? String(draft.visitPreferredDate || "").trim() || undefined : undefined,
+          visit_time_slot: isVisitRequest ? String(draft.visitTimeSlot || "").trim() || undefined : undefined,
+          sales_source: isVisitRequest ? String(draft.salesSource || "site_web").trim() || "site_web" : undefined,
+          sales_last_note: isVisitRequest ? String(draft.reservationNote || "").trim() || undefined : undefined,
             guests: summary?.guests || Math.min(maxGuests, Math.max(1, Number(draft.guests || 1))),
             adult_guests: summary?.adultGuests || Math.max(1, Number(draft.adultGuests ?? draft.guests ?? 1)),
             child_guests: summary?.childGuests || Math.max(0, Number(draft.childGuests || 0)),
@@ -623,12 +628,22 @@ export default function ReservationConfirmationPage() {
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span>{isVisitRequest ? 'Creneau souhaite' : 'Periode'}</span>
-                    <span className="font-semibold text-gray-900">{format(new Date(draft.startDate), "dd/MM/yyyy")} au {format(new Date(draft.endDate), "dd/MM/yyyy")}</span>
+                    <span className="font-semibold text-gray-900">
+                      {isVisitRequest
+                        ? `${draft.visitPreferredDate ? format(new Date(`${draft.visitPreferredDate}T00:00:00`), "dd/MM/yyyy") : format(new Date(draft.startDate), "dd/MM/yyyy")}${draft.visitTimeSlot ? ` - ${draft.visitTimeSlot}` : ""}`
+                        : `${format(new Date(draft.startDate), "dd/MM/yyyy")} au ${format(new Date(draft.endDate), "dd/MM/yyyy")}`}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span>{isVisitRequest ? 'Visiteurs' : 'Nuits'}</span>
                     <span className="font-semibold text-gray-900">{isVisitRequest ? summary?.guests || draft.guests : summary?.nights}</span>
                   </div>
+                  {isVisitRequest && (
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Telephone</span>
+                      <span className="font-semibold text-gray-900">{draft.visitContactPhone || user?.telephone || "-"}</span>
+                    </div>
+                  )}
                   {!isVisitRequest && <div className="flex items-center justify-between gap-3">
                     <span>Voyageurs</span>
                     <span className="font-semibold text-gray-900">{summary?.guests || draft.guests}</span>
@@ -807,6 +822,9 @@ export default function ReservationConfirmationPage() {
                 <Line label="Bien" value={property.reference || property.id} />
                 <Line label="Statut initial" value="En attente de reponse proprietaire" />
                 <Line label="Type" value="Planification de visite" strong />
+                <Line label="Date souhaitee" value={draft.visitPreferredDate ? format(new Date(`${draft.visitPreferredDate}T00:00:00`), "dd/MM/yyyy") : format(new Date(draft.startDate), "dd/MM/yyyy")} />
+                <Line label="Creneau" value={draft.visitTimeSlot || "-"} />
+                <Line label="Telephone" value={draft.visitContactPhone || user?.telephone || "-"} />
               </div>
             ) : (
               <div className="mt-6 space-y-4 text-sm text-gray-700">

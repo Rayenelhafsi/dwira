@@ -27,6 +27,15 @@ const AMICALE_GROSS_STORAGE_KEY = 'dwira_admin_amicales_en_gros_v1';
 const ADMIN_IMAGE_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23e5e7eb'/%3E%3Cpath d='M170 240l92-90 64 64 54-54 90 80H170z' fill='%23cbd5e1'/%3E%3Ccircle cx='250' cy='126' r='30' fill='%23cbd5e1'/%3E%3C/svg%3E";
 const HEIC_IMAGE_RE = /\.hei[cf](?:$|[?#])/i;
+const SALE_PLAN_2D_MOTIF = 'plan_2d';
+const SALE_PLAN_3D_MOTIF = 'plan_3d';
+const SALE_MEDIA_MOTIF_PRESETS = [
+  { value: SALE_PLAN_2D_MOTIF, label: 'Plan 2D' },
+  { value: SALE_PLAN_3D_MOTIF, label: 'Plan 3D' },
+  { value: 'facade', label: 'Facade' },
+  { value: 'interieur', label: 'Interieur' },
+  { value: 'exterieur', label: 'Exterieur' },
+];
 
 function getAdminGalleryImageSrc(url?: string | null, width = 960) {
   const resolvedUrl = resolveMediaUrl(url);
@@ -1163,9 +1172,16 @@ export default function BiensPage() {
   const [homeFilterImagePreview, setHomeFilterImagePreview] = useState<string>('');
   const [homeFilterImageRows, setHomeFilterImageRows] = useState<Array<{ id: string; mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [isSavingHomeFilterImage, setIsSavingHomeFilterImage] = useState(false);
+  const [salesHeroImageFile, setSalesHeroImageFile] = useState<File | null>(null);
+  const [salesHeroImagePreview, setSalesHeroImagePreview] = useState<string>('');
+  const [salesHeroImageUrl, setSalesHeroImageUrl] = useState<string>('');
+  const [salesHeroTitle, setSalesHeroTitle] = useState<string>('');
+  const [salesHeroSubtitle, setSalesHeroSubtitle] = useState<string>('');
+  const [isSavingSalesHero, setIsSavingSalesHero] = useState(false);
   const [pageTab, setPageTab] = useState<'biens' | 'parametres'>('biens');
   const [selectedFolderId, setSelectedFolderId] = useState<string>('root');
   const [selectedBienIds, setSelectedBienIds] = useState<string[]>([]);
+  const [editorReturnTo, setEditorReturnTo] = useState<string>('');
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderParentId, setNewFolderParentId] = useState<string>('root');
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -1244,6 +1260,7 @@ export default function BiensPage() {
   const filteredBiens = useMemo(() => {
     const query = normalizeSearchValue(searchTerm);
     return biens.filter((bien) => {
+      if (bien.mode === 'vente') return false;
       const ownerName = normalizeSearchValue(
         ownerNameById.get(String(bien.proprietaire_id || '').trim()) || String((bien as any).proprietaire_nom || '')
       );
@@ -1302,7 +1319,6 @@ export default function BiensPage() {
   }, [displayedBiens]);
   const modeTabs: Array<{ value: BienMode | 'all'; label: string }> = [
     { value: 'all', label: 'Tous les biens' },
-    { value: 'vente', label: 'Vente' },
     { value: 'location_annuelle', label: 'Location annuelle' },
     { value: 'location_saisonniere', label: 'Location saisonniere' },
   ];
@@ -1385,15 +1401,40 @@ export default function BiensPage() {
       cancelled = true;
     };
   }, [homeFilterImageMode]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/sales-hero-settings`, { credentials: 'include' });
+        if (!response.ok) throw new Error('sales-hero-settings');
+        const row = await response.json();
+        if (cancelled) return;
+        setSalesHeroImageUrl(String(row?.image_url || '').trim());
+        setSalesHeroTitle(String(row?.title || '').trim());
+        setSalesHeroSubtitle(String(row?.subtitle || '').trim());
+      } catch {
+        if (!cancelled) {
+          setSalesHeroImageUrl('');
+          setSalesHeroTitle('');
+          setSalesHeroSubtitle('');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (biens.length === 0 || isAddOpen) return;
     const params = new URLSearchParams(location.search);
     const editBienId = String(params.get('editBien') || '').trim();
     const requestedTab = String(params.get('tab') || '').trim().toLowerCase();
+    const requestedReturnTo = String(params.get('returnTo') || '').trim();
     if (!editBienId) return;
     const targetBien = biens.find((item) => String(item.id || '').trim() === editBienId);
     if (!targetBien) return;
+    setEditorReturnTo(requestedReturnTo.startsWith('/admin/') ? requestedReturnTo : '');
     setDuplicateSeedBien(null);
     setEditingBien(normalizeBienForEditor(targetBien, biens) as Bien);
     setEditorInitialStep(isResidenceParentBien(targetBien) ? 0 : 1);
@@ -1401,6 +1442,7 @@ export default function BiensPage() {
     setIsAddOpen(true);
     params.delete('editBien');
     params.delete('tab');
+    params.delete('returnTo');
     const nextSearch = params.toString();
     navigate(
       {
@@ -1410,6 +1452,63 @@ export default function BiensPage() {
       { replace: true }
     );
   }, [biens, isAddOpen, location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    if (isAddOpen) return;
+    const params = new URLSearchParams(location.search);
+    const createBien = String(params.get('createBien') || '').trim();
+    const requestedMode = String(params.get('mode') || '').trim() as BienMode;
+    const requestedType = normalizeLegacyType(String(params.get('type') || '').trim() as BienType);
+    const requestedReturnTo = String(params.get('returnTo') || '').trim();
+    if (!createBien) return;
+    const nextMode = requestedMode === 'vente' || requestedMode === 'location_annuelle' || requestedMode === 'location_saisonniere'
+      ? requestedMode
+      : 'vente';
+    const allowedTypes = BIEN_TYPES_BY_MODE[nextMode] || [];
+    const nextType = allowedTypes.includes(requestedType) ? requestedType : (nextMode === 'vente' ? 'terrain' : 'appartement');
+    setEditorReturnTo(requestedReturnTo.startsWith('/admin/') ? requestedReturnTo : '');
+    setDuplicateSeedBien({
+      mode: nextMode,
+      type: nextType,
+      residence_units: [],
+      lotissement_terrains: [],
+      lotissement_paliers_prix_m2: [],
+      immeuble_appartements: [],
+      immeuble_garages: [],
+      immeuble_locaux_commerciaux: [],
+      statut: 'disponible',
+      visible_sur_site: true,
+    } as Bien);
+    setEditingBien(null);
+    setEditorInitialStep(nextMode === 'vente' ? 1 : 0);
+    setEditorInitialTab('general');
+    setModeFilter(nextMode);
+    setIsAddOpen(true);
+    params.delete('createBien');
+    params.delete('mode');
+    params.delete('type');
+    params.delete('returnTo');
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : '',
+      },
+      { replace: true }
+    );
+  }, [isAddOpen, location.pathname, location.search, navigate]);
+  const closeEditor = useCallback(() => {
+    setIsAddOpen(false);
+    setEditorInitialStep(1);
+    setDuplicateSeedBien(null);
+    setEditingBien(null);
+    if (editorReturnTo) {
+      const nextTarget = editorReturnTo;
+      setEditorReturnTo('');
+      navigate(nextTarget);
+      return;
+    }
+  }, [editorReturnTo, navigate]);
   const handleTypeImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
     setTypeImageFile(file);
@@ -1429,6 +1528,16 @@ export default function BiensPage() {
     }
     const url = URL.createObjectURL(file);
     setHomeFilterImagePreview(url);
+  };
+  const handleSalesHeroImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    setSalesHeroImageFile(file);
+    if (!file) {
+      setSalesHeroImagePreview('');
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setSalesHeroImagePreview(url);
   };
   const handleSaveTypeFilterImage = async () => {
     if (!typeImageFile) {
@@ -1583,6 +1692,50 @@ export default function BiensPage() {
       toast.error("Erreur suppression image filtre accueil");
     } finally {
       setIsSavingHomeFilterImage(false);
+    }
+  };
+  const handleSaveSalesHeroSettings = async () => {
+    setIsSavingSalesHero(true);
+    try {
+      let nextImageUrl = String(salesHeroImageUrl || '').trim();
+      if (salesHeroImageFile) {
+        const uploadPayload = new FormData();
+        uploadPayload.append('image', salesHeroImageFile);
+        uploadPayload.append('upload_scope', 'sales_hero');
+        uploadPayload.append('preferred_provider', 'cloudflare');
+        const uploadResponse = await fetch(`${API_URL}/upload`, {
+          method: 'POST',
+          credentials: 'include',
+          body: uploadPayload,
+        });
+        if (!uploadResponse.ok) throw new Error('upload-sales-hero');
+        const uploadResult = await uploadResponse.json();
+        nextImageUrl = String(uploadResult?.url || '').trim();
+        if (!nextImageUrl) throw new Error('sales-hero-image-url');
+      }
+
+      const response = await fetch(`${API_URL}/sales-hero-settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          image_url: nextImageUrl,
+          title: salesHeroTitle,
+          subtitle: salesHeroSubtitle,
+        }),
+      });
+      if (!response.ok) throw new Error('save-sales-hero-settings');
+      const payload = await response.json().catch(() => null);
+      setSalesHeroImageUrl(String(payload?.image_url || nextImageUrl || '').trim());
+      setSalesHeroTitle(String(payload?.title || salesHeroTitle || '').trim());
+      setSalesHeroSubtitle(String(payload?.subtitle || salesHeroSubtitle || '').trim());
+      setSalesHeroImageFile(null);
+      setSalesHeroImagePreview('');
+      toast.success('Hero ventes enregistre');
+    } catch {
+      toast.error('Erreur enregistrement hero ventes');
+    } finally {
+      setIsSavingSalesHero(false);
     }
   };
 
@@ -1881,8 +2034,7 @@ export default function BiensPage() {
     if (targetBienId) {
       setSaveStatusByBienId((prev) => ({ ...prev, [targetBienId]: { state: 'saving', at: Date.now() } }));
     }
-    setIsAddOpen(false);
-    setEditingBien(null);
+    closeEditor();
 
     void (async () => {
       try {
@@ -2099,6 +2251,68 @@ export default function BiensPage() {
             Les trois modes doivent avoir les priorites 1, 2 et 3, sans doublon.
           </p>
         )}
+      </div>
+      <div className="bg-white p-4 sm:p-5 rounded-lg shadow-sm border border-gray-100 space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">Hero du module ventes</h2>
+          <p className="text-sm text-gray-500">Image de fond, titre et sous-titre utilises sur `/ventes`.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-3">
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Titre</span>
+              <input
+                type="text"
+                value={salesHeroTitle}
+                onChange={(event) => setSalesHeroTitle(event.target.value)}
+                placeholder="Titre commercial du module ventes"
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Sous-titre</span>
+              <textarea
+                value={salesHeroSubtitle}
+                onChange={(event) => setSalesHeroSubtitle(event.target.value)}
+                rows={4}
+                placeholder="Texte d'introduction du parcours ventes"
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+              <input type="file" accept="image/*,.heic,.heif" onChange={handleSalesHeroImageFileChange} className="block w-full text-sm" />
+              <button
+                type="button"
+                onClick={() => void handleSaveSalesHeroSettings()}
+                disabled={isSavingSalesHero}
+                className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSavingSalesHero ? 'Enregistrement...' : 'Enregistrer hero ventes'}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-gray-700">Apercu</p>
+            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-slate-950 shadow-sm">
+              {(salesHeroImagePreview || salesHeroImageUrl) ? (
+                <img
+                  src={salesHeroImagePreview || resolveMediaUrl(salesHeroImageUrl)}
+                  alt="Hero ventes"
+                  className="h-52 w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-52 w-full items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900 text-sm text-white/70">
+                  Aucune image hero definie
+                </div>
+              )}
+              <div className="space-y-2 px-4 py-4 text-white">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">Module ventes</p>
+                <p className="text-xl font-bold leading-tight">{salesHeroTitle || 'Titre hero ventes'}</p>
+                <p className="text-sm leading-6 text-white/75">{salesHeroSubtitle || 'Sous-titre du parcours commercial.'}</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div className="bg-white p-4 sm:p-5 rounded-lg shadow-sm border border-gray-100 space-y-4">
         <div>
@@ -2397,11 +2611,11 @@ export default function BiensPage() {
       </div>
       {displayedBiens.length === 0 && <div className="text-center py-12"><Home className="mx-auto h-10 w-10 text-gray-400" /><h3 className="mt-2 text-sm font-medium text-gray-900">Aucun bien trouvé dans ce dossier</h3></div>}
       </>}
-      <Dialog.Root open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) { setEditorInitialStep(1); setDuplicateSeedBien(null); } }}>
+      <Dialog.Root open={isAddOpen} onOpenChange={(open) => { if (open) { setIsAddOpen(true); return; } closeEditor(); }}>
         <Dialog.Portal><Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" /><Dialog.Content className="fixed inset-0 z-50 w-full h-full bg-white overflow-hidden flex flex-col">
           <Dialog.Description className="sr-only">Formulaire d'ajout ou de modification de bien</Dialog.Description>
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white shrink-0">
-            <div className="flex items-center gap-3"><button onClick={() => setIsAddOpen(false)} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">{editingBien ? 'Modifier le bien' : duplicateSeedBien ? 'Dupliquer le bien' : 'Nouveau bien'}</Dialog.Title></div>
+            <div className="flex items-center gap-3"><button onClick={() => closeEditor()} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="h-5 w-5 text-gray-600" /></button><Dialog.Title className="text-lg font-semibold text-gray-900">{editingBien ? 'Modifier le bien' : duplicateSeedBien ? 'Dupliquer le bien' : 'Nouveau bien'}</Dialog.Title></div>
             <button
               onClick={() => {
                 const form = document.getElementById('bien-editor-form') as HTMLFormElement | null;
@@ -2410,7 +2624,7 @@ export default function BiensPage() {
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
             ><Save className="h-4 w-4" /><span>Sauvegarder</span></button>
           </div>
-          <div className="flex-1 overflow-y-auto"><BienEditor key={`${editingBien?.id || duplicateSeedBien?.id || 'new'}:${editorInitialStep}:${editorInitialTab}:${isAddOpen ? 'open' : 'closed'}`} initialData={editingBien} seedData={duplicateSeedBien} initialGeneralStep={editorInitialStep} initialTab={editorInitialTab} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => setIsAddOpen(false)} /></div>
+          <div className="flex-1 overflow-y-auto"><BienEditor key={`${editingBien?.id || duplicateSeedBien?.id || 'new'}:${editorInitialStep}:${editorInitialTab}:${isAddOpen ? 'open' : 'closed'}`} initialData={editingBien} seedData={duplicateSeedBien} initialGeneralStep={editorInitialStep} initialTab={editorInitialTab} zones={zoneOptions} proprietaires={proprietaireOptions} existingBiens={biens} onSubmit={handleSave} onCancel={() => closeEditor()} /></div>
         </Dialog.Content></Dialog.Portal>
       </Dialog.Root>
       <Dialog.Root open={!!viewingBien} onOpenChange={() => setViewingBien(null)}>
@@ -2810,6 +3024,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   const [newVideoUrl, setNewVideoUrl] = useState('');
   const [removedUiBlocks, setRemovedUiBlocks] = useState<Record<string, boolean>>({});
   const [newImageMotif, setNewImageMotif] = useState('');
+  const [saleMotifUrlDrafts, setSaleMotifUrlDrafts] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
   const [newFeature, setNewFeature] = useState('');
@@ -3155,6 +3370,12 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     );
     return clientVisibleImages.filter((img) => img.motif_upload === motif);
   };
+  const getSaleMotifImages = (motif: string) =>
+    clientVisibleImages.filter((img) => String(img.motif_upload || '').trim().toLowerCase() === String(motif || '').trim().toLowerCase());
+  const saleGenericImages = clientVisibleImages.filter((img) => {
+    const motif = String(img.motif_upload || '').trim().toLowerCase();
+    return !SALE_MEDIA_MOTIF_PRESETS.some((preset) => preset.value === motif);
+  });
 
   useEffect(() => {
     const sourceData = initialData || seedData || null;
@@ -3560,7 +3781,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     if (files.length === 0) return;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const isLocalCommercial = selectedType === 'local_commercial';
-    const resolvedMotif = motifOverride ?? (isLocalCommercial ? newImageMotif.trim() : null);
+    const isModeVente = (formData.mode || 'location_saisonniere') === 'vente';
+    const resolvedMotif = motifOverride ?? ((isLocalCommercial || isModeVente) ? newImageMotif.trim() : null);
     if (isLocalCommercial && !resolvedMotif) {
       toast.error("Motif d'upload requis pour le local");
       e.target.value = '';
@@ -3576,6 +3798,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           uploadFormData.append('image', file);
           uploadFormData.append('bien_id', String(formData.id || ''));
           uploadFormData.append('bien_reference', String(formData.reference || ''));
+          uploadFormData.append('upload_scope', 'bien');
+          uploadFormData.append('preferred_provider', 'cloudflare');
           const response = await fetch(`${API_URL}/upload`, { method: 'POST', credentials: 'include', body: uploadFormData });
           if (!response.ok) {
             let errorMessage = 'Upload failed';
@@ -3602,7 +3826,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           failedCount += 1;
         }
       }
-      if (isLocalCommercial && !motifOverride) setNewImageMotif('');
+      if ((isLocalCommercial || isModeVente) && !motifOverride) setNewImageMotif('');
       if (uploadedCount > 0) toast.success(`${uploadedCount}/${files.length} image(s) uploadee(s)`);
       if (failedCount > 0) toast.error(`${failedCount} image(s) ont echoue`);
     } catch {
@@ -3626,6 +3850,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         uploadFormData.append('image', file);
         uploadFormData.append('bien_id', String(formData.id || ''));
         uploadFormData.append('bien_reference', String(formData.reference || ''));
+        uploadFormData.append('upload_scope', 'bien');
+        uploadFormData.append('preferred_provider', 'cloudflare');
         const response = await fetch(`${API_URL}/upload`, { method: 'POST', credentials: 'include', body: uploadFormData });
         if (!response.ok) {
           continue;
@@ -4238,11 +4464,13 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     }));
   };
 
-  const handleAddImage = (motifOverride?: string | null) => {
-    if (!newImageUrl.trim()) return;
+  const handleAddImage = (motifOverride?: string | null, urlOverride?: string | null) => {
+    const resolvedUrl = String(urlOverride ?? newImageUrl).trim();
+    if (!resolvedUrl) return;
     const selectedType = normalizeLegacyType((formData.type || 'appartement') as BienType);
     const isLocalCommercial = selectedType === 'local_commercial';
-    const resolvedMotif = motifOverride ?? (isLocalCommercial ? newImageMotif.trim() : null);
+    const isModeVente = (formData.mode || 'location_saisonniere') === 'vente';
+    const resolvedMotif = motifOverride ?? ((isLocalCommercial || isModeVente) ? newImageMotif.trim() : null);
     if (isLocalCommercial && !resolvedMotif) {
       return toast.error("Motif d'upload requis pour le local");
     }
@@ -4250,12 +4478,16 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       id: Math.random().toString(36).substr(2, 9),
       bien_id: formData.id || '',
       type: 'image',
-      url: newImageUrl,
+      url: resolvedUrl,
       motif_upload: resolvedMotif,
     };
     setImages([...images, newMedia]);
-    setNewImageUrl('');
-    if (isLocalCommercial && !motifOverride) setNewImageMotif('');
+    if (urlOverride !== undefined && motifOverride) {
+      setSaleMotifUrlDrafts((prev) => ({ ...prev, [motifOverride]: '' }));
+    } else {
+      setNewImageUrl('');
+    }
+    if ((isLocalCommercial || isModeVente) && !motifOverride) setNewImageMotif('');
     toast.success('Image ajoutée');
   };
 
@@ -9687,16 +9919,29 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                 </div>
               )}
               <h3 className="text-lg font-semibold mb-4"><ImageIcon className="h-5 w-5 inline text-emerald-600 mr-2" />Gestion des images</h3>
-              {normalizeLegacyType((formData.type || 'appartement') as BienType) === 'local_commercial' && (
+              {(((formData.mode || 'location_saisonniere') === 'vente')) && (
                 <div className="mb-3">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Motif d'upload photo du local</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Motif d'upload image vente</label>
                   <input
                     type="text"
                     value={newImageMotif}
                     onChange={(e) => setNewImageMotif(e.target.value)}
-                    placeholder="Ex: Facade, Vitrine, Interieur, Reserve..."
+                    placeholder="Ex: plan_2d, plan_3d, facade, interieur..."
                     className="w-full rounded-lg border-gray-300 border p-2"
                   />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {SALE_MEDIA_MOTIF_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => setNewImageMotif(preset.value)}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${newImageMotif.trim() === preset.value ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-emerald-300'}`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">Les motifs `plan_2d` et `plan_3d` seront detectes cote client pour afficher un toggle dedie entre galerie et plans.</p>
                 </div>
               )}
               {(isImmeubleVente || isLotissementVente) ? (
@@ -9763,15 +10008,119 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                 </div>
               ) : (
                 <>
-                  <div className="flex gap-2 mb-4"><input type="text" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder="URL de l'image" className="flex-1 rounded-lg border-gray-300 border p-2" /><button type="button" onClick={handleAddImage} disabled={!newImageUrl.trim()} className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50">Ajouter</button></div>
-                  <div className="mb-6">
-                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
-                      <Upload className="h-4 w-4 text-emerald-600" />
-                      <span>Ou upload</span>
-                    </label>
-                    <input type="file" accept="image/*,.heic,.heif" multiple onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />
-                    {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}
-                  </div>
+                  {(formData.mode || 'location_saisonniere') === 'vente' ? (
+                    <div className="mb-6 space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {SALE_MEDIA_MOTIF_PRESETS.map((preset) => {
+                          const motifImages = getSaleMotifImages(preset.value);
+                          const draftValue = saleMotifUrlDrafts[preset.value] || '';
+                          return (
+                            <div key={`sale-motif-card-${preset.value}`} className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-gray-900">{preset.label}</p>
+                                  <p className="text-xs text-gray-500">Motif: `{preset.value}`</p>
+                                </div>
+                                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-700">{motifImages.length} image{motifImages.length > 1 ? 's' : ''}</span>
+                              </div>
+                              <div className="mt-3 flex gap-2">
+                                <input
+                                  type="text"
+                                  value={draftValue}
+                                  onChange={(e) => setSaleMotifUrlDrafts((prev) => ({ ...prev, [preset.value]: e.target.value }))}
+                                  placeholder={`URL - ${preset.label}`}
+                                  className="flex-1 rounded-lg border-gray-300 border p-2 text-sm"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddImage(preset.value, draftValue)}
+                                  disabled={!draftValue.trim()}
+                                  className="px-3 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50 text-sm"
+                                >
+                                  Ajouter
+                                </button>
+                              </div>
+                              <div className="mt-3">
+                                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                                  <Upload className="h-4 w-4 text-emerald-600" />
+                                  <span>Upload {preset.label}</span>
+                                </label>
+                                <input
+                                  type="file"
+                                  accept="image/*,.heic,.heif"
+                                  multiple
+                                  onChange={(e) => handleFileUpload(e, preset.value)}
+                                  disabled={uploading}
+                                  className="block w-full text-sm"
+                                />
+                              </div>
+                              <div className="mt-3 grid grid-cols-2 gap-2">
+                                {motifImages.slice(0, 4).map((img) => (
+                                  <div key={img.id} className="relative overflow-hidden rounded-lg border border-gray-200 bg-white">
+                                    <img
+                                      src={getAdminGalleryImageSrc(img.url, 480)}
+                                      alt={preset.label}
+                                      className="h-20 w-full object-cover"
+                                      loading="lazy"
+                                      decoding="async"
+                                      onError={(event) => {
+                                        event.currentTarget.onerror = null;
+                                        event.currentTarget.src = ADMIN_IMAGE_FALLBACK;
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveImage(img.id)}
+                                      className="absolute right-1 top-1 rounded-full bg-red-500 p-1 text-white shadow"
+                                      aria-label="Supprimer l'image"
+                                      title="Supprimer"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                ))}
+                                {motifImages.length === 0 && <div className="col-span-full rounded-lg border border-dashed border-gray-300 px-3 py-4 text-center text-xs text-gray-500">Aucune image pour {preset.label.toLowerCase()}.</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="rounded-xl border border-gray-200 bg-white p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">Galerie generale</p>
+                            <p className="text-xs text-gray-500">Images sans motif special pour la galerie principale cote client.</p>
+                          </div>
+                          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">{saleGenericImages.length} image{saleGenericImages.length > 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <input type="text" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder="URL de l'image galerie" className="flex-1 rounded-lg border-gray-300 border p-2" />
+                          <button type="button" onClick={() => handleAddImage(null)} disabled={!newImageUrl.trim()} className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50">Ajouter</button>
+                        </div>
+                        <div className="mt-3">
+                          <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                            <Upload className="h-4 w-4 text-emerald-600" />
+                            <span>Upload galerie</span>
+                          </label>
+                          <input type="file" accept="image/*,.heic,.heif" multiple onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex gap-2 mb-4"><input type="text" value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder="URL de l'image" className="flex-1 rounded-lg border-gray-300 border p-2" /><button type="button" onClick={handleAddImage} disabled={!newImageUrl.trim()} className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50">Ajouter</button></div>
+                      <div className="mb-6">
+                        <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                          <Upload className="h-4 w-4 text-emerald-600" />
+                          <span>Ou upload</span>
+                        </label>
+                        <input type="file" accept="image/*,.heic,.heif" multiple onChange={handleFileUpload} disabled={uploading} className="block w-full text-sm" />
+                        {uploading && <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mt-2"></div>}
+                      </div>
+                    </>
+                  )}
+                  {uploading && <div className="mb-4 animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600" />}
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                     {clientVisibleImages.map((img, index) => (
                       <div

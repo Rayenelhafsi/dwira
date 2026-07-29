@@ -46,6 +46,10 @@ export type PendingReservationDraft = {
   groupSelectedBienRefs?: string[];
   packId?: string;
   packName?: string;
+  visitPreferredDate?: string;
+  visitTimeSlot?: string;
+  visitContactPhone?: string;
+  salesSource?: "site_web" | "facebook" | "whatsapp" | "visite_agence" | "recommandation" | "google" | "autre";
   reservationNote: string;
 };
 

@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, Navigate, useNavigate, useLocation } from "react-router";
 import { useProperties } from "../context/PropertiesContext";
-import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell, House, Bath, Info, KeyRound, Upload } from "lucide-react";
+import { MapPin, Check, Star, Share2, Heart, Calendar, X, ChevronLeft, ChevronRight, ArrowRight, Facebook, MessageCircle, BedSingle, Minus, Plus, Wallet, Building2, Mountain, Route, ShieldCheck, Users, Volume2, Clock3, ListChecks, ChevronDown, ChevronUp, Wifi, Snowflake, UtensilsCrossed, Car, Tv, Waves, Trees, PawPrint, Cigarette, ConciergeBell, House, Bath, Info, KeyRound, Upload, PhoneCall, Landmark, Image as ImageIcon, Box } from "lucide-react";
 import useEmblaCarousel from 'embla-carousel-react';
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, cloneElement } from "react";
 import { createPortal } from "react-dom";
@@ -17,6 +17,7 @@ import { buildApiUrl } from "../utils/api";
 import { getOptimizedMediaUrl, getOriginalMediaUrl } from "../utils/media";
 import { hasFailedImageSource, markFailedImageSource } from "../utils/imageFailures";
 import { buildPropertyShareImageUrl, createPropertyShareLink } from "../utils/propertyShare";
+import { buildTelLink, getPublicContactForMode } from "../utils/deepLinks";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { getFeatureIconElement } from "../utils/featureIcons";
 import { getServiceDisplayPrice, getServiceTarificationLabel, splitServicesByTarification } from "../utils/servicePayants";
@@ -51,6 +52,8 @@ const LIGHTBOX_QUALITY_MEDIUM = 58;
 const LIGHTBOX_QUALITY_HIGH = 70;
 const GOOGLE_HYBRID_TILE_URL = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
 const GOOGLE_TILE_ATTRIBUTION = '&copy; <a href="https://maps.google.com">Google</a>';
+const SALE_PLAN_2D_MOTIF = "plan_2d";
+const SALE_PLAN_3D_MOTIF = "plan_3d";
 
 function GoogleIcon() {
   return (
@@ -848,7 +851,75 @@ export default function PropertyDetailsPage() {
       cancelled = true;
     };
   }, [facebookEmbedUnavailableByUrl, propertyVideos]);
-  const allGalleryImages = property?.images || [];
+  const isSaleProperty = property?.priceContext === 'sale';
+  const saleImmediatePhone = getPublicContactForMode('vente').phone;
+  const sourceBien = useMemo(() => {
+    if (!property) return undefined;
+    const propertyId = String(property.id || '').trim();
+    const propertyReference = String(property.reference || '').trim();
+    const propertySlug = String(property.slug || '').trim();
+    return biens.find((item) => {
+      const bienId = String(item.id || '').trim();
+      if (propertyId && bienId === propertyId) return true;
+      if (propertyReference && String(item.reference || '').trim() === propertyReference) return true;
+      if (propertySlug && String(item.titre || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') === propertySlug) return true;
+      return propertyMatchesRouteToken(
+        {
+          id: bienId,
+          reference: String(item.reference || '').trim() || undefined,
+          slug: String(item.titre || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        },
+        slug
+      );
+    });
+  }, [biens, property, slug]);
+  const saleMediaCollections = useMemo(() => {
+    const mediaRows = Array.isArray(sourceBien?.media) ? sourceBien.media : [];
+    const clean = mediaRows.filter((item) => {
+      if (item?.type !== 'image') return false;
+      const motif = String(item?.motif_upload || '').trim().toLowerCase();
+      return !motif.startsWith('preuve_type_');
+    });
+    const toUrlList = (rows: typeof clean) => rows.map((item) => String(item.url || '').trim()).filter(Boolean);
+    return {
+      gallery: toUrlList(clean.filter((item) => {
+        const motif = String(item?.motif_upload || '').trim().toLowerCase();
+        return motif !== SALE_PLAN_2D_MOTIF && motif !== SALE_PLAN_3D_MOTIF;
+      })),
+      plan2d: toUrlList(clean.filter((item) => String(item?.motif_upload || '').trim().toLowerCase() === SALE_PLAN_2D_MOTIF)),
+      plan3d: toUrlList(clean.filter((item) => String(item?.motif_upload || '').trim().toLowerCase() === SALE_PLAN_3D_MOTIF)),
+    };
+  }, [sourceBien?.media]);
+  const [activeSaleVisualTab, setActiveSaleVisualTab] = useState<'gallery' | 'plan2d' | 'plan3d'>('gallery');
+  const saleVisualTabs = useMemo(() => {
+    const tabs: Array<{ id: 'gallery' | 'plan2d' | 'plan3d'; label: string; icon: React.ReactNode; count: number }> = [];
+    if (saleMediaCollections.gallery.length > 0) tabs.push({ id: 'gallery', label: 'Galerie', icon: <ImageIcon size={15} />, count: saleMediaCollections.gallery.length });
+    if (saleMediaCollections.plan2d.length > 0) tabs.push({ id: 'plan2d', label: 'Plan 2D', icon: <Route size={15} />, count: saleMediaCollections.plan2d.length });
+    if (saleMediaCollections.plan3d.length > 0) tabs.push({ id: 'plan3d', label: 'Plan 3D', icon: <Box size={15} />, count: saleMediaCollections.plan3d.length });
+    return tabs;
+  }, [saleMediaCollections.gallery.length, saleMediaCollections.plan2d.length, saleMediaCollections.plan3d.length]);
+  const salePlanTabs = useMemo(
+    () => saleVisualTabs.filter((tab) => tab.id !== 'gallery'),
+    [saleVisualTabs]
+  );
+  const hasSalePlanTabs = salePlanTabs.length > 0;
+  const activeSalePlanTab = salePlanTabs.find((tab) => tab.id === activeSaleVisualTab) || salePlanTabs[0] || null;
+  const isSalePlanView = activeSaleVisualTab === 'plan2d' || activeSaleVisualTab === 'plan3d';
+  const openDefaultSalePlan = useCallback(() => {
+    if (activeSalePlanTab) {
+      setActiveSaleVisualTab(activeSalePlanTab.id);
+    }
+  }, [activeSalePlanTab]);
+  const activeSaleVisualImages = isSaleProperty
+    ? (activeSaleVisualTab === 'plan2d'
+      ? saleMediaCollections.plan2d
+      : activeSaleVisualTab === 'plan3d'
+        ? saleMediaCollections.plan3d
+        : saleMediaCollections.gallery)
+    : [];
+  const allGalleryImages = isSaleProperty
+    ? (activeSaleVisualImages.length > 0 ? activeSaleVisualImages : (saleMediaCollections.gallery.length > 0 ? saleMediaCollections.gallery : (property?.images || [])))
+    : (property?.images || []);
   const [availableGalleryImages, setAvailableGalleryImages] = useState<string[]>([GALLERY_FALLBACK_IMAGE]);
   const [galleryAvailabilityChecked, setGalleryAvailabilityChecked] = useState(false);
   const galleryImages = useMemo(() => {
@@ -900,6 +971,10 @@ export default function PropertyDetailsPage() {
       cancelled = true;
     };
   }, [allGalleryImages]);
+  useEffect(() => {
+    setCurrentImageIndex(0);
+    setMobileGalleryIndex(0);
+  }, [activeSaleVisualTab]);
 
   // Read filter state from URL
   const filterLocation = searchParams.get("location") || "";
@@ -1016,6 +1091,9 @@ export default function PropertyDetailsPage() {
   const [amicaleMatricule, setAmicaleMatricule] = useState("");
   const [amicalePhone, setAmicalePhone] = useState("");
   const [amicaleCode, setAmicaleCode] = useState("");
+  const [visitPreferredDate, setVisitPreferredDate] = useState("");
+  const [visitTimeSlot, setVisitTimeSlot] = useState("");
+  const [visitContactPhone, setVisitContactPhone] = useState("");
   const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string; code: string; logoUrl?: string }>>([]);
   const [showSeasonalDetails, setShowSeasonalDetails] = useState(false);
   const [showAmenitiesDialog, setShowAmenitiesDialog] = useState(false);
@@ -1156,13 +1234,8 @@ export default function PropertyDetailsPage() {
   const [lightboxOriginalLoaded, setLightboxOriginalLoaded] = useState(false);
   const [lightboxOriginalIndex, setLightboxOriginalIndex] = useState<number | null>(null);
   const [lightboxPreviewQualityByIndex, setLightboxPreviewQualityByIndex] = useState<Record<number, number>>({});
-  const isSaleProperty = property?.priceContext === 'sale';
   const isReservationOnRequest = Boolean(property?.reservationOnRequest) && !isSaleProperty;
   const guests = adultGuests + childGuests;
-  const sourceBien = useMemo(
-    () => biens.find((item) => String(item.id) === String(property?.id)),
-    [biens, property?.id]
-  );
   const residenceSubtypeBiens = useMemo(() => {
     if (!property) return [];
     const resolvedSourceBien = sourceBien || biens.find((item) => String(item.id) === String(property.id)) || null;
@@ -1189,6 +1262,13 @@ export default function PropertyDetailsPage() {
     () => Array.from(new Set(residenceSubtypeBiens.map((item) => String(item.id || '').trim()).filter(Boolean))),
     [residenceSubtypeBiens]
   );
+  useEffect(() => {
+    if (!isSaleProperty) return;
+    const availableIds = new Set(saleVisualTabs.map((tab) => tab.id));
+    if (!availableIds.has(activeSaleVisualTab)) {
+      setActiveSaleVisualTab(saleVisualTabs[0]?.id || 'gallery');
+    }
+  }, [activeSaleVisualTab, isSaleProperty, saleVisualTabs]);
   const hasResidenceSubtypeAggregation = residenceSubtypeBiens.length > 1;
   const aggregatedResidenceUnavailableDates = useMemo(
     () => aggregateUnavailableDatesByUnitCalendars(
@@ -1260,49 +1340,17 @@ export default function PropertyDetailsPage() {
   }, [displayMapCenter]);
 
   useEffect(() => {
-    let disposed = false;
-    const geocodeFromZone = async (): Promise<LatLng | null> => {
-      const q = [
-        selectedZone?.quartier,
-        selectedZone?.region,
-        selectedZone?.gouvernerat,
-        selectedZone?.pays,
-        selectedZone?.nom,
-      ].map((v) => String(v || '').trim()).filter(Boolean).join(', ');
-      if (!q) return null;
-      try {
-        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`;
-        const response = await fetch(url, { headers: { Accept: 'application/json' } });
-        if (!response.ok) return null;
-        const rows = await response.json();
-        const first = Array.isArray(rows) ? rows[0] : null;
-        const lat = Number(first?.lat);
-        const lng = Number(first?.lon);
-        return isValidLatLng(lat, lng) ? { lat, lng } : null;
-      } catch {
-        return null;
-      }
-    };
-
-    const load = async () => {
-      const parsed = parseGoogleMapsLatLng(selectedMapsUrl);
-      const exact = parsed || await geocodeFromZone();
-      if (disposed) return;
-      if (!exact) {
-        if (selectedZone) {
-          setMapCenter(fallbackApproxLocation(`${property?.id || ''}-${selectedZone.id}-${selectedZone.nom || ''}`));
-        } else {
-          setMapCenter(null);
-        }
-        return;
-      }
-      const approx = obfuscateLocation(exact, `${property?.id || ''}-${selectedZone?.id || ''}`);
-      setMapCenter(approx);
-    };
-
-    void load();
-    return () => { disposed = true; };
-  }, [selectedMapsUrl, selectedZone?.quartier, selectedZone?.region, selectedZone?.gouvernerat, selectedZone?.pays, selectedZone?.nom, selectedZone?.id, property?.id]);
+    const parsed = parseGoogleMapsLatLng(selectedMapsUrl);
+    if (parsed) {
+      setMapCenter(obfuscateLocation(parsed, `${property?.id || ''}-${selectedZone?.id || ''}`));
+      return;
+    }
+    if (selectedZone) {
+      setMapCenter(fallbackApproxLocation(`${property?.id || ''}-${selectedZone.id}-${selectedZone.nom || ''}`));
+      return;
+    }
+    setMapCenter(null);
+  }, [selectedMapsUrl, selectedZone?.id, selectedZone?.nom, property?.id]);
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     const raf1 = window.requestAnimationFrame(() => {
@@ -1577,7 +1625,19 @@ out body 40;
     return periodMinStay || minStay;
   }, [activeLockedFlashOffer, minStay, periodMinStay, selectedPreviewFlashRange, selectedRangeRuleRelaxation.active]);
   const reservationValidation = useMemo(() => {
-    if (isSaleProperty) return { valid: true, message: "" };
+    if (isSaleProperty) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(visitPreferredDate || "").trim())) {
+        return { valid: false, message: "Date de visite souhaitee obligatoire." };
+      }
+      if (!String(visitTimeSlot || "").trim()) {
+        return { valid: false, message: "Creneau de visite obligatoire." };
+      }
+      if (!String(visitContactPhone || user?.telephone || "").trim()) {
+        return { valid: false, message: "Numero de telephone obligatoire pour la visite." };
+      }
+      return { valid: true, message: "" };
+    }
+
     if (!selectedStart || !selectedEnd) return { valid: false, message: "Selectionnez vos dates d'arrivee et de depart." };
 
     const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
@@ -1649,7 +1709,7 @@ out body 40;
     }
 
     return { valid: true, message: "" };
-  }, [activeLockedFlashOffer, activePreviewFlashOffer, amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRanges, effectiveUnavailableDates, findMatchingLockedFlashRange, findMatchingPreviewFlashRange, flashOfferEnabled, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart]);
+  }, [activeLockedFlashOffer, activePreviewFlashOffer, amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRanges, effectiveUnavailableDates, findMatchingLockedFlashRange, findMatchingPreviewFlashRange, flashOfferEnabled, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart, user?.telephone, visitContactPhone, visitPreferredDate, visitTimeSlot]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -2304,6 +2364,195 @@ out body 40;
       })
     ))
   ), [amenitySections, valuesForFeature]);
+  const saleStructuredFeatureItems = useMemo<FeatureDisplayItem[]>(() => {
+    if (!isSaleProperty) return [];
+    return selectedPublicFeatures.flatMap((feature) => {
+      const values = valuesForFeature(feature);
+      const normalizedType = String(feature.type_caracteristique || 'simple').trim().toLowerCase();
+      const isSimpleType = normalizedType === 'simple';
+      if (values.length === 0 && !isSimpleType) {
+        return [];
+      }
+      if (values.length > 0) {
+        const combinedValue = values.join(', ');
+        return [{
+          id: `sale-structured:${feature.id}:${combinedValue}`,
+          label: feature.nom,
+          meta: combinedValue === feature.nom ? null : combinedValue,
+          sectionName: cleanFeatureTabName(String(feature.onglet_nom || 'Caracteristiques')),
+          feature,
+        }];
+      }
+      return [{
+        id: `sale-structured:${feature.id}`,
+        label: feature.nom,
+        meta: null,
+        sectionName: cleanFeatureTabName(String(feature.onglet_nom || 'Caracteristiques')),
+        feature,
+      }];
+    });
+  }, [isSaleProperty, selectedPublicFeatures, valuesForFeature]);
+  const saleFallbackFeatureItems = useMemo<FeatureDisplayItem[]>(() => {
+    if (!isSaleProperty) return [];
+    const existingLabels = new Set(
+      saleStructuredFeatureItems.map((item) => normalizeFeatureName(item.label))
+    );
+    const rows: FeatureDisplayItem[] = [];
+    for (const rawLine of (Array.isArray(sourceBien?.caracteristiques) ? sourceBien.caracteristiques : [])) {
+      const line = String(rawLine || '').trim();
+      if (!line) continue;
+      const separatorIndex = line.indexOf(':');
+      const label = separatorIndex >= 0 ? line.slice(0, separatorIndex).trim() : line;
+      const meta = separatorIndex >= 0 ? line.slice(separatorIndex + 1).trim() : null;
+      const normalizedLabel = normalizeFeatureName(label);
+      if (!normalizedLabel || existingLabels.has(normalizedLabel)) continue;
+      existingLabels.add(normalizedLabel);
+      rows.push({
+        id: `sale-fallback:${normalizedLabel}:${rows.length}`,
+        label,
+        meta: meta || null,
+        sectionName: 'Caracteristiques',
+        feature: {
+          id: `sale-fallback:${normalizedLabel}`,
+          nom: label,
+          onglet_id: 'sale_fallback',
+          onglet_nom: 'Caracteristiques',
+          icon_name: null,
+          type_caracteristique: meta ? 'texte' : 'simple',
+          unite: null,
+          valeur_json: null,
+          visibilite_client: 1,
+        },
+      });
+    }
+    return rows;
+  }, [isSaleProperty, saleStructuredFeatureItems, sourceBien?.caracteristiques]);
+  const saleNativeFeatureItems = useMemo<FeatureDisplayItem[]>(() => {
+    if (!isSaleProperty || !sourceBien) return [];
+
+    const existingLabels = new Set(
+      [...saleStructuredFeatureItems, ...saleFallbackFeatureItems].map((item) => normalizeFeatureName(item.label))
+    );
+    const rows: FeatureDisplayItem[] = [];
+
+    const pushFeature = (
+      label: string,
+      value: unknown,
+      options?: { sectionName?: string; iconName?: string | null; treatAsBoolean?: boolean }
+    ) => {
+      const normalizedLabel = normalizeFeatureName(label);
+      if (!normalizedLabel || existingLabels.has(normalizedLabel)) return;
+
+      let meta: string | null = null;
+      if (typeof value === "boolean") {
+        if (!options?.treatAsBoolean || !value) return;
+        meta = "Oui";
+      } else if (Array.isArray(value)) {
+        const joined = value.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
+        if (!joined) return;
+        meta = joined;
+      } else if (value !== null && value !== undefined) {
+        const stringValue = String(value).trim();
+        if (!stringValue || stringValue === "-" || stringValue.toLowerCase() === "null" || stringValue.toLowerCase() === "undefined") return;
+        meta = stringValue;
+      } else {
+        return;
+      }
+
+      existingLabels.add(normalizedLabel);
+      rows.push({
+        id: `sale-native:${normalizedLabel}:${rows.length}`,
+        label,
+        meta,
+        sectionName: options?.sectionName || "Caracteristiques",
+        feature: {
+          id: `sale-native:${normalizedLabel}`,
+          nom: label,
+          onglet_id: "sale_native",
+          onglet_nom: options?.sectionName || "Caracteristiques",
+          icon_name: options?.iconName || null,
+          type_caracteristique: "texte",
+          unite: null,
+          valeur_json: null,
+          visibilite_client: 1,
+        },
+      });
+    };
+
+    const bedroomsCount = Number(property?.bedrooms || sourceBien?.nb_chambres || 0);
+    const bathroomsCount = Number(property?.bathrooms || sourceBien?.nb_salle_bain || 0);
+    const nativeSurfaceValue = sourceBien?.type === "terrain"
+      ? (sourceBien?.terrain_surface_m2 ? `${sourceBien.terrain_surface_m2} m2` : null)
+      : sourceBien?.type === "immeuble"
+        ? (sourceBien?.immeuble_surface_batie_m2 ? `${sourceBien.immeuble_surface_batie_m2} m2` : null)
+        : sourceBien?.type === "lotissement"
+          ? (sourceBien?.lotissement_nb_terrains ? `${sourceBien.lotissement_nb_terrains} lots` : null)
+          : (sourceBien?.superficie_m2 ? `${sourceBien.superficie_m2} m2` : null);
+
+    pushFeature("Surface", nativeSurfaceValue, { iconName: "view" });
+    pushFeature("Chambres", bedroomsCount > 0 ? `${bedroomsCount}` : null, { iconName: "bed" });
+    pushFeature("Salles de bain", bathroomsCount > 0 ? `${bathroomsCount}` : null, { iconName: "bath" });
+    pushFeature("Type de papier", sourceBien?.type_papier, { iconName: "check" });
+    pushFeature("Type de rue", sourceBien?.type_rue, { iconName: "door" });
+    pushFeature("Etage", sourceBien?.etage !== null && sourceBien?.etage !== undefined ? `${sourceBien.etage}` : null, { iconName: "building" });
+    pushFeature("Configuration", sourceBien?.configuration, { iconName: "sofa" });
+    pushFeature("Annee de construction", sourceBien?.annee_construction, { iconName: "building" });
+    pushFeature("Distance plage", sourceBien?.distance_plage_m ? `${sourceBien.distance_plage_m} m` : null, { iconName: "beach" });
+    pushFeature("Surface local", sourceBien?.surface_local_m2 ? `${sourceBien.surface_local_m2} m2` : null, { iconName: "view" });
+    pushFeature("Facade", sourceBien?.facade_m ? `${sourceBien.facade_m} m` : null, { iconName: "door" });
+    pushFeature("Hauteur plafond", sourceBien?.hauteur_plafond_m ? `${sourceBien.hauteur_plafond_m} m` : null, { iconName: "building" });
+    pushFeature("Activite recommandee", sourceBien?.activite_recommandee, { iconName: "desk" });
+    pushFeature("Toilette", sourceBien?.toilette, { iconName: "bath", treatAsBoolean: true });
+    pushFeature("Reserve", sourceBien?.reserve_local, { iconName: "lock", treatAsBoolean: true });
+    pushFeature("Vitrine", sourceBien?.vitrine, { iconName: "view", treatAsBoolean: true });
+    pushFeature("Coin angle", sourceBien?.coin_angle, { iconName: "building", treatAsBoolean: true });
+    pushFeature("Electricite 3 phases", sourceBien?.electricite_3_phases, { iconName: "services", treatAsBoolean: true });
+    pushFeature("Alarme", sourceBien?.alarme, { iconName: "security", treatAsBoolean: true });
+    pushFeature("Type terrain", sourceBien?.type_terrain, { iconName: "view" });
+    pushFeature("Surface terrain", sourceBien?.terrain_surface_m2 ? `${sourceBien.terrain_surface_m2} m2` : null, { iconName: "view" });
+    pushFeature("Facade terrain", sourceBien?.terrain_facade_m ? `${sourceBien.terrain_facade_m} m` : null, { iconName: "door" });
+    pushFeature("Zone terrain", sourceBien?.terrain_zone, { iconName: "view" });
+    pushFeature("Constructible", sourceBien?.terrain_constructible, { iconName: "check", treatAsBoolean: true });
+    pushFeature("Terrain angle", sourceBien?.terrain_angle, { iconName: "check", treatAsBoolean: true });
+    pushFeature("Reseaux disponibles", sourceBien?.terrain_disponibilite_reseaux, { iconName: "services" });
+    pushFeature("Forme terrain", sourceBien?.terrain_forme, { iconName: "view" });
+    pushFeature("Topographie", sourceBien?.terrain_topographie, { iconName: "view" });
+    pushFeature("Bornage", sourceBien?.terrain_bornage, { iconName: "check", treatAsBoolean: true });
+    pushFeature("Type de sol", sourceBien?.terrain_type_sol, { iconName: "view" });
+    pushFeature("Vegetation", sourceBien?.terrain_vegetation, { iconName: "garden" });
+    pushFeature("Niveau sonore", sourceBien?.terrain_niveau_sonore, { iconName: "fan" });
+    pushFeature("Exposition vent", sourceBien?.terrain_exposition_vent, { iconName: "fan" });
+    pushFeature("Utilisations ideales", sourceBien?.terrain_ideal_utilisations, { iconName: "desk" });
+    pushFeature("Documents disponibles", sourceBien?.terrain_documents_disponibles, { iconName: "check" });
+    pushFeature("Surface terrain immeuble", sourceBien?.immeuble_surface_terrain_m2 ? `${sourceBien.immeuble_surface_terrain_m2} m2` : null, { iconName: "building" });
+    pushFeature("Surface batie", sourceBien?.immeuble_surface_batie_m2 ? `${sourceBien.immeuble_surface_batie_m2} m2` : null, { iconName: "building" });
+    pushFeature("Niveaux", sourceBien?.immeuble_nb_niveaux, { iconName: "building" });
+    pushFeature("Garages", sourceBien?.immeuble_nb_garages, { iconName: "parking" });
+    pushFeature("Appartements", sourceBien?.immeuble_nb_appartements, { iconName: "building" });
+    pushFeature("Locaux commerciaux", sourceBien?.immeuble_nb_locaux_commerciaux, { iconName: "building" });
+    pushFeature("Distance plage immeuble", sourceBien?.immeuble_distance_plage_m ? `${sourceBien.immeuble_distance_plage_m} m` : null, { iconName: "beach" });
+    pushFeature("Ascenseur", sourceBien?.immeuble_ascenseur, { iconName: "building", treatAsBoolean: true });
+    pushFeature("Parking sous-sol", sourceBien?.immeuble_parking_sous_sol, { iconName: "parking", treatAsBoolean: true });
+    pushFeature("Parking exterieur", sourceBien?.immeuble_parking_exterieur, { iconName: "parking", treatAsBoolean: true });
+    pushFeature("Syndic", sourceBien?.immeuble_syndic, { iconName: "services", treatAsBoolean: true });
+    pushFeature("Vue mer", sourceBien?.immeuble_vue_mer || sourceBien?.vue_mer, { iconName: "view", treatAsBoolean: true });
+    pushFeature("Nombre de lots", sourceBien?.lotissement_nb_terrains, { iconName: "building" });
+    pushFeature("Prix lotissement", sourceBien?.lotissement_prix_total ? `${formatTnd(sourceBien.lotissement_prix_total)} DT` : null, { iconName: "check" });
+    pushFeature("Prix terrain / m2", sourceBien?.terrain_prix_affiche_par_m2 ? `${formatTnd(sourceBien.terrain_prix_affiche_par_m2)} DT / m2` : null, { iconName: "check" });
+
+    return rows;
+  }, [
+    isSaleProperty,
+    property?.bathrooms,
+    property?.bedrooms,
+    saleFallbackFeatureItems,
+    saleStructuredFeatureItems,
+    sourceBien,
+  ]);
+  const saleFeatureDisplayItems = useMemo<FeatureDisplayItem[]>(
+    () => [...saleStructuredFeatureItems, ...saleFallbackFeatureItems, ...saleNativeFeatureItems],
+    [saleFallbackFeatureItems, saleNativeFeatureItems, saleStructuredFeatureItems]
+  );
   const amenityPreviewItems = useMemo(() => featureDisplayItems.slice(0, 6), [featureDisplayItems]);
   const totalAmenitiesCount = featureDisplayItems.length;
   const hasSeasonalStayInfo = seasonalHighlights.length > 0 || visibleDetailTabs.length > 0;
@@ -2973,6 +3222,9 @@ out body 40;
     setAmicaleMatricule(String(candidate.amicaleMatricule || ""));
     setAmicalePhone(String(candidate.amicalePhone || ""));
     setAmicaleCode(String(candidate.amicaleCode || ""));
+    setVisitPreferredDate(String(candidate.visitPreferredDate || ""));
+    setVisitTimeSlot(String(candidate.visitTimeSlot || ""));
+    setVisitContactPhone(String(candidate.visitContactPhone || user?.telephone || ""));
     setReservationNote(String(candidate.reservationNote || ""));
     setPendingDraft(candidate);
   }, [effectiveLockedFlashRanges, findMatchingLockedFlashRange, flashOfferEnabled, location.state, maxAdultGuests, maxChildGuests, maxGuests, preferredLockedFlashRange, property, todayDateKey]);
@@ -3301,25 +3553,33 @@ out body 40;
     };
 
     if (!property) return;
-    if (!selectedStart || !selectedEnd) {
+    const saleVisitDate = /^\d{4}-\d{2}-\d{2}$/.test(String(visitPreferredDate || "").trim())
+      ? String(visitPreferredDate).trim()
+      : "";
+    if (isSaleProperty) {
+      if (!saleVisitDate) {
+        failRule('Date de visite souhaitee obligatoire.');
+        return;
+      }
+    } else if (!selectedStart || !selectedEnd) {
       failRule('Selectionnez une periode valide.');
       return;
     }
 
-    const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
-    const end = selectedStart < selectedEnd ? selectedEnd : selectedStart;
-    const startDate = format(start, 'yyyy-MM-dd');
-    const endDate = format(end, 'yyyy-MM-dd');
+    const start = !isSaleProperty && selectedStart && selectedEnd ? (selectedStart < selectedEnd ? selectedStart : selectedEnd) : null;
+    const end = !isSaleProperty && selectedStart && selectedEnd ? (selectedStart < selectedEnd ? selectedEnd : selectedStart) : null;
+    const startDate = isSaleProperty ? saleVisitDate : format(start as Date, 'yyyy-MM-dd');
+    const endDate = isSaleProperty ? saleVisitDate : format(end as Date, 'yyyy-MM-dd');
     const matchingLockedFlashRange = findMatchingLockedFlashRange(startDate, endDate);
     if (flashOfferEnabled && effectiveLockedFlashRanges.length > 0 && !matchingLockedFlashRange) {
       failRule("Cette vente flash accepte uniquement une reservation comprise dans l'une des periodes flash disponibles.");
       return;
     }
-    if (startDate === endDate) {
+    if (!isSaleProperty && startDate === endDate) {
       failRule('Choisissez au moins une nuit.');
       return;
     }
-    const nights = Math.max(0, Math.abs(differenceInDays(end, start)));
+    const nights = isSaleProperty ? 0 : Math.max(0, Math.abs(differenceInDays(end as Date, start as Date)));
     const matchingPreviewFlashRange = findMatchingPreviewFlashRange(startDate, endDate);
     const flashRangeForStayRules = matchingLockedFlashRange || matchingPreviewFlashRange;
     const skipLockedFlashStayRules = Boolean(matchingLockedFlashRange?.offer);
@@ -3393,6 +3653,10 @@ out body 40;
       amicaleMatricule: paymentMode === "amicale" ? amicaleMatricule.trim() : undefined,
       amicalePhone: paymentMode === "amicale" ? amicalePhone.trim() : undefined,
       amicaleCode: paymentMode === "amicale" ? amicaleCode.trim() : undefined,
+      visitPreferredDate: isSaleProperty ? visitPreferredDate.trim() : undefined,
+      visitTimeSlot: isSaleProperty ? visitTimeSlot.trim() : undefined,
+      visitContactPhone: isSaleProperty ? (visitContactPhone.trim() || String(user?.telephone || "").trim()) : undefined,
+      salesSource: isSaleProperty ? "site_web" : undefined,
       reservationNote: reservationNote.trim(),
     };
 
@@ -3877,9 +4141,56 @@ out body 40;
       </div>
     );
   }
-  if (property.detailPath && property.detailPath.startsWith("/vente/")) {
-    return <Navigate to={`${property.detailPath}${filterQueryString ? `?${filterQueryString}` : ""}`} replace />;
-  }
+  const saleTypeLabel = property.type === "immeuble"
+    ? "Immeuble"
+    : property.type === "lotissement"
+      ? "Lotissement"
+      : property.type === "terrain"
+        ? "Terrain"
+        : property.category;
+  const saleReference = String(property.reference || getPropertyRouteToken(property)).trim() || property.id;
+  const saleRawStatus = String(property.status || property.statut || sourceBien?.statut || "").trim().toLowerCase();
+  const saleStatusLabel = saleRawStatus === "disponible"
+    ? "Disponible"
+    : saleRawStatus === "reserve"
+      ? "Reserve"
+      : "Indisponible";
+  const salePrimarySurface = property.type === "terrain"
+    ? property.terrain_surface_m2
+    : property.type === "immeuble"
+      ? property.immeuble_surface_batie_m2
+      : property.type === "lotissement"
+        ? property.lotissement_nb_terrains
+        : property.superficie_m2;
+  const salePrimarySurfaceLabel = property.type === "lotissement" ? "Terrains" : "Surface";
+  const salePrimarySurfaceValue = property.type === "lotissement"
+    ? (salePrimarySurface ? `${salePrimarySurface}` : "Sur demande")
+    : (salePrimarySurface ? `${salePrimarySurface} m2` : "Sur demande");
+  const salePaymentModeLabel = property.modalite_paiement_vente === "facilite" ? "Facilite de paiement" : "Comptant";
+  const salePromiseLabel = property.montant_premiere_partie_promesse
+    ? `${formatTnd(property.montant_premiere_partie_promesse)} DT`
+    : property.pourcentage_premiere_partie_promesse
+      ? `${property.pourcentage_premiere_partie_promesse}%`
+      : "A definir";
+  const saleDisplayPriceValue =
+    property.prix_final
+    || property.lotissement_prix_total
+    || property.terrain_prix_affiche_total
+    || property.prix_affiche_client
+    || null;
+  const saleDisplayPriceLabel = saleDisplayPriceValue ? `${formatTnd(saleDisplayPriceValue)} DT` : "Sur demande";
+  const saleVisitSelectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(visitPreferredDate || "").trim())
+    ? new Date(`${String(visitPreferredDate).trim()}T00:00:00`)
+    : null;
+  const todayDateInputMin = format(new Date(), "yyyy-MM-dd");
+  const handleSaleVisitCalendarSelect = useCallback((start: Date | null, end: Date | null) => {
+    const selectedDate = end || start;
+    if (!selectedDate) {
+      setVisitPreferredDate("");
+      return;
+    }
+    setVisitPreferredDate(format(selectedDate, "yyyy-MM-dd"));
+  }, []);
 
   const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog && !showBookingCalendarDialog && !lightboxOpen && !showLoginPrompt
     ? createPortal(
@@ -3940,6 +4251,45 @@ out body 40;
       <div className="container mx-auto px-4 md:px-6">
         <div className="md:hidden -mx-4 -mt-6 mb-8">
           <div className="sticky top-0 z-0 overflow-hidden bg-slate-950">
+            {isSaleProperty && hasSalePlanTabs && (
+              <div className="absolute inset-x-0 top-20 z-20 flex justify-center px-4">
+                <div className="rounded-[1.35rem] border border-white/20 bg-slate-950/45 p-2 backdrop-blur-xl shadow-[0_18px_35px_rgba(15,23,42,0.28)]">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveSaleVisualTab('gallery')}
+                      className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${!isSalePlanView ? 'bg-white text-slate-900 shadow-sm' : 'text-white/88 hover:bg-white/10'}`}
+                    >
+                      <ImageIcon size={16} />
+                      Photos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openDefaultSalePlan}
+                      className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${isSalePlanView ? 'bg-white text-slate-900 shadow-sm' : 'text-white/88 hover:bg-white/10'}`}
+                    >
+                      {activeSalePlanTab?.icon || <Route size={16} />}
+                      {activeSalePlanTab?.label || 'Plan'}
+                    </button>
+                  </div>
+                  {isSalePlanView && salePlanTabs.length > 1 && (
+                    <div className="mt-2 flex items-center gap-2">
+                      {salePlanTabs.map((tab) => (
+                        <button
+                          key={`mobile-sale-plan-${tab.id}`}
+                          type="button"
+                          onClick={() => setActiveSaleVisualTab(tab.id)}
+                          className={`inline-flex min-h-9 items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${activeSaleVisualTab === tab.id ? 'bg-emerald-400 text-slate-950' : 'bg-white/8 text-white/80 hover:bg-white/12'}`}
+                        >
+                          {tab.icon}
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between px-4 pt-8">
               <button
                 type="button"
@@ -4053,7 +4403,7 @@ out body 40;
         <div className="hidden text-sm text-gray-500 mb-6 md:block">
           <Link to="/" className="hover:text-emerald-600">Accueil</Link>
           <span className="mx-2">/</span>
-          <Link to="/logements" className="hover:text-emerald-600">Logements</Link>
+          <Link to={isSaleProperty ? "/ventes" : "/logements"} className="hover:text-emerald-600">{isSaleProperty ? "Ventes" : "Logements"}</Link>
           <span className="mx-2">/</span>
           <span className="text-gray-900">{property.title}</span>
         </div>
@@ -4061,17 +4411,31 @@ out body 40;
         {/* Header */}
         <div className="hidden md:flex flex-col md:flex-row justify-between items-start mb-6">
           <div>
+            {isSaleProperty ? (
+              <div className="mb-3 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                {saleTypeLabel} en vente
+              </div>
+            ) : null}
             <h1 className="text-3xl font-bold text-gray-900 mb-2">{propertyDisplayTitle}</h1>
             <div className="flex items-center gap-4 text-gray-600 text-sm">
               <div className="flex items-center gap-1">
                 <MapPin size={16} />
                 <span>{property.location}</span>
               </div>
-              <div className="flex items-center gap-1">
-                 <Star size={16} className="text-amber-500 fill-current" />
-                 <span className="font-medium text-gray-900">{formatRating(property.rating)}</span>
-                 <span>({property.reviews} avis)</span>
-              </div>
+              {isSaleProperty ? (
+                <>
+                  <div className="h-1 w-1 rounded-full bg-gray-300" />
+                  <div className="font-medium text-gray-900">Ref: {saleReference}</div>
+                  <div className="h-1 w-1 rounded-full bg-gray-300" />
+                  <div className="font-medium text-emerald-700">{saleStatusLabel}</div>
+                </>
+              ) : (
+                <div className="flex items-center gap-1">
+                   <Star size={16} className="text-amber-500 fill-current" />
+                   <span className="font-medium text-gray-900">{formatRating(property.rating)}</span>
+                   <span>({property.reviews} avis)</span>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex gap-2 mt-4 md:mt-0">
@@ -4098,8 +4462,57 @@ out body 40;
 
         {/* Images Grid / Slider */}
         <div className="mb-12">
+          {isSaleProperty && (
+            <div className="mb-4 hidden md:flex items-center justify-between gap-4">
+              <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setActiveSaleVisualTab('gallery')}
+                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${!isSalePlanView ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <ImageIcon size={16} />
+                  Photos
+                </button>
+                {hasSalePlanTabs && (
+                  <button
+                    type="button"
+                    onClick={openDefaultSalePlan}
+                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${isSalePlanView ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {activeSalePlanTab?.icon || <Route size={16} />}
+                    {activeSalePlanTab?.label || 'Plan'}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {isSalePlanView && salePlanTabs.length > 1 && (
+                  <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+                    {salePlanTabs.map((tab) => (
+                      <button
+                        key={`desktop-sale-plan-${tab.id}`}
+                        type="button"
+                        onClick={() => setActiveSaleVisualTab(tab.id)}
+                        className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${activeSaleVisualTab === tab.id ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                      >
+                        {tab.icon}
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => openLightbox(0)}
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+                >
+                  Ouvrir galerie
+                  <ArrowRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
           {/* Desktop Grid */}
-          <div className="hidden md:grid grid-cols-4 grid-rows-2 gap-2 h-[500px] rounded-xl overflow-hidden">
+          <div className={`hidden md:grid grid-cols-4 grid-rows-2 gap-2 overflow-hidden rounded-[1.7rem] ${isSaleProperty ? 'h-[560px] border border-slate-200 shadow-[0_24px_60px_rgba(15,23,42,0.10)]' : 'h-[500px] rounded-xl'}`}>
             {galleryImages.slice(0, 5).map((imageUrl, index) => {
               const isPrimary = index === 0;
               const wrapperClass = isPrimary ? "col-span-2 row-span-2" : "col-span-1 row-span-1";
@@ -4137,14 +4550,14 @@ out body 40;
             <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.01em] text-gray-500">
               <Link to="/" className="hover:text-emerald-600">Accueil</Link>
               <span>/</span>
-              <Link to="/logements" className="hover:text-emerald-600">Logements</Link>
+              <Link to={isSaleProperty ? "/ventes" : "/logements"} className="hover:text-emerald-600">{isSaleProperty ? "Ventes" : "Logements"}</Link>
               <span>/</span>
               <span className="truncate text-gray-900">{property.title}</span>
             </div>
 
             <div className="mt-4">
               <div className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                Sejour premium
+                {isSaleProperty ? `${saleTypeLabel} en vente` : "Sejour premium"}
               </div>
               <h1 className="mt-3 text-[2rem] font-bold leading-[1.02] tracking-[-0.04em] text-slate-950">
                 {propertyDisplayTitle}
@@ -4154,11 +4567,22 @@ out body 40;
                   <MapPin size={15} />
                   <span className="line-clamp-1">{property.location}</span>
                 </div>
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-2 text-amber-900">
-                  <Star size={15} className="fill-current text-amber-500" />
-                  <span className="font-medium text-slate-900">{formatRating(property.rating)}</span>
-                  <span>({property.reviews} avis)</span>
-                </div>
+                {isSaleProperty ? (
+                  <>
+                    <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-2 text-slate-700">
+                      <span className="font-medium text-slate-900">Ref {saleReference}</span>
+                    </div>
+                    <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-2 text-emerald-800">
+                      <span className="font-medium">{saleStatusLabel}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-2 text-amber-900">
+                    <Star size={15} className="fill-current text-amber-500" />
+                    <span className="font-medium text-slate-900">{formatRating(property.rating)}</span>
+                    <span>({property.reviews} avis)</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -4296,7 +4720,7 @@ out body 40;
                     </span>
                     <div className="min-w-0 flex-1">
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-950/6 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">
-                        Calendrier
+                        {isSaleProperty ? "Visite" : "Calendrier"}
                       </span>
                       <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/75 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-700 shadow-sm">
                         <span className="relative flex h-2.5 w-2.5">
@@ -4305,9 +4729,11 @@ out body 40;
                         </span>
                         Disponibilite
                       </span>
-                      <p className="mt-3 text-lg font-semibold text-slate-950">Voir disponibilité</p>
+                      <p className="mt-3 text-lg font-semibold text-slate-950">{isSaleProperty ? "Demander une visite" : "Voir disponibilité"}</p>
                       <p className="mt-1 max-w-[18rem] text-sm leading-6 text-slate-600">
-                        Descendez directement vers le calendrier pour choisir vos dates de séjour.
+                        {isSaleProperty
+                          ? "Passez directement au bloc commercial pour choisir un créneau, laisser votre téléphone et envoyer la demande."
+                          : "Descendez directement vers le calendrier pour choisir vos dates de séjour."}
                       </p>
                     </div>
                     <span className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/85 text-emerald-700 transition-transform duration-200 group-hover:translate-y-0.5">
@@ -4332,11 +4758,13 @@ out body 40;
                     </span>
                     <div className="min-w-0 flex-1">
                       <span className="inline-flex items-center gap-1 rounded-full bg-sky-950/6 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">
-                        Tarifs
+                        {isSaleProperty ? "Reference et prix" : "Tarifs"}
                       </span>
-                      <p className="mt-3 text-lg font-semibold text-slate-950">Voir prix</p>
+                      <p className="mt-3 text-lg font-semibold text-slate-950">{isSaleProperty ? "Voir la fiche commerciale" : "Voir prix"}</p>
                       <p className="mt-1 max-w-[18rem] text-sm leading-6 text-slate-600">
-                        Accédez tout de suite au bloc tarifaire et au récapitulatif de réservation.
+                        {isSaleProperty
+                          ? "Consultez la référence, le prix affiché, la promesse et les modalités de paiement de ce bien."
+                          : "Accédez tout de suite au bloc tarifaire et au récapitulatif de réservation."}
                       </p>
                     </div>
                     <span className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-white/85 text-sky-700 transition-transform duration-200 group-hover:translate-y-0.5">
@@ -4351,24 +4779,45 @@ out body 40;
                <div className="min-w-0 flex-1">
                  <h2 className="mb-1 flex items-center gap-2 text-xl font-bold">
                    <House size={20} className="shrink-0 text-emerald-600" />
-                   <span>Logement entier : {property.category}</span>
+                   <span>{isSaleProperty ? `Bien en vente : ${saleTypeLabel}` : `Logement entier : ${property.category}`}</span>
                  </h2>
-                 <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:flex sm:flex-wrap sm:items-center sm:gap-4">
-                   <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
-                     <Users size={15} className="shrink-0" />
-                     <span>{maxGuests} voyageurs max</span>
-                   </span>
-                   <span className="hidden text-gray-300 sm:inline">|</span>
-                   <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
-                     <BedSingle size={15} className="shrink-0 text-emerald-700" />
-                     <span>{property.bedrooms} chambres</span>
-                   </span>
-                   <span className="hidden text-gray-300 sm:inline">|</span>
-                   <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
-                     <Bath size={15} className="shrink-0 text-emerald-700" />
-                     <span>{property.bathrooms} salles de bain</span>
-                   </span>
-                 </div>
+                  <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:flex sm:flex-wrap sm:items-center sm:gap-4">
+                    {isSaleProperty ? (
+                      <>
+                        <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                          <Building2 size={15} className="shrink-0" />
+                          <span>Ref {saleReference}</span>
+                        </span>
+                        <span className="hidden text-gray-300 sm:inline">|</span>
+                        <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                          <Wallet size={15} className="shrink-0 text-emerald-700" />
+                          <span>{salePaymentModeLabel}</span>
+                        </span>
+                        <span className="hidden text-gray-300 sm:inline">|</span>
+                        <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                          <Route size={15} className="shrink-0 text-emerald-700" />
+                          <span>{salePrimarySurfaceLabel}: {salePrimarySurfaceValue}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                          <Users size={15} className="shrink-0" />
+                          <span>{maxGuests} voyageurs max</span>
+                        </span>
+                        <span className="hidden text-gray-300 sm:inline">|</span>
+                        <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                          <BedSingle size={15} className="shrink-0 text-emerald-700" />
+                          <span>{property.bedrooms} chambres</span>
+                        </span>
+                        <span className="hidden text-gray-300 sm:inline">|</span>
+                        <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+                          <Bath size={15} className="shrink-0 text-emerald-700" />
+                          <span>{property.bathrooms} salles de bain</span>
+                        </span>
+                      </>
+                    )}
+                  </div>
                </div>
                <div className="mt-1 h-12 w-12 shrink-0 rounded-full bg-gradient-to-br from-emerald-50 to-emerald-200 p-1.5 ring-1 ring-emerald-200 shadow-sm flex items-center justify-center">
                  <img src={logo} alt="Logo Dwira" className="w-full h-full rounded-full object-cover" />
@@ -4378,8 +4827,65 @@ out body 40;
             <div className="py-8 border-b border-gray-100">
               <h3 className="mb-4 flex items-center gap-2 text-xl font-bold">
                 <Info size={18} className="shrink-0 text-gray-700" />
-                <span>À propos de ce logement</span>
+                <span>{isSaleProperty ? "A propos de ce bien" : "À propos de ce logement"}</span>
               </h3>
+              {isSaleProperty ? (
+                <div className="mb-5 space-y-5">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 px-4 py-3">
+                      <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                        <Wallet size={14} className="shrink-0" />
+                        Prix affiche
+                      </p>
+                      <p className="mt-2 text-lg font-bold text-slate-950">{saleDisplayPriceLabel}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        <Landmark size={14} className="shrink-0" />
+                        Promesse
+                      </p>
+                      <p className="mt-2 text-lg font-bold text-slate-950">{salePromiseLabel}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        <ShieldCheck size={14} className="shrink-0" />
+                        Statut commercial
+                      </p>
+                      <p className="mt-2 text-lg font-bold text-slate-950">{saleStatusLabel}</p>
+                    </div>
+                  </div>
+                  <div className="rounded-[28px] border border-slate-200 bg-white/95 px-4 py-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.32)] sm:px-5">
+                    <div className="mb-4 flex items-center gap-2">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                        <House size={18} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Caracteristiques du bien</p>
+                        <p className="text-sm text-slate-600">Lecture rapide pour mobile et fiche commerciale.</p>
+                      </div>
+                    </div>
+                    {saleFeatureDisplayItems.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {saleFeatureDisplayItems.map((item) => (
+                          <div key={item.id} className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-3">
+                            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-slate-900 shadow-sm ring-1 ring-slate-200">
+                              {featureIcon(item.feature.icon_name, item.label, item.sectionName)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-950">{item.label}</p>
+                              {item.meta ? <p className="mt-1 text-sm text-slate-600">{item.meta}</p> : <p className="mt-1 text-sm text-slate-500">Disponible</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                        Les caracteristiques de vente ne sont pas encore completees pour ce bien.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
               <p className="text-gray-600 leading-relaxed whitespace-pre-line">
                 {property.description}
               </p>
@@ -4484,7 +4990,7 @@ out body 40;
             {featureDisplayItems.length > 0 && (
             <div className="py-8 border-b border-gray-100">
               <div className="flex items-center justify-between gap-4 mb-6">
-                <h3 className="text-xl font-bold">Ce que propose ce logement</h3>
+                <h3 className="text-xl font-bold">{isSaleProperty ? "Caracteristiques detaillees" : "Ce que propose ce logement"}</h3>
                 {featureDisplayItems.length > 0 ? (
                   <button
                     type="button"
@@ -4524,7 +5030,7 @@ out body 40;
             <Dialog open={featureDisplayItems.length > 0 && showAmenitiesDialog} onOpenChange={setShowAmenitiesDialog}>
               <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden rounded-[2rem] border-0 p-0 shadow-2xl">
                 <DialogHeader className="border-b border-gray-100 px-8 pt-8 pb-6">
-                  <DialogTitle className="text-3xl font-bold text-gray-900">Ce que propose ce logement</DialogTitle>
+                  <DialogTitle className="text-3xl font-bold text-gray-900">{isSaleProperty ? "Caracteristiques detaillees" : "Ce que propose ce logement"}</DialogTitle>
                 </DialogHeader>
                 <div className="max-h-[calc(88vh-110px)] overflow-y-auto px-8 pb-8">
                   <div className="space-y-10 pt-6">
@@ -4814,11 +5320,34 @@ out body 40;
             <div ref={calendarSectionRef} className="py-8 border-t border-gray-100">
               <div className="flex items-center gap-2 mb-6">
                 <Calendar size={24} className="text-emerald-600" />
-                <h3 className="text-xl font-bold">Disponibilités</h3>
+                <h3 className="text-xl font-bold">{isSaleProperty ? "Date de visite" : "Disponibilites"}</h3>
               </div>
-              <p className="text-gray-600 mb-6">
+              {isSaleProperty && (
+                <div className="mb-6 rounded-[2rem] border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#f8fbff)] p-4 shadow-[0_20px_50px_rgba(15,23,42,0.06)] sm:p-5">
+                    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h4 className="mt-2 text-lg font-bold text-slate-950">Choisissez une date de rendez-vous</h4>
+                        <p className="mt-1 text-sm text-slate-600">Selectionnez un jour de visite.</p>
+                      </div>
+                      <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                        <Calendar size={16} />
+                        {saleVisitSelectedDate
+                          ? format(saleVisitSelectedDate, "dd/MM/yyyy", { locale: fr })
+                          : "Aucune date choisie"}
+                      </div>
+                    </div>
+                    <AvailabilityCalendar
+                      unavailableDates={[]}
+                      onDateRangeSelect={handleSaleVisitCalendarSelect}
+                      selectedStart={saleVisitSelectedDate}
+                      selectedEnd={saleVisitSelectedDate}
+                      selectionMode="single"
+                    />
+                </div>
+              )}
+              {!isSaleProperty && <p className="text-gray-600 mb-6">
                 Sélectionnez vos dates pour voir les disponibilités et réserver votre séjour.
-              </p>
+              </p>}
               {!isSaleProperty && !activeLockedFlashOffer && (
                 <p className="text-sm text-emerald-700 mb-2">
                   {selectedStart
@@ -4831,7 +5360,7 @@ out body 40;
                   Regle periode: check-in {activeWeekdayRule.requiredCheckinDay || 'libre'} | check-out {activeWeekdayRule.requiredCheckoutDay || 'libre'}.
                 </p>
               )}
-              {effectiveLockedFlashRanges.length > 0 ? (
+              {!isSaleProperty && effectiveLockedFlashRanges.length > 0 ? (
                 <div className="mb-4 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] px-4 py-3 text-sm text-red-700 shadow-[0_12px_28px_rgba(239,68,68,0.08)]">
                   <p className="font-semibold">Vente flash active</p>
                   <div className="mt-1 space-y-1">
@@ -4844,7 +5373,7 @@ out body 40;
                     ))}
                   </div>
                 </div>
-              ) : primaryPreviewFlashOffer ? (
+              ) : !isSaleProperty && primaryPreviewFlashOffer ? (
                 <div className="mb-4 rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,#fffdf5,#fff7ed_48%,#fff1f2)] px-4 py-3 text-sm text-amber-900 shadow-[0_14px_32px_rgba(251,191,36,0.12)]">
                   <div className="flex items-start gap-3">
                     <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-amber-500 shadow-sm">
@@ -4861,41 +5390,72 @@ out body 40;
                   </div>
                 </div>
               ) : null}
-              <AvailabilityCalendar
-                unavailableDates={effectiveUnavailableDates || []}
-                onDateRangeSelect={handleDateRangeSelect}
-                selectedStart={selectedStart}
-                selectedEnd={selectedEnd}
-                allowedRanges={effectiveLockedFlashRanges.map((item) => ({ start: item.start, end: item.end }))}
-                highlightedRanges={!activeLockedFlashOffer ? previewFlashRanges.map((item) => ({ start: item.start, end: item.end })) : []}
-              />
+              {!isSaleProperty && (
+                <AvailabilityCalendar
+                  unavailableDates={effectiveUnavailableDates || []}
+                  onDateRangeSelect={handleDateRangeSelect}
+                  selectedStart={selectedStart}
+                  selectedEnd={selectedEnd}
+                  allowedRanges={effectiveLockedFlashRanges.map((item) => ({ start: item.start, end: item.end }))}
+                  highlightedRanges={!activeLockedFlashOffer ? previewFlashRanges.map((item) => ({ start: item.start, end: item.end })) : []}
+                />
+              )}
             </div>
           </div>
 
           {/* Right Column: Booking Card */}
           <div className="lg:col-span-1">
-            <div ref={priceSectionRef} className="sticky top-24 bg-white rounded-xl shadow-xl border border-gray-100 p-6">
-              <div className="flex justify-between items-baseline mb-6">
-                <div>
-                  {activeLockedFlashOffer && displayedNightlyPrice > effectiveNightlyPrice ? (
-                    <p className="mb-1 text-sm font-semibold text-slate-400 line-through">{formatTnd(displayedNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</p>
-                  ) : null}
-                  <span className={`text-2xl font-bold ${activeLockedFlashOffer ? "text-red-600" : "text-gray-900"}`}>{formatTnd(effectiveNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</span>
-                  {property.priceContext !== 'sale' ? <span className="text-gray-500"> / nuit</span> : <span className="text-gray-500"> / vente</span>}
-                  {property.priceContext !== 'sale' && effectiveWeeklyPrice > 0 ? (
-                    <p className="mt-1 text-xs text-gray-500">
-                      {activeLockedFlashOffer && displayedWeeklyPrice > effectiveWeeklyPrice ? <span className="mr-1 line-through text-slate-400">{formatTnd(displayedWeeklyPrice)} TND</span> : null}
-                      {formatTnd(effectiveWeeklyPrice)} TND{isAmicalePricingActive ? " TTC" : ""} / semaine
-                    </p>
-                  ) : null}
+            <div ref={priceSectionRef} className={`sticky top-24 rounded-[1.8rem] border p-6 ${isSaleProperty ? 'bg-[linear-gradient(180deg,#ffffff,#f7fafc)] border-slate-200 shadow-[0_30px_70px_rgba(15,23,42,0.14)]' : 'bg-white rounded-xl shadow-xl border-gray-100'}`}>
+              {isSaleProperty ? (
+                <div className="mb-6 overflow-hidden rounded-[2rem] border border-slate-200 bg-[linear-gradient(155deg,#0f172a,#111827_55%,#14532d)] p-5 text-white shadow-[0_24px_60px_rgba(15,23,42,0.22)]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-full bg-white/12 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/85">{saleTypeLabel}</span>
+                    <span className="inline-flex items-center rounded-full bg-emerald-400/14 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">{saleStatusLabel}</span>
+                  </div>
+                  <div className="mt-5 flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/60">Prix affiche</p>
+                      <p className="mt-2 text-3xl font-bold tracking-tight">{saleDisplayPriceLabel}</p>
+                      <p className="mt-2 text-sm text-white/70">Reference {saleReference}</p>
+                    </div>
+                    <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-emerald-100">
+                      <Landmark size={22} />
+                    </span>
+                  </div>
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-white/8 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">Paiement</p>
+                      <p className="mt-2 text-sm font-semibold text-white">{salePaymentModeLabel}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/8 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">Promesse</p>
+                      <p className="mt-2 text-sm font-semibold text-white">{salePromiseLabel}</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 text-sm text-gray-600">
-                  <Star size={14} className="text-amber-500 fill-current" />
-                  <span className="font-medium text-gray-900">{formatRating(property.rating)}</span>
+              ) : (
+                <div className="flex justify-between items-baseline mb-6">
+                  <div>
+                    {activeLockedFlashOffer && displayedNightlyPrice > effectiveNightlyPrice ? (
+                      <p className="mb-1 text-sm font-semibold text-slate-400 line-through">{formatTnd(displayedNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</p>
+                    ) : null}
+                    <span className={`text-2xl font-bold ${activeLockedFlashOffer ? "text-red-600" : "text-gray-900"}`}>{formatTnd(effectiveNightlyPrice)} TND{isAmicalePricingActive ? " TTC" : ""}</span>
+                    {property.priceContext !== 'sale' ? <span className="text-gray-500"> / nuit</span> : <span className="text-gray-500"> / vente</span>}
+                    {property.priceContext !== 'sale' && effectiveWeeklyPrice > 0 ? (
+                      <p className="mt-1 text-xs text-gray-500">
+                        {activeLockedFlashOffer && displayedWeeklyPrice > effectiveWeeklyPrice ? <span className="mr-1 line-through text-slate-400">{formatTnd(displayedWeeklyPrice)} TND</span> : null}
+                        {formatTnd(effectiveWeeklyPrice)} TND{isAmicalePricingActive ? " TTC" : ""} / semaine
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1 text-sm text-gray-600">
+                    <Star size={14} className="text-amber-500 fill-current" />
+                    <span className="font-medium text-gray-900">{formatRating(property.rating)}</span>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {!activeLockedFlashOffer && primaryPreviewFlashOffer ? (
+              {!isSaleProperty && !activeLockedFlashOffer && primaryPreviewFlashOffer ? (
                 <div className="mb-4 overflow-hidden rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,#fffdf5,#fff7ed_45%,#fff1f2)] text-sm shadow-[0_14px_32px_rgba(251,191,36,0.10)]">
                   <div className="flex items-center gap-2 border-b border-amber-200/70 px-4 py-3">
                     <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-red-600 shadow-sm">
@@ -4928,7 +5488,7 @@ out body 40;
                 </div>
               ) : null}
 
-              {activeLockedFlashOffer ? (
+              {!isSaleProperty && activeLockedFlashOffer ? (
                 <div className="mb-4 rounded-2xl border border-red-100 bg-[linear-gradient(135deg,#fff1f2,#fff7ed)] px-4 py-3 text-sm text-red-700">
                   <p className="font-semibold">Periode flash flexible</p>
                   <p className="mt-1">Reservation possible sur toute plage incluse entre le {format(new Date(`${activeLockedFlashRange?.start || activeLockedFlashOffer.start}T00:00:00`), "dd/MM/yyyy")} et le {format(new Date(`${activeLockedFlashRange?.end || activeLockedFlashOffer.end}T00:00:00`), "dd/MM/yyyy")}, avec minimum {Math.max(1, Number(activeLockedFlashOffer.minimumNights || 1))} nuit(s).</p>
@@ -4936,6 +5496,7 @@ out body 40;
               ) : null}
 
               <form className="space-y-4">
+                {!isSaleProperty && (
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div className="col-span-1">
                     <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{isSaleProperty ? 'Date souhaitee' : 'Arrivee'}</label>
@@ -4968,7 +5529,9 @@ out body 40;
                     </button>
                   </div>
                 </div>
+                )}
 
+                {!isSaleProperty && (
                 <div>
                    <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
                      {isSaleProperty ? 'Visiteurs' : 'Voyageurs'} <span className="text-gray-500 font-normal normal-case">(max {maxGuests})</span>
@@ -5023,6 +5586,7 @@ out body 40;
                      </div>
                    </div>
                 </div>
+                )}
 
                 {/* Optional Fees */}
                 {hasCleaningFee && (
@@ -5343,24 +5907,75 @@ out body 40;
                   </div>
                 )}
 
-                <textarea
-                  value={reservationNote}
-                  onChange={(e) => setReservationNote(e.target.value)}
-                  rows={3}
-                  placeholder={isSaleProperty ? "Precisez vos disponibilites ou vos questions" : "Note optionnelle pour l'agence"}
-                  className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                />
-                <button 
-                  type="button"
-                  onClick={() => void handleReservationRequest()}
-                  disabled={!reservationValidation.valid}
-                  className={`mt-4 w-full rounded-lg py-3 font-bold text-white shadow-md transition-colors disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600 ${
-                    isReservationOnRequest ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-emerald-600 hover:bg-emerald-700'
-                  }`}
-                >
-                  {isSaleProperty ? 'Demander une visite' : (isReservationOnRequest ? 'Sur demande' : 'Reserver')}
-                </button>
-                {!isSaleProperty && !reservationValidation.valid && (
+                {isSaleProperty && (
+                  <div className="space-y-4 rounded-[1.75rem] border border-emerald-200 bg-[linear-gradient(160deg,rgba(236,253,245,0.9),rgba(255,255,255,0.98))] p-4 shadow-[0_18px_38px_rgba(16,185,129,0.08)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Rendez-vous de visite</p>
+                        <h4 className="mt-2 text-lg font-semibold text-slate-950">Engagement commercial</h4>
+                        <p className="mt-1 text-sm text-slate-600">Renseignez votre date souhaitee, un creneau et votre numero de rappel.</p>
+                      </div>
+                      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-emerald-700 shadow-sm">
+                        <PhoneCall size={18} />
+                      </span>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <label className="grid gap-1 text-sm text-gray-700">
+                        <span className="font-medium">Date souhaitee</span>
+                        <input
+                          type="date"
+                          value={visitPreferredDate}
+                          onChange={(event) => setVisitPreferredDate(event.target.value)}
+                          min={todayDateInputMin}
+                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="grid gap-1 text-sm text-gray-700">
+                        <span className="font-medium">Creneau</span>
+                        <select
+                          value={visitTimeSlot}
+                          onChange={(event) => setVisitTimeSlot(event.target.value)}
+                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                        >
+                          <option value="">Choisir</option>
+                          <option value="09:00-11:00">09:00-11:00</option>
+                          <option value="11:00-13:00">11:00-13:00</option>
+                          <option value="14:00-16:00">14:00-16:00</option>
+                          <option value="16:00-18:00">16:00-18:00</option>
+                          <option value="18:00-20:00">18:00-20:00</option>
+                        </select>
+                      </label>
+                      <label className="grid gap-1 text-sm text-gray-700">
+                        <span className="font-medium">Telephone de rappel</span>
+                        <input
+                          type="tel"
+                          value={visitContactPhone}
+                          onChange={(event) => setVisitContactPhone(event.target.value)}
+                          placeholder={String(user?.telephone || "Numero de telephone")}
+                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+                  <button
+                    type="button"
+                    onClick={handleReservationRequest}
+                    disabled={!reservationValidation.valid}
+                    className={`w-full rounded-lg px-4 py-3 text-sm font-semibold text-white transition ${isSaleProperty ? "bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300" : (isReservationOnRequest ? "bg-yellow-500 hover:bg-yellow-600 disabled:bg-yellow-300" : "bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300")}`}
+                  >
+                    {isSaleProperty ? 'Demander une visite' : (isReservationOnRequest ? 'Sur demande' : 'Reserver')}
+                  </button>
+                {isSaleProperty && (
+                  <a
+                    href={buildTelLink(saleImmediatePhone)}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+                  >
+                    <PhoneCall size={16} />
+                    Appeler immediatement
+                  </a>
+                )}
+                {!reservationValidation.valid && (
                   <p className="mt-2 text-sm font-medium text-red-600">{reservationValidation.message}</p>
                 )}
                 <p className="text-center text-xs text-gray-500 mt-2">{isSaleProperty ? "Votre demande sera transmise a l'agence pour planification de visite" : (isReservationOnRequest ? "Reservation sur demande: l'agence doit confirmer avant validation finale" : "Aucun montant ne vous sera debite pour le moment")}</p>

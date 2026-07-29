@@ -188,6 +188,7 @@ export const router = createBrowserRouter([
       { path: "paiements", lazy: lazyPage(() => import("./admin/pages/PaiementsPage")) },
       { path: "amicales", lazy: lazyPage(() => import("./admin/pages/AmicalesPage")) },
       { path: "comptabilite", lazy: lazyPage(() => import("./admin/pages/ComptabilitePage")) },
+      { path: "ventes", lazy: lazyPage(() => import("./admin/pages/VentesAdminPage")) },
       { path: "hotels", lazy: lazyPage(() => import("./admin/pages/HotelsPage")) },
       { path: "reservations-hotels", lazy: lazyPage(() => import("./admin/pages/HotelReservationsPage")) },
       { path: "maintenance", lazy: lazyPage(() => import("./admin/pages/MaintenancePage")) },

@@ -298,18 +298,22 @@ export default function WebsiteChatbotWidget() {
   }, [visitorId, messages]);
 
   const hydrateConversation = async (targetVisitorId = visitorId) => {
-    const apiBase = await resolveChatbotApiBase();
-    const response = await fetch(`${apiBase}/chat/session/website/${encodeURIComponent(targetVisitorId)}`);
-    if (!response.ok) return;
-    const data = await response.json();
-    const localMessages = readLocalMessages(targetVisitorId);
-    const storedMessages = mergeStoredMessages(data?.snapshot?.conversation?.messages || [], localMessages);
-    setMessages((current) => {
-      const currentSignature = serializeMessages(current);
-      const nextSignature = serializeMessages(storedMessages);
-      return currentSignature === nextSignature ? current : storedMessages;
-    });
-    hydratedVisitorRef.current = targetVisitorId;
+    try {
+      const apiBase = await resolveChatbotApiBase();
+      const response = await fetch(`${apiBase}/chat/session/website/${encodeURIComponent(targetVisitorId)}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      const localMessages = readLocalMessages(targetVisitorId);
+      const storedMessages = mergeStoredMessages(data?.snapshot?.conversation?.messages || [], localMessages);
+      setMessages((current) => {
+        const currentSignature = serializeMessages(current);
+        const nextSignature = serializeMessages(storedMessages);
+        return currentSignature === nextSignature ? current : storedMessages;
+      });
+      hydratedVisitorRef.current = targetVisitorId;
+    } catch {
+      // Keep the widget and page usable when the optional chatbot service is unavailable locally.
+    }
   };
 
   useEffect(() => {
