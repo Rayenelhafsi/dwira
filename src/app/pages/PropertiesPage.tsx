@@ -1057,7 +1057,11 @@ export default function PropertiesPage() {
   const [selectedStanding, setSelectedStanding] = useState(searchParams.get("standing") || "");
   const [minGuests, setMinGuests] = useState(parseInt(searchParams.get("guestsMin") || "1", 10));
   const [isFeaturedOnly, setIsFeaturedOnly] = useState(searchParams.get("featured") === "true");
-  const [priceMax, setPriceMax] = useState(parseInt(searchParams.get("maxPrice") || "1650", 10));
+  const [priceMax, setPriceMax] = useState(() => {
+    const raw = String(searchParams.get("maxPrice") || "").trim();
+    const parsed = raw ? parseInt(raw, 10) : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
   const [smartTolerance, setSmartTolerance] = useState(parseInt(searchParams.get("tolerance") || "75", 10));
   const [sortMode, setSortMode] = useState<"matching" | "price" | "featured">(
     (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured")
@@ -1239,7 +1243,9 @@ export default function PropertiesPage() {
     const nextStanding = searchParams.get("standing") || "";
     const nextGuestsMin = parseInt(searchParams.get("guestsMin") || "1", 10);
     const nextFeatured = searchParams.get("featured") === "true";
-    const nextPriceMax = parseInt(searchParams.get("maxPrice") || "1650", 10);
+    const rawMaxPrice = String(searchParams.get("maxPrice") || "").trim();
+    const parsedMaxPrice = rawMaxPrice ? parseInt(rawMaxPrice, 10) : priceCeiling;
+    const nextPriceMax = Number.isFinite(parsedMaxPrice) ? parsedMaxPrice : priceCeiling;
     const nextTolerance = parseInt(searchParams.get("tolerance") || "75", 10);
     const nextSort = (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured");
 
@@ -1263,7 +1269,7 @@ export default function PropertiesPage() {
     if (priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
     if (smartTolerance !== nextTolerance) setSmartTolerance(nextTolerance);
     if (sortMode !== nextSort) setSortMode(nextSort);
-  }, [searchParams]);
+  }, [priceCeiling, searchParams]);
   useEffect(() => {
     let cancelled = false;
     void (async () => {

@@ -3509,9 +3509,14 @@ function canUseProviderForMedia(provider, mediaType) {
 function getUploadProviderCandidates(mediaType, preferredProvider) {
   const normalizedPreferredProvider = String(preferredProvider || '').trim().toLowerCase();
   if (normalizedPreferredProvider && normalizedPreferredProvider !== 'auto') {
-    return canUseProviderForMedia(normalizedPreferredProvider, mediaType)
-      ? [normalizedPreferredProvider]
-      : [];
+    if (!canUseProviderForMedia(normalizedPreferredProvider, mediaType)) {
+      return [];
+    }
+    if (normalizedPreferredProvider === 'cloudflare') {
+      const fallbacks = ['r2', 'cloudinary', 'local'].filter((provider) => canUseProviderForMedia(provider, mediaType));
+      return [normalizedPreferredProvider, ...fallbacks];
+    }
+    return [normalizedPreferredProvider];
   }
   const normalizedProvider = String(MEDIA_UPLOAD_PROVIDER || 'auto').trim().toLowerCase();
   if (normalizedProvider && normalizedProvider !== 'auto') {
