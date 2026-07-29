@@ -4183,14 +4183,14 @@ out body 40;
     ? new Date(`${String(visitPreferredDate).trim()}T00:00:00`)
     : null;
   const todayDateInputMin = format(new Date(), "yyyy-MM-dd");
-  const handleSaleVisitCalendarSelect = useCallback((start: Date | null, end: Date | null) => {
+  const handleSaleVisitCalendarSelect = (start: Date | null, end: Date | null) => {
     const selectedDate = end || start;
     if (!selectedDate) {
       setVisitPreferredDate("");
       return;
     }
     setVisitPreferredDate(format(selectedDate, "yyyy-MM-dd"));
-  }, []);
+  };
 
   const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog && !showBookingCalendarDialog && !lightboxOpen && !showLoginPrompt
     ? createPortal(
