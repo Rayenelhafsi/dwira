@@ -1072,6 +1072,7 @@ export default function PropertiesPage() {
   const [showAllResults, setShowAllResults] = useState(false);
   const resultsAutoLoadTriggerRef = useRef<HTMLDivElement | null>(null);
   const lastAutoLoadedResultsCountRef = useRef(0);
+  const pendingPriceMaxSyncRef = useRef<{ value: number; hasCustom: boolean } | null>(null);
   const searchParamsString = searchParams.toString();
   const isAnnualComingSoon = PUBLIC_COMING_SOON.locationAnnuelle && selectedMode === "location_annuelle";
   const primaryStayRange = stayRanges[0] || { start: "", end: "" };
@@ -1393,6 +1394,16 @@ export default function PropertiesPage() {
     if (minGuests !== nextGuestsMin) setMinGuests(nextGuestsMin);
     if (isFeaturedOnly !== nextFeatured) setIsFeaturedOnly(nextFeatured);
     const nextHasCustomPriceMax = rawMaxPrice.length > 0 && Number.isFinite(parsedMaxPrice);
+    const pendingPriceMaxSync = pendingPriceMaxSyncRef.current;
+    if (pendingPriceMaxSync) {
+      const pendingMatchesUrl =
+        pendingPriceMaxSync.hasCustom === nextHasCustomPriceMax
+        && pendingPriceMaxSync.value === nextPriceMax;
+      if (!pendingMatchesUrl) {
+        return;
+      }
+      pendingPriceMaxSyncRef.current = null;
+    }
     if (hasCustomPriceMax !== nextHasCustomPriceMax) setHasCustomPriceMax(nextHasCustomPriceMax);
     if (priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
     if (smartTolerance !== nextTolerance) setSmartTolerance(nextTolerance);
@@ -4554,8 +4565,13 @@ export default function PropertiesPage() {
                       onChange={(e) => {
                         const nextValue = parseInt(e.target.value, 10);
                         const normalizedValue = Number.isFinite(nextValue) ? Math.min(Math.max(nextValue, 0), priceCeiling) : priceCeiling;
+                        const nextHasCustomPriceMax = normalizedValue < priceCeiling;
+                        pendingPriceMaxSyncRef.current = {
+                          value: normalizedValue,
+                          hasCustom: nextHasCustomPriceMax,
+                        };
                         setPriceMax(normalizedValue);
-                        setHasCustomPriceMax(normalizedValue < priceCeiling);
+                        setHasCustomPriceMax(nextHasCustomPriceMax);
                       }}
                       className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 accent-emerald-600"
                     />
