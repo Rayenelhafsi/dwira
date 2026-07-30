@@ -3183,10 +3183,12 @@ export default function PropertiesPage() {
           if (matchedServices < selectedPaidServices.length) missing.push("Services payants partiellement disponibles");
         }
 
-        maxScore += 10;
         const currentPrice = Number(property.pricePerNight || 0);
-        if (currentPrice <= effectivePriceMax) score += 10;
-        else {
+        const withinBudget = !hasCustomPriceMax || currentPrice <= effectivePriceMax;
+        maxScore += 10;
+        if (withinBudget) {
+          score += 10;
+        } else if (!hasCustomPriceMax) {
           const over = currentPrice - effectivePriceMax;
           const ratio = over / Math.max(1, effectivePriceMax);
           if (ratio <= 0.2) {
@@ -3391,6 +3393,7 @@ export default function PropertiesPage() {
         return {
           property,
           score: normalizedScore,
+          withinBudget,
           strictTypeMatch: strictMainTypeMatch && strictSubTypeMatch,
           exactLocationMatch: selectedLocations.length === 0 || hasExactLocationMatch,
           exactSeasideMatch: selectedSeasideOptions.length === 0 || matchSeaside,
@@ -3430,7 +3433,8 @@ export default function PropertiesPage() {
     const threshold = hasCoreFilters ? smartTolerance : 0;
     let primary = rows.filter(
       (row) =>
-        row.strictTypeMatch
+        row.withinBudget
+        && row.strictTypeMatch
         && row.exactLocationMatch
         && row.score >= threshold
         && row.exactSeasideMatch
@@ -3441,6 +3445,9 @@ export default function PropertiesPage() {
     const hasExplicitTypeFilter = selectedMainTypes.length > 0 || selectedSubTypeKeys.length > 0;
     const alternatives = rows.filter((row) => {
       if (requiresRdcComfortFallback && !row.hasComfortFallbackFromRdc) {
+        return false;
+      }
+      if (!row.withinBudget) {
         return false;
       }
       const hasNonDateAlternative = Boolean(
@@ -3469,7 +3476,8 @@ export default function PropertiesPage() {
     if (primary.length === 0) {
       primary = rows.filter(
         (row) =>
-          row.strictTypeMatch
+          row.withinBudget
+          && row.strictTypeMatch
           && row.exactLocationMatch
           && row.exactSeasideMatch
           && row.exactComfortMatch
@@ -3483,7 +3491,7 @@ export default function PropertiesPage() {
       && selectedComfortOptions.length === 0
       && selectedSeasideOptions.length === 0
     ) {
-      primary = [...rows].sort((a, b) => b.score - a.score).slice(0, 12);
+      primary = rows.filter((row) => row.withinBudget).sort((a, b) => b.score - a.score).slice(0, 12);
     } else {
       primary = primary.sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
