@@ -1220,57 +1220,6 @@ export default function PropertiesPage() {
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams]);
   useEffect(() => {
-    const nextQuery = searchParams.get("q") || "";
-    const nextLocations = parseCsvParam(searchParams.get("locations") || searchParams.get("location"));
-    const nextStayRangesParsed = parseStayRangesParam(searchParams.get("stayRanges"));
-    const nextStayRanges = nextStayRangesParsed.length > 0
-      ? nextStayRangesParsed
-      : [{
-          start: searchParams.get("checkIn") || "",
-          end: searchParams.get("checkOut") || "",
-        }];
-    const nextCategories = parseCategoriesParam(searchParams.get("categories"));
-    const nextMainTypes = parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[];
-    const nextFeatures = searchParams.get("features")?.split(",").map((item) => item.trim()).filter(Boolean) || [];
-    const nextDoubleRoomsMin = parseInt(searchParams.get("doubleRoomsMin") || "0", 10);
-    const nextParentRoomsMin = parseInt(searchParams.get("parentRoomsMin") || "0", 10);
-    const nextSimpleRoomsMin = parseInt(searchParams.get("simpleRoomsMin") || "0", 10);
-    const nextBathroomsMin = parseInt(searchParams.get("bathroomsMin") || "0", 10);
-    const nextClimatizedRoomsMin = parseInt(searchParams.get("climatizedRoomsMin") || "0", 10);
-    const nextPaidServices = searchParams.get("paidServices")?.split(",").map((item) => item.trim()).filter(Boolean) || [];
-    const nextSeaside = searchParams.get("seaside")?.split(",").map((item) => item.trim()).filter(Boolean) as HomeSeasideOptionKey[] || [];
-    const nextComfort = searchParams.get("comfort")?.split(",").map((item) => item.trim()).filter(Boolean) as HomeComfortOptionKey[] || [];
-    const nextStanding = searchParams.get("standing") || "";
-    const nextGuestsMin = parseInt(searchParams.get("guestsMin") || "1", 10);
-    const nextFeatured = searchParams.get("featured") === "true";
-    const rawMaxPrice = String(searchParams.get("maxPrice") || "").trim();
-    const parsedMaxPrice = rawMaxPrice ? parseInt(rawMaxPrice, 10) : priceCeiling;
-    const nextPriceMax = Number.isFinite(parsedMaxPrice) ? parsedMaxPrice : priceCeiling;
-    const nextTolerance = parseInt(searchParams.get("tolerance") || "75", 10);
-    const nextSort = (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured");
-
-    if (query !== nextQuery) setQuery(nextQuery);
-    if (!areStringArraysEqual(selectedLocations, nextLocations)) setSelectedLocations(nextLocations);
-    if (!areStayRangesEqual(stayRanges, nextStayRanges)) setStayRanges(nextStayRanges);
-    if (!areCanonicalStringArraysEqual(selectedCategories, nextCategories)) setSelectedCategories(nextCategories);
-    if (!areStringArraysEqual(selectedMainTypes, nextMainTypes)) setSelectedMainTypes(nextMainTypes);
-    if (!areStringArraysEqual(selectedFeatureNames, nextFeatures)) setSelectedFeatureNames(nextFeatures);
-    if (minDoubleRooms !== nextDoubleRoomsMin) setMinDoubleRooms(nextDoubleRoomsMin);
-    if (minParentRooms !== nextParentRoomsMin) setMinParentRooms(nextParentRoomsMin);
-    if (minSimpleRooms !== nextSimpleRoomsMin) setMinSimpleRooms(nextSimpleRoomsMin);
-    if (minBathroomsCount !== nextBathroomsMin) setMinBathroomsCount(nextBathroomsMin);
-    if (minClimatizedRooms !== nextClimatizedRoomsMin) setMinClimatizedRooms(nextClimatizedRoomsMin);
-    if (!areStringArraysEqual(selectedPaidServices, nextPaidServices)) setSelectedPaidServices(nextPaidServices);
-    if (!areStringArraysEqual(selectedSeasideOptions, nextSeaside)) setSelectedSeasideOptions(nextSeaside);
-    if (!areStringArraysEqual(selectedComfortOptions, nextComfort)) setSelectedComfortOptions(nextComfort);
-    if (selectedStanding !== nextStanding) setSelectedStanding(nextStanding);
-    if (minGuests !== nextGuestsMin) setMinGuests(nextGuestsMin);
-    if (isFeaturedOnly !== nextFeatured) setIsFeaturedOnly(nextFeatured);
-    if (priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
-    if (smartTolerance !== nextTolerance) setSmartTolerance(nextTolerance);
-    if (sortMode !== nextSort) setSortMode(nextSort);
-  }, [priceCeiling, searchParams]);
-  useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
@@ -1397,6 +1346,58 @@ export default function PropertiesPage() {
   useEffect(() => {
     setPriceMax((prev) => Math.min(Math.max(prev, 0), priceCeiling));
   }, [priceCeiling]);
+
+  useEffect(() => {
+    const nextQuery = searchParams.get("q") || "";
+    const nextLocations = parseCsvParam(searchParams.get("locations") || searchParams.get("location"));
+    const nextStayRangesParsed = parseStayRangesParam(searchParams.get("stayRanges"));
+    const nextStayRanges = nextStayRangesParsed.length > 0
+      ? nextStayRangesParsed
+      : [{
+          start: searchParams.get("checkIn") || "",
+          end: searchParams.get("checkOut") || "",
+        }];
+    const nextCategories = parseCategoriesParam(searchParams.get("categories"));
+    const nextMainTypes = parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[];
+    const nextFeatures = searchParams.get("features")?.split(",").map((item) => item.trim()).filter(Boolean) || [];
+    const nextDoubleRoomsMin = parseInt(searchParams.get("doubleRoomsMin") || "0", 10);
+    const nextParentRoomsMin = parseInt(searchParams.get("parentRoomsMin") || "0", 10);
+    const nextSimpleRoomsMin = parseInt(searchParams.get("simpleRoomsMin") || "0", 10);
+    const nextBathroomsMin = parseInt(searchParams.get("bathroomsMin") || "0", 10);
+    const nextClimatizedRoomsMin = parseInt(searchParams.get("climatizedRoomsMin") || "0", 10);
+    const nextPaidServices = searchParams.get("paidServices")?.split(",").map((item) => item.trim()).filter(Boolean) || [];
+    const nextSeaside = searchParams.get("seaside")?.split(",").map((item) => item.trim()).filter(Boolean) as HomeSeasideOptionKey[] || [];
+    const nextComfort = searchParams.get("comfort")?.split(",").map((item) => item.trim()).filter(Boolean) as HomeComfortOptionKey[] || [];
+    const nextStanding = searchParams.get("standing") || "";
+    const nextGuestsMin = parseInt(searchParams.get("guestsMin") || "1", 10);
+    const nextFeatured = searchParams.get("featured") === "true";
+    const rawMaxPrice = String(searchParams.get("maxPrice") || "").trim();
+    const parsedMaxPrice = rawMaxPrice ? parseInt(rawMaxPrice, 10) : priceCeiling;
+    const nextPriceMax = Number.isFinite(parsedMaxPrice) ? parsedMaxPrice : priceCeiling;
+    const nextTolerance = parseInt(searchParams.get("tolerance") || "75", 10);
+    const nextSort = (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured");
+
+    if (query !== nextQuery) setQuery(nextQuery);
+    if (!areStringArraysEqual(selectedLocations, nextLocations)) setSelectedLocations(nextLocations);
+    if (!areStayRangesEqual(stayRanges, nextStayRanges)) setStayRanges(nextStayRanges);
+    if (!areCanonicalStringArraysEqual(selectedCategories, nextCategories)) setSelectedCategories(nextCategories);
+    if (!areStringArraysEqual(selectedMainTypes, nextMainTypes)) setSelectedMainTypes(nextMainTypes);
+    if (!areStringArraysEqual(selectedFeatureNames, nextFeatures)) setSelectedFeatureNames(nextFeatures);
+    if (minDoubleRooms !== nextDoubleRoomsMin) setMinDoubleRooms(nextDoubleRoomsMin);
+    if (minParentRooms !== nextParentRoomsMin) setMinParentRooms(nextParentRoomsMin);
+    if (minSimpleRooms !== nextSimpleRoomsMin) setMinSimpleRooms(nextSimpleRoomsMin);
+    if (minBathroomsCount !== nextBathroomsMin) setMinBathroomsCount(nextBathroomsMin);
+    if (minClimatizedRooms !== nextClimatizedRoomsMin) setMinClimatizedRooms(nextClimatizedRoomsMin);
+    if (!areStringArraysEqual(selectedPaidServices, nextPaidServices)) setSelectedPaidServices(nextPaidServices);
+    if (!areStringArraysEqual(selectedSeasideOptions, nextSeaside)) setSelectedSeasideOptions(nextSeaside);
+    if (!areStringArraysEqual(selectedComfortOptions, nextComfort)) setSelectedComfortOptions(nextComfort);
+    if (selectedStanding !== nextStanding) setSelectedStanding(nextStanding);
+    if (minGuests !== nextGuestsMin) setMinGuests(nextGuestsMin);
+    if (isFeaturedOnly !== nextFeatured) setIsFeaturedOnly(nextFeatured);
+    if (priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
+    if (smartTolerance !== nextTolerance) setSmartTolerance(nextTolerance);
+    if (sortMode !== nextSort) setSortMode(nextSort);
+  }, [priceCeiling, searchParams]);
 
   const uniqueLocations = useMemo(() => {
     const values = new Map<string, string>();
