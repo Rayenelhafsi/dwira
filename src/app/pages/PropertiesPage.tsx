@@ -1072,6 +1072,7 @@ export default function PropertiesPage() {
   const [showAllResults, setShowAllResults] = useState(false);
   const resultsAutoLoadTriggerRef = useRef<HTMLDivElement | null>(null);
   const lastAutoLoadedResultsCountRef = useRef(0);
+  const searchParamsString = searchParams.toString();
   const isAnnualComingSoon = PUBLIC_COMING_SOON.locationAnnuelle && selectedMode === "location_annuelle";
   const primaryStayRange = stayRanges[0] || { start: "", end: "" };
   const checkIn = primaryStayRange.start;
@@ -1124,7 +1125,7 @@ export default function PropertiesPage() {
     const params = new URLSearchParams(searchParams);
     params.set("mode", defaultMode);
     setSearchParams(params, { replace: true });
-  }, [loading, orderedModeTabs, searchParams, setSearchParams]);
+  }, [loading, orderedModeTabs, searchParamsString, setSearchParams]);
   useEffect(() => {
     let cancelled = false;
     const publicSlug = String(searchParams.get("publicPartnerSlug") || "").trim();
@@ -1201,12 +1202,7 @@ export default function PropertiesPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
-  useEffect(() => {
-    const mainTypes = parseCsvParam(searchParams.get("mainTypes") || searchParams.get("mainType")) as PropertyMainType[];
-    if (mainTypes.length === 0) return;
-    setSelectedMainTypes(mainTypes);
-  }, [searchParams]);
+  }, [searchParamsString]);
   useEffect(() => {
     if (searchParams.get("openFilters") !== "1") return;
     setIsFilterOpen(true);
@@ -1219,7 +1215,7 @@ export default function PropertiesPage() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("openFilters");
     setSearchParams(nextParams, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [searchParamsString, setSearchParams]);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -1401,7 +1397,7 @@ export default function PropertiesPage() {
     if (nextHasCustomPriceMax && priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
     if (smartTolerance !== nextTolerance) setSmartTolerance(nextTolerance);
     if (sortMode !== nextSort) setSortMode(nextSort);
-  }, [hasCustomPriceMax, priceCeiling, searchParams]);
+  }, [hasCustomPriceMax, priceCeiling, searchParamsString]);
 
   const uniqueLocations = useMemo(() => {
     const values = new Map<string, string>();
@@ -2488,7 +2484,7 @@ export default function PropertiesPage() {
 
   useEffect(() => {
     const params = buildManagedSearchParams();
-    if (params.toString() !== searchParams.toString()) {
+    if (params.toString() !== searchParamsString) {
       setSearchParams(params, { replace: true });
     }
   }, [
@@ -2515,7 +2511,7 @@ export default function PropertiesPage() {
     smartTolerance,
     sortMode,
     priceCeiling,
-    searchParams,
+    searchParamsString,
     setSearchParams,
   ]);
 
@@ -3579,7 +3575,7 @@ export default function PropertiesPage() {
       clientEmail: user?.role === 'user' ? user.email : undefined,
       clientName: user?.role === 'user' ? user.name : undefined,
       sessionId: getOrCreateTrackingSessionId(),
-      path: `${window.location.pathname}?${searchParams.toString()}`,
+      path: `${window.location.pathname}?${searchParamsString}`,
       channel: trackingChannel,
       referrerSource: document.referrer || undefined,
       metadata: {
@@ -3607,7 +3603,7 @@ export default function PropertiesPage() {
     minGuests,
     effectivePriceMax,
     query,
-    searchParams,
+    searchParamsString,
     selectedCategories,
     selectedComfortOptions,
     selectedFeatureNames,
