@@ -24726,7 +24726,7 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         total_amount, amount_due_now, flash_offer_json, selected_fixed_services_json, selected_variable_services_json, variable_services_quote_json, variable_services_quote_total, variable_services_quote_status, status,
         partner_agency_validation_at, amicale_validation_at, agency_validation_at, voucher_id, voucher_number, voucher_url, voucher_generated_at, owner_notified_at, owner_response_at, sales_stage, sales_last_note, admin_note, client_note,
         finalization_due_at, contract_id, payment_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         demandId,
         bien_id,
