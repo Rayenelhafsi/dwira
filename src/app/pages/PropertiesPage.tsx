@@ -1394,7 +1394,7 @@ export default function PropertiesPage() {
     if (isFeaturedOnly !== nextFeatured) setIsFeaturedOnly(nextFeatured);
     const nextHasCustomPriceMax = rawMaxPrice.length > 0 && Number.isFinite(parsedMaxPrice);
     if (hasCustomPriceMax !== nextHasCustomPriceMax) setHasCustomPriceMax(nextHasCustomPriceMax);
-    if (nextHasCustomPriceMax && priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
+    if (priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
     if (smartTolerance !== nextTolerance) setSmartTolerance(nextTolerance);
     if (sortMode !== nextSort) setSortMode(nextSort);
   }, [hasCustomPriceMax, priceCeiling, searchParamsString]);
