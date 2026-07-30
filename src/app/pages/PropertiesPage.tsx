@@ -1062,6 +1062,7 @@ export default function PropertiesPage() {
     const parsed = raw ? parseInt(raw, 10) : 0;
     return Number.isFinite(parsed) ? parsed : 0;
   });
+  const [hasCustomPriceMax, setHasCustomPriceMax] = useState(() => String(searchParams.get("maxPrice") || "").trim().length > 0);
   const [smartTolerance, setSmartTolerance] = useState(parseInt(searchParams.get("tolerance") || "75", 10));
   const [sortMode, setSortMode] = useState<"matching" | "price" | "featured">(
     (String(searchParams.get("sort") || "matching").trim() as "matching" | "price" | "featured")
@@ -1342,6 +1343,7 @@ export default function PropertiesPage() {
     if (maxPrice <= 300) return 300;
     return Math.ceil(maxPrice / 50) * 50;
   }, [modeProperties]);
+  const effectivePriceMax = hasCustomPriceMax ? Math.min(Math.max(priceMax, 0), priceCeiling) : priceCeiling;
 
   useEffect(() => {
     setPriceMax((prev) => Math.min(Math.max(prev, 0), priceCeiling));
@@ -1394,10 +1396,12 @@ export default function PropertiesPage() {
     if (selectedStanding !== nextStanding) setSelectedStanding(nextStanding);
     if (minGuests !== nextGuestsMin) setMinGuests(nextGuestsMin);
     if (isFeaturedOnly !== nextFeatured) setIsFeaturedOnly(nextFeatured);
-    if (priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
+    const nextHasCustomPriceMax = rawMaxPrice.length > 0 && Number.isFinite(parsedMaxPrice);
+    if (hasCustomPriceMax !== nextHasCustomPriceMax) setHasCustomPriceMax(nextHasCustomPriceMax);
+    if (nextHasCustomPriceMax && priceMax !== nextPriceMax) setPriceMax(nextPriceMax);
     if (smartTolerance !== nextTolerance) setSmartTolerance(nextTolerance);
     if (sortMode !== nextSort) setSortMode(nextSort);
-  }, [priceCeiling, searchParams]);
+  }, [hasCustomPriceMax, priceCeiling, searchParams]);
 
   const uniqueLocations = useMemo(() => {
     const values = new Map<string, string>();
@@ -2476,7 +2480,7 @@ export default function PropertiesPage() {
     if (selectedMode === "location_saisonniere" && selectedStanding) params.set("standing", selectedStanding);
     if (selectedMode === "location_saisonniere" && minGuests > 1) params.set("guestsMin", String(minGuests));
     if (isFeaturedOnly) params.set("featured", "true");
-    if (priceMax < priceCeiling) params.set("maxPrice", String(priceMax));
+    if (hasCustomPriceMax && effectivePriceMax < priceCeiling) params.set("maxPrice", String(effectivePriceMax));
     if (smartTolerance !== 75) params.set("tolerance", String(smartTolerance));
     if (sortMode !== "matching") params.set("sort", sortMode);
     return params;
@@ -2506,7 +2510,8 @@ export default function PropertiesPage() {
     selectedStanding,
     minGuests,
     isFeaturedOnly,
-    priceMax,
+    hasCustomPriceMax,
+    effectivePriceMax,
     smartTolerance,
     sortMode,
     priceCeiling,
@@ -2807,7 +2812,7 @@ export default function PropertiesPage() {
       Boolean(selectedStanding) ||
       minGuests > 1 ||
       isFeaturedOnly ||
-      priceMax < priceCeiling;
+      (hasCustomPriceMax && effectivePriceMax < priceCeiling);
 
     const selectedSubTypeKeys = normalizedSelectedCategories
       .map((value) => String(value || "").trim())
@@ -3180,10 +3185,10 @@ export default function PropertiesPage() {
 
         maxScore += 10;
         const currentPrice = Number(property.pricePerNight || 0);
-        if (currentPrice <= priceMax) score += 10;
+        if (currentPrice <= effectivePriceMax) score += 10;
         else {
-          const over = currentPrice - priceMax;
-          const ratio = over / Math.max(1, priceMax);
+          const over = currentPrice - effectivePriceMax;
+          const ratio = over / Math.max(1, effectivePriceMax);
           if (ratio <= 0.2) {
             score += 5;
             missing.push("Budget legerement au-dessus");
@@ -3506,7 +3511,7 @@ export default function PropertiesPage() {
       propertyFeatureTabMap,
       propertyPaidServicesMap,
       tabFeatureOptionsMap,
-      priceMax,
+      effectivePriceMax,
       isFeaturedOnly,
       selectedStanding,
       minGuests,
@@ -3535,7 +3540,7 @@ export default function PropertiesPage() {
     Number(Boolean(selectedStanding)) +
     Number(minGuests > 1) +
     Number(Boolean(isFeaturedOnly)) +
-    Number(priceMax < priceCeiling);
+    Number(hasCustomPriceMax && effectivePriceMax < priceCeiling);
 
   useEffect(() => {
     if (!hasTrackingConsent()) return;
@@ -3553,7 +3558,7 @@ export default function PropertiesPage() {
       standing: selectedStanding,
       guestsMin: minGuests,
       featured: isFeaturedOnly,
-      priceMax,
+      effectivePriceMax,
       activeFiltersCount,
       channel: trackingChannel,
     });
@@ -3583,7 +3588,7 @@ export default function PropertiesPage() {
         standing: selectedStanding || null,
         guestsMin: minGuests,
         featuredOnly: isFeaturedOnly,
-        priceMax,
+        priceMax: effectivePriceMax,
         activeFiltersCount,
         channel: trackingChannel,
       },
@@ -3592,7 +3597,7 @@ export default function PropertiesPage() {
     activeFiltersCount,
     isFeaturedOnly,
     minGuests,
-    priceMax,
+    effectivePriceMax,
     query,
     searchParams,
     selectedCategories,
@@ -3871,7 +3876,7 @@ export default function PropertiesPage() {
     minGuests,
     isFeaturedOnly,
     stayRanges,
-    priceMax,
+    effectivePriceMax,
     smartTolerance,
     sortMode,
   ]);
@@ -4534,15 +4539,20 @@ export default function PropertiesPage() {
                       <label className="text-sm font-bold text-gray-900">
                         <span className="inline-flex items-center gap-2"><Coins size={14} className="text-emerald-600" />Prix max {selectedMode === "location_annuelle" ? "/ mois" : "/ nuit"}</span>
                       </label>
-                      <span className="text-sm font-semibold text-emerald-700">{priceMax} TND</span>
+                      <span className="text-sm font-semibold text-emerald-700">{effectivePriceMax} TND</span>
                     </div>
                     <input
                       type="range"
                       min="0"
                       max={priceCeiling}
                       step="50"
-                      value={priceMax}
-                      onChange={(e) => setPriceMax(parseInt(e.target.value, 10))}
+                      value={effectivePriceMax}
+                      onChange={(e) => {
+                        const nextValue = parseInt(e.target.value, 10);
+                        const normalizedValue = Number.isFinite(nextValue) ? Math.min(Math.max(nextValue, 0), priceCeiling) : priceCeiling;
+                        setPriceMax(normalizedValue);
+                        setHasCustomPriceMax(normalizedValue < priceCeiling);
+                      }}
                       className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 accent-emerald-600"
                     />
                     <div className="mt-1 flex justify-between text-xs text-gray-500">
