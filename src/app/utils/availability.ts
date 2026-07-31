@@ -257,6 +257,19 @@ export function computeStayNights(startRaw: string | null | undefined, endRaw: s
   return Math.round((end.getTime() - start.getTime()) / 86400000);
 }
 
+function getTodayDateOnly() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function isFutureOrTodayStayRange(startRaw: string | null | undefined, endRaw: string | null | undefined) {
+  const start = parseDateOnly(startRaw);
+  const end = parseDateOnly(endRaw);
+  const today = getTodayDateOnly();
+  if (!start || !end || !(start < end)) return false;
+  return start >= today;
+}
+
 export function findWeeklyAvailabilityAlternative(
   ranges: UnavailableDateRangeLike[] | null | undefined,
   startRaw: string | null | undefined,
@@ -267,6 +280,7 @@ export function findWeeklyAvailabilityAlternative(
     const shiftedStart = shiftDateOnly(startRaw, offset);
     const shiftedEnd = shiftDateOnly(endRaw, offset);
     if (!shiftedStart || !shiftedEnd) continue;
+    if (!isFutureOrTodayStayRange(shiftedStart, shiftedEnd)) continue;
     if (!hasBlockingUnavailableDates(ranges, shiftedStart, shiftedEnd)) {
       return {
         kind: "shifted_week",
@@ -295,6 +309,7 @@ export function findOneNightFlexAvailabilityAlternative(
   for (const candidate of shorterCandidates) {
     if (!candidate.start || !candidate.end) continue;
     if (!isValidStayRange(candidate.start, candidate.end)) continue;
+    if (!isFutureOrTodayStayRange(candidate.start, candidate.end)) continue;
     if (!hasBlockingUnavailableDates(ranges, candidate.start, candidate.end)) {
       return {
         kind: "shorter",
@@ -313,6 +328,7 @@ export function findOneNightFlexAvailabilityAlternative(
   for (const candidate of longerCandidates) {
     if (!candidate.start || !candidate.end) continue;
     if (!isValidStayRange(candidate.start, candidate.end)) continue;
+    if (!isFutureOrTodayStayRange(candidate.start, candidate.end)) continue;
     if (!hasBlockingUnavailableDates(ranges, candidate.start, candidate.end)) {
       return {
         kind: "longer",
@@ -415,6 +431,7 @@ export function findBestStayRangeAlternative(params: {
   for (const candidate of candidateRanges) {
     if (!candidate.start || !candidate.end) continue;
     if (!isValidStayRange(candidate.start, candidate.end)) continue;
+    if (!isFutureOrTodayStayRange(candidate.start, candidate.end)) continue;
     if (!isRangeValid(candidate.start, candidate.end)) continue;
     const alternative = buildStayAvailabilityAlternative(requestedStart, requestedEnd, candidate.start, candidate.end);
     if (alternative) return alternative;
