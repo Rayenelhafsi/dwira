@@ -3041,6 +3041,7 @@ export default function PropertiesPage() {
           | null = null;
         let dateFailureReason = "";
         let dateRuleType: "min_max" | "weekday" | "availability" | "other" | "none" = "none";
+        const hasMultipleRequestedStayRanges = validStayRanges.length > 1;
 
         const queryValue = query.trim().toLowerCase();
         if (queryValue) {
@@ -3236,7 +3237,7 @@ export default function PropertiesPage() {
             if (exactDateAvailable) {
               if (exactDateBookable) {
                 score += 20;
-              } else {
+              } else if (!hasMultipleRequestedStayRanges) {
                 const exactAvailabilityRange = firstUnbookableExactRange || exactRange || validStayRanges[0];
                 if (exactAvailabilityRange) {
                   const stayValidation = evaluatePropertyStayBookability(property, exactAvailabilityRange.start, exactAvailabilityRange.end, resolvePropertyUnavailableDates);
@@ -3261,8 +3262,16 @@ export default function PropertiesPage() {
                     missing.push(stayValidation.reason || "Dates non disponibles");
                   }
                 }
+              } else {
+                const exactAvailabilityRange = firstUnbookableExactRange || exactRange || validStayRanges[0];
+                if (exactAvailabilityRange) {
+                  const stayValidation = evaluatePropertyStayBookability(property, exactAvailabilityRange.start, exactAvailabilityRange.end, resolvePropertyUnavailableDates);
+                  dateFailureReason = stayValidation.reason || "Une ou plusieurs periodes ne sont pas reservables.";
+                  dateRuleType = "none";
+                  missing.push(dateFailureReason);
+                }
               }
-            } else {
+            } else if (!hasMultipleRequestedStayRanges) {
               let failureReason = "Dates non disponibles";
               const alternatives = validStayRanges
                 .map((range) => {
@@ -3288,6 +3297,14 @@ export default function PropertiesPage() {
                 hints.push(
                   `Alternative dates: ${formatDateLabel(stayDateAlternative.start)} - ${formatDateLabel(stayDateAlternative.end)}${altLabel ? ` (${altLabel})` : ""}`
                 );
+              }
+            } else {
+              const firstFailedRange = firstUnavailableExactRange || firstUnbookableExactRange || validStayRanges[0];
+              if (firstFailedRange) {
+                const stayValidation = evaluatePropertyStayBookability(property, firstFailedRange.start, firstFailedRange.end, resolvePropertyUnavailableDates);
+                dateFailureReason = stayValidation.reason || "Une ou plusieurs periodes ne sont pas disponibles.";
+                dateRuleType = "none";
+                missing.push(dateFailureReason);
               }
             }
           }
@@ -3391,6 +3408,7 @@ export default function PropertiesPage() {
           : genericComfortAlternative || hasComfortFallbackFromBeach || hasPoolAlternative;
         const hasDateRuleAlternative = Boolean(
           hasDateFilter
+          && !hasMultipleRequestedStayRanges
           && !exactDateAvailable
           && (
             Boolean(stayDateAlternative)
