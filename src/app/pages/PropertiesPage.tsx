@@ -20,6 +20,7 @@ import {
   hasBlockingUnavailableDates,
   getStayAvailabilityAlternativeLabel,
   isValidStayRange,
+  normalizeDateOnlyInput,
   resolveStayAvailability,
 } from "../utils/availability";
 import { getReservationMinStayRequirement, validateReservationWeekdayRule } from "../utils/seasonalPricing";
@@ -340,6 +341,14 @@ const replaceFirstStayRangeWithAlternative = (
   if (validRanges.length === 0) return [alternative];
   const [firstRange, ...rest] = validRanges;
   return [{ ...firstRange, start: alternative.start, end: alternative.end }, ...rest];
+};
+
+const getTodayDateOnlyValue = () => normalizeDateOnlyInput(new Date());
+
+const isFutureOrTodayStayRange = (range?: StayRangeSelection | null) => {
+  if (!range?.start || !range?.end) return false;
+  if (!isValidStayRange(range.start, range.end)) return false;
+  return normalizeDateOnlyInput(range.start) >= getTodayDateOnlyValue();
 };
 
 const toggleStringInList = (items: string[], value: string) =>
@@ -3347,6 +3356,9 @@ export default function PropertiesPage() {
             && (Math.abs(candidate.shiftDays) <= 1 || stayDateAlternative.kind === "shorter")
           )
         );
+        const sanitizedStayDateAlternative = isFutureOrTodayStayRange(stayDateAlternative)
+          ? stayDateAlternative
+          : null;
         const requestedSPlusValues = requestedTypeSubTypeKeys.map((item) => getSPlusValue(item)).filter((value): value is number => Number.isFinite(value as number));
         const selectedRequestedSPlusValues = selectedRequestedSubTypeKeys.map((item) => getSPlusValue(item)).filter((value): value is number => Number.isFinite(value as number));
         const propertySPlusValue = getSPlusValue(propertySubTypeKey);
@@ -3411,7 +3423,7 @@ export default function PropertiesPage() {
           && !hasMultipleRequestedStayRanges
           && !exactDateAvailable
           && (
-            Boolean(stayDateAlternative)
+            Boolean(sanitizedStayDateAlternative)
             || dateRuleType === "min_max"
           )
         );
@@ -3424,7 +3436,7 @@ export default function PropertiesPage() {
           exactSeasideMatch: selectedSeasideOptions.length === 0 || matchSeaside,
           exactDateAvailable,
           exactDateBookable,
-          stayDateAlternative,
+          stayDateAlternative: sanitizedStayDateAlternative,
           details: {
             amenitiesMatched: selectedFeatureNames.length > 0
               ? `${selectedFeatureNames.filter((am) => matchesAmenity(am)).length}/${selectedFeatureNames.length}`
@@ -4930,10 +4942,13 @@ export default function PropertiesPage() {
                       </div>
                       <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                         {section.rows.map((row) => {
-                          const alternativeRanges = row.stayDateAlternative?.start && row.stayDateAlternative?.end
+                          const visibleStayDateAlternative = isFutureOrTodayStayRange(row.stayDateAlternative)
+                            ? row.stayDateAlternative
+                            : null;
+                          const alternativeRanges = visibleStayDateAlternative?.start && visibleStayDateAlternative?.end
                             ? replaceFirstStayRangeWithAlternative(validStayRanges, {
-                                start: row.stayDateAlternative.start,
-                                end: row.stayDateAlternative.end,
+                                start: visibleStayDateAlternative.start,
+                                end: visibleStayDateAlternative.end,
                               })
                             : validStayRanges;
                           const displayProperty = hasStrictStaySearch
@@ -4945,10 +4960,10 @@ export default function PropertiesPage() {
                               property={displayProperty}
                               searchParams={(() => {
                                 const params = new URLSearchParams(searchParams);
-                                if (row.stayDateAlternative?.start || row.stayDateAlternative?.end) {
+                                if (visibleStayDateAlternative?.start || visibleStayDateAlternative?.end) {
                                   const nextRanges = replaceFirstStayRangeWithAlternative(validStayRanges, {
-                                    start: row.stayDateAlternative?.start || "",
-                                    end: row.stayDateAlternative?.end || "",
+                                    start: visibleStayDateAlternative?.start || "",
+                                    end: visibleStayDateAlternative?.end || "",
                                   });
                                   params.set("stayRanges", serializeStayRangesParam(nextRanges));
                                   if (nextRanges[0]?.start) params.set("checkIn", nextRanges[0].start);
@@ -4972,14 +4987,14 @@ export default function PropertiesPage() {
                                     <span className="font-semibold text-red-600">{getResolvedPropertyCategoryLabel(displayProperty)}</span>
                                   </p>
                                 )}
-                                {row.hasDateRuleAlternative && validStayRanges.length > 0 && row.stayDateAlternative && (
+                                {row.hasDateRuleAlternative && validStayRanges.length > 0 && visibleStayDateAlternative && (
                                   <p>
                                     <span className="text-gray-500 line-through">{formatStayRangesSummary(validStayRanges)}</span>
                                     {" -> "}
                                     <span className="font-semibold text-red-600">{formatStayRangesSummary(alternativeRanges)}</span>
                                   </p>
                                 )}
-                                {row.hasDateRuleAlternative && validStayRanges.length > 0 && !row.stayDateAlternative && (
+                                {row.hasDateRuleAlternative && validStayRanges.length > 0 && !visibleStayDateAlternative && (
                                   <p>
                                     <span className="text-gray-500 line-through">{formatStayRangesSummary(validStayRanges)}</span>
                                     {" -> "}
@@ -4989,7 +5004,7 @@ export default function PropertiesPage() {
                                 {row.hasComfortAlternative && requestedComfortLabel && (
                                   renderComfortAlternativeLine(row)
                                 )}
-                                <p className="text-amber-700">{getStayAvailabilityAlternativeLabel(row.stayDateAlternative) || "Alternative"}</p>
+                                <p className="text-amber-700">{getStayAvailabilityAlternativeLabel(visibleStayDateAlternative) || "Alternative"}</p>
                               </div>
                             </div>
                           </div>

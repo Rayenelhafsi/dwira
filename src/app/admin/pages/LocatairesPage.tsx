@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CalendarDays, Edit2, ExternalLink, FileText, Mail, Phone, Plus, Power, QrCode, Search, Trash2, Upload, UserSquare2, Users, X } from 'lucide-react';
 import { Bien, ClienteleProfile, ClienteleTask, Contrat, Locataire, Maintenance, Paiement, Proprietaire, Utilisateur } from '../types';
 import { toast } from 'sonner';
@@ -399,6 +399,7 @@ export default function ClientelesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(!hasCachedData);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedClient, setSelectedClient] = useState<ClientRecord | null>(null);
   const [amicaleOptions, setAmicaleOptions] = useState<Array<{ id: string; name: string }>>(initialCache?.amicaleOptions || []);
   const [agentAmicaleProfiles, setAgentAmicaleProfiles] = useState<Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }>>(initialCache?.agentAmicaleProfiles || {});
@@ -439,6 +440,37 @@ export default function ClientelesPage() {
   const [isSavingBusinessProfile, setIsSavingBusinessProfile] = useState(false);
   const [isSavingPartnerAgencyAction, setIsSavingPartnerAgencyAction] = useState(false);
   const [pendingClientFocus, setPendingClientFocus] = useState<null | { category: ClientCategory; email: string; name: string }>(null);
+  const currentDataRef = useRef({
+    locataires: initialCache?.locataires || [] as Locataire[],
+    proprietaires: initialCache?.proprietaires || [] as Proprietaire[],
+    utilisateurs: initialCache?.utilisateurs || [] as Utilisateur[],
+    contrats: initialCache?.contrats || [] as ContratApi[],
+    biens: initialCache?.biens || [] as Bien[],
+    paiements: initialCache?.paiements || [] as Paiement[],
+    maintenances: initialCache?.maintenances || [] as Maintenance[],
+    profiles: initialCache?.profiles || [] as ClienteleProfile[],
+    amicaleOptions: initialCache?.amicaleOptions || [] as Array<{ id: string; name: string }>,
+    agentAmicaleProfiles: initialCache?.agentAmicaleProfiles || {} as Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }>,
+    partnerAgencyOptions: initialCache?.partnerAgencyOptions || [] as Array<{ id: string; name: string; slug?: string; isActive?: boolean }>,
+    partnerAgencyProfiles: initialCache?.partnerAgencyProfiles || {} as Record<string, { partnerAgencyId: string; partnerAgencyName: string; username: string; password: string }>,
+  });
+
+  useEffect(() => {
+    currentDataRef.current = {
+      locataires,
+      proprietaires,
+      utilisateurs,
+      contrats,
+      biens,
+      paiements,
+      maintenances,
+      profiles,
+      amicaleOptions,
+      agentAmicaleProfiles,
+      partnerAgencyOptions,
+      partnerAgencyProfiles,
+    };
+  }, [agentAmicaleProfiles, amicaleOptions, biens, contrats, locataires, maintenances, paiements, partnerAgencyOptions, partnerAgencyProfiles, profiles, proprietaires, utilisateurs]);
 
   useEffect(() => {
     try {
@@ -519,173 +551,171 @@ export default function ClientelesPage() {
       } else {
         setIsRefreshing(true);
       }
-      const authFetchOptions: RequestInit = { credentials: 'include' };
-      const [locatairesResult, proprietairesResult, utilisateursResult, contratsResult, biensResult, paiementsResult, maintenancesResult, profilesResult, amicalesResult, agentsAmicaleResult, partnerAgenciesResult, partnerAgencyProfilesResult] = await Promise.allSettled([
-        fetch(`${API_URL}/locataires`, authFetchOptions),
-        fetch(`${API_URL}/proprietaires`, authFetchOptions),
-        fetch(`${API_URL}/utilisateurs`, authFetchOptions),
-        fetch(`${API_URL}/contrats`, authFetchOptions),
-        fetch(`${API_URL}/admin/biens-summary`, authFetchOptions),
-        fetch(`${API_URL}/paiements`, authFetchOptions),
-        fetch(`${API_URL}/maintenance`, authFetchOptions),
-        fetch(`${API_URL}/clienteles/profiles`, authFetchOptions),
-        fetchAmicalesAdmin(),
-        fetch(`${API_URL}/agents-amicale`, authFetchOptions),
-        fetchPartnerAgenciesAdmin(),
-        fetch(`${API_URL}/partner-agency-profiles`, authFetchOptions),
-      ]);
-      let nextLocataires: Locataire[] = [];
-      let nextProprietaires: Proprietaire[] = [];
-      let nextUtilisateurs: Utilisateur[] = [];
-      let nextContrats: ContratApi[] = [];
-      let nextBiens: Bien[] = [];
-      let nextPaiements: Paiement[] = [];
-      let nextMaintenances: Maintenance[] = [];
-      let nextProfiles: ClienteleProfile[] = [];
-      let nextAmicaleOptions: Array<{ id: string; name: string }> = [];
-      let nextAgentAmicaleProfiles: Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }> = {};
-      let nextPartnerAgencyOptions: Array<{ id: string; name: string; slug?: string; isActive?: boolean }> = [];
-      let nextPartnerAgencyProfiles: Record<string, { partnerAgencyId: string; partnerAgencyName: string; username: string; password: string }> = {};
+      setLoadError(null);
+      try {
+        const authFetchOptions: RequestInit = { credentials: 'include' };
+        const [locatairesResult, proprietairesResult, utilisateursResult, contratsResult, biensResult, paiementsResult, maintenancesResult, profilesResult, amicalesResult, agentsAmicaleResult, partnerAgenciesResult, partnerAgencyProfilesResult] = await Promise.allSettled([
+          fetch(`${API_URL}/locataires`, authFetchOptions),
+          fetch(`${API_URL}/proprietaires`, authFetchOptions),
+          fetch(`${API_URL}/utilisateurs`, authFetchOptions),
+          fetch(`${API_URL}/contrats`, authFetchOptions),
+          fetch(`${API_URL}/admin/biens-summary`, authFetchOptions),
+          fetch(`${API_URL}/paiements`, authFetchOptions),
+          fetch(`${API_URL}/maintenance`, authFetchOptions),
+          fetch(`${API_URL}/clienteles/profiles`, authFetchOptions),
+          fetchAmicalesAdmin(),
+          fetch(`${API_URL}/agents-amicale`, authFetchOptions),
+          fetchPartnerAgenciesAdmin(),
+          fetch(`${API_URL}/partner-agency-profiles`, authFetchOptions),
+        ]);
+        let successCount = 0;
+        let nextLocataires: Locataire[] = currentDataRef.current.locataires;
+        let nextProprietaires: Proprietaire[] = currentDataRef.current.proprietaires;
+        let nextUtilisateurs: Utilisateur[] = currentDataRef.current.utilisateurs;
+        let nextContrats: ContratApi[] = currentDataRef.current.contrats;
+        let nextBiens: Bien[] = currentDataRef.current.biens;
+        let nextPaiements: Paiement[] = currentDataRef.current.paiements;
+        let nextMaintenances: Maintenance[] = currentDataRef.current.maintenances;
+        let nextProfiles: ClienteleProfile[] = currentDataRef.current.profiles;
+        let nextAmicaleOptions: Array<{ id: string; name: string }> = currentDataRef.current.amicaleOptions;
+        let nextAgentAmicaleProfiles: Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }> = currentDataRef.current.agentAmicaleProfiles;
+        let nextPartnerAgencyOptions: Array<{ id: string; name: string; slug?: string; isActive?: boolean }> = currentDataRef.current.partnerAgencyOptions;
+        let nextPartnerAgencyProfiles: Record<string, { partnerAgencyId: string; partnerAgencyName: string; username: string; password: string }> = currentDataRef.current.partnerAgencyProfiles;
 
-      if (locatairesResult.status === 'fulfilled' && locatairesResult.value.ok) {
-        const rows = await locatairesResult.value.json();
-        nextLocataires = Array.isArray(rows) ? rows : [];
-        setLocataires(nextLocataires);
-      } else {
-        setLocataires([]);
-      }
-
-      if (proprietairesResult.status === 'fulfilled' && proprietairesResult.value.ok) {
-        const rows = await proprietairesResult.value.json();
-        nextProprietaires = Array.isArray(rows) ? rows : [];
-        setProprietaires(nextProprietaires);
-      } else {
-        setProprietaires([]);
-      }
-
-      if (utilisateursResult.status === 'fulfilled' && utilisateursResult.value.ok) {
-        const rows = await utilisateursResult.value.json();
-        nextUtilisateurs = Array.isArray(rows) ? rows : [];
-        setUtilisateurs(nextUtilisateurs);
-      } else {
-        setUtilisateurs([]);
-      }
-
-      if (contratsResult.status === 'fulfilled' && contratsResult.value.ok) {
-        const rows = await contratsResult.value.json();
-        nextContrats = Array.isArray(rows) ? rows : [];
-        setContrats(nextContrats);
-      } else {
-        setContrats([]);
-      }
-
-      if (biensResult.status === 'fulfilled' && biensResult.value.ok) {
-        const rows = await biensResult.value.json();
-        nextBiens = Array.isArray(rows) ? rows : [];
-        setBiens(nextBiens);
-      } else {
-        setBiens([]);
-      }
-
-      if (paiementsResult.status === 'fulfilled' && paiementsResult.value.ok) {
-        const rows = await paiementsResult.value.json();
-        nextPaiements = Array.isArray(rows) ? rows : [];
-        setPaiements(nextPaiements);
-      } else {
-        setPaiements([]);
-      }
-
-      if (maintenancesResult.status === 'fulfilled' && maintenancesResult.value.ok) {
-        const rows = await maintenancesResult.value.json();
-        nextMaintenances = Array.isArray(rows) ? rows : [];
-        setMaintenances(nextMaintenances);
-      } else {
-        setMaintenances([]);
-      }
-
-      if (profilesResult.status === 'fulfilled' && profilesResult.value.ok) {
-        const rows = await profilesResult.value.json();
-        nextProfiles = Array.isArray(rows) ? rows : [];
-        setProfiles(nextProfiles);
-      } else {
-        setProfiles([]);
-      }
-
-      if (amicalesResult.status === 'fulfilled') {
-        const rows = amicalesResult.value;
-        nextAmicaleOptions = Array.isArray(rows) ? rows.map((item) => ({ id: item.id, name: item.name })) : [];
-        setAmicaleOptions(nextAmicaleOptions);
-      } else {
-        setAmicaleOptions([]);
-      }
-
-      if (agentsAmicaleResult.status === 'fulfilled' && agentsAmicaleResult.value.ok) {
-        const rows = await agentsAmicaleResult.value.json();
-        const nextMap: Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }> = {};
-        if (Array.isArray(rows)) {
-          rows.forEach((row) => {
-            const userId = String(row?.user_id || '').trim();
-            if (!userId) return;
-            nextMap[userId] = {
-              amicaleId: String(row?.amicale_id || '').trim(),
-              amicaleName: String(row?.amicale_name || '').trim(),
-              username: String(row?.username || '').trim(),
-              password: String(row?.password_text || '').trim(),
-            };
-          });
+        if (locatairesResult.status === 'fulfilled' && locatairesResult.value.ok) {
+          const rows = await locatairesResult.value.json();
+          nextLocataires = Array.isArray(rows) ? rows : [];
+          setLocataires(nextLocataires);
+          successCount += 1;
         }
-        nextAgentAmicaleProfiles = nextMap;
-        setAgentAmicaleProfiles(nextMap);
-      } else {
-        setAgentAmicaleProfiles({});
-      }
 
-      if (partnerAgenciesResult.status === 'fulfilled') {
-        const rows = partnerAgenciesResult.value;
-        nextPartnerAgencyOptions = Array.isArray(rows) ? rows.map((item) => ({ id: item.id, name: item.name, slug: item.slug, isActive: item.isActive })) : [];
-        setPartnerAgencyOptions(nextPartnerAgencyOptions);
-      } else {
-        setPartnerAgencyOptions([]);
-      }
-
-      if (partnerAgencyProfilesResult.status === 'fulfilled' && partnerAgencyProfilesResult.value.ok) {
-        const rows = await partnerAgencyProfilesResult.value.json();
-        const nextMap: Record<string, { partnerAgencyId: string; partnerAgencyName: string; username: string; password: string }> = {};
-        if (Array.isArray(rows)) {
-          rows.forEach((row) => {
-            const userId = String(row?.user_id || '').trim();
-            if (!userId) return;
-            nextMap[userId] = {
-              partnerAgencyId: String(row?.partner_agency_id || '').trim(),
-              partnerAgencyName: String(row?.partner_agency_name || '').trim(),
-              username: String(row?.username || '').trim(),
-              password: String(row?.password_text || '').trim(),
-            };
-          });
+        if (proprietairesResult.status === 'fulfilled' && proprietairesResult.value.ok) {
+          const rows = await proprietairesResult.value.json();
+          nextProprietaires = Array.isArray(rows) ? rows : [];
+          setProprietaires(nextProprietaires);
+          successCount += 1;
         }
-        nextPartnerAgencyProfiles = nextMap;
-        setPartnerAgencyProfiles(nextMap);
-      } else {
-        setPartnerAgencyProfiles({});
+
+        if (utilisateursResult.status === 'fulfilled' && utilisateursResult.value.ok) {
+          const rows = await utilisateursResult.value.json();
+          nextUtilisateurs = Array.isArray(rows) ? rows : [];
+          setUtilisateurs(nextUtilisateurs);
+          successCount += 1;
+        }
+
+        if (contratsResult.status === 'fulfilled' && contratsResult.value.ok) {
+          const rows = await contratsResult.value.json();
+          nextContrats = Array.isArray(rows) ? rows : [];
+          setContrats(nextContrats);
+          successCount += 1;
+        }
+
+        if (biensResult.status === 'fulfilled' && biensResult.value.ok) {
+          const rows = await biensResult.value.json();
+          nextBiens = Array.isArray(rows) ? rows : [];
+          setBiens(nextBiens);
+          successCount += 1;
+        }
+
+        if (paiementsResult.status === 'fulfilled' && paiementsResult.value.ok) {
+          const rows = await paiementsResult.value.json();
+          nextPaiements = Array.isArray(rows) ? rows : [];
+          setPaiements(nextPaiements);
+          successCount += 1;
+        }
+
+        if (maintenancesResult.status === 'fulfilled' && maintenancesResult.value.ok) {
+          const rows = await maintenancesResult.value.json();
+          nextMaintenances = Array.isArray(rows) ? rows : [];
+          setMaintenances(nextMaintenances);
+          successCount += 1;
+        }
+
+        if (profilesResult.status === 'fulfilled' && profilesResult.value.ok) {
+          const rows = await profilesResult.value.json();
+          nextProfiles = Array.isArray(rows) ? rows : [];
+          setProfiles(nextProfiles);
+          successCount += 1;
+        }
+
+        if (amicalesResult.status === 'fulfilled') {
+          const rows = amicalesResult.value;
+          nextAmicaleOptions = Array.isArray(rows) ? rows.map((item) => ({ id: item.id, name: item.name })) : [];
+          setAmicaleOptions(nextAmicaleOptions);
+          successCount += 1;
+        }
+
+        if (agentsAmicaleResult.status === 'fulfilled' && agentsAmicaleResult.value.ok) {
+          const rows = await agentsAmicaleResult.value.json();
+          const nextMap: Record<string, { amicaleId: string; amicaleName: string; username: string; password: string }> = {};
+          if (Array.isArray(rows)) {
+            rows.forEach((row) => {
+              const userId = String(row?.user_id || '').trim();
+              if (!userId) return;
+              nextMap[userId] = {
+                amicaleId: String(row?.amicale_id || '').trim(),
+                amicaleName: String(row?.amicale_name || '').trim(),
+                username: String(row?.username || '').trim(),
+                password: String(row?.password_text || '').trim(),
+              };
+            });
+          }
+          nextAgentAmicaleProfiles = nextMap;
+          setAgentAmicaleProfiles(nextMap);
+          successCount += 1;
+        }
+
+        if (partnerAgenciesResult.status === 'fulfilled') {
+          const rows = partnerAgenciesResult.value;
+          nextPartnerAgencyOptions = Array.isArray(rows) ? rows.map((item) => ({ id: item.id, name: item.name, slug: item.slug, isActive: item.isActive })) : [];
+          setPartnerAgencyOptions(nextPartnerAgencyOptions);
+          successCount += 1;
+        }
+
+        if (partnerAgencyProfilesResult.status === 'fulfilled' && partnerAgencyProfilesResult.value.ok) {
+          const rows = await partnerAgencyProfilesResult.value.json();
+          const nextMap: Record<string, { partnerAgencyId: string; partnerAgencyName: string; username: string; password: string }> = {};
+          if (Array.isArray(rows)) {
+            rows.forEach((row) => {
+              const userId = String(row?.user_id || '').trim();
+              if (!userId) return;
+              nextMap[userId] = {
+                partnerAgencyId: String(row?.partner_agency_id || '').trim(),
+                partnerAgencyName: String(row?.partner_agency_name || '').trim(),
+                username: String(row?.username || '').trim(),
+                password: String(row?.password_text || '').trim(),
+              };
+            });
+          }
+          nextPartnerAgencyProfiles = nextMap;
+          setPartnerAgencyProfiles(nextMap);
+          successCount += 1;
+        }
+
+        if (successCount > 0) {
+          writeClientelesCache({
+            locataires: nextLocataires,
+            proprietaires: nextProprietaires,
+            utilisateurs: nextUtilisateurs,
+            contrats: nextContrats,
+            biens: nextBiens,
+            paiements: nextPaiements,
+            maintenances: nextMaintenances,
+            profiles: nextProfiles,
+            amicaleOptions: nextAmicaleOptions,
+            agentAmicaleProfiles: nextAgentAmicaleProfiles,
+            partnerAgencyOptions: nextPartnerAgencyOptions,
+            partnerAgencyProfiles: nextPartnerAgencyProfiles,
+          });
+        } else {
+          setLoadError("Le module Clienteles ne peut pas charger les donnees admin pour le moment.");
+        }
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : "Le module Clienteles ne peut pas charger les donnees admin pour le moment.");
+      } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
       }
-
-      writeClientelesCache({
-        locataires: nextLocataires,
-        proprietaires: nextProprietaires,
-        utilisateurs: nextUtilisateurs,
-        contrats: nextContrats,
-        biens: nextBiens,
-        paiements: nextPaiements,
-        maintenances: nextMaintenances,
-        profiles: nextProfiles,
-        amicaleOptions: nextAmicaleOptions,
-        agentAmicaleProfiles: nextAgentAmicaleProfiles,
-        partnerAgencyOptions: nextPartnerAgencyOptions,
-        partnerAgencyProfiles: nextPartnerAgencyProfiles,
-      });
-
-      setIsLoading(false);
-      setIsRefreshing(false);
   }, [hasCachedData]);
 
   useEffect(() => {
@@ -2011,6 +2041,12 @@ export default function ClientelesPage() {
           Nouveau client
         </button>
       </div>
+
+      {loadError ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {loadError}
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-gray-200 bg-white p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
