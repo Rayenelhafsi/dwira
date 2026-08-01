@@ -1263,6 +1263,12 @@ export default function PropertyDetailsPage() {
     () => Array.from(new Set(residenceSubtypeBiens.map((item) => String(item.id || '').trim()).filter(Boolean))),
     [residenceSubtypeBiens]
   );
+  const fallbackCalendarRouteToken = useMemo(() => {
+    if (!property) return "";
+    const byReference = String(property.reference || "").trim();
+    if (byReference) return byReference;
+    return String(slug || "").trim();
+  }, [property, slug]);
   useEffect(() => {
     if (!isSaleProperty) return;
     const availableIds = new Set(saleVisualTabs.map((tab) => tab.id));
@@ -1278,16 +1284,63 @@ export default function PropertyDetailsPage() {
     [residenceSubtypeBiens]
   );
   useEffect(() => {
-    if (residenceSubtypeBienIds.length === 0) {
-      setLiveUnavailableDates(null);
-      setLivePricingPeriods(null);
-      return;
-    }
     let cancelled = false;
     void (async () => {
       try {
-        const detailResponse = sourceBien?.id
-          ? await fetch(`${API_URL}/biens/${encodeURIComponent(String(sourceBien.id))}`, { credentials: 'include' })
+        let targetBienId = sourceBien?.id ? String(sourceBien.id) : "";
+        let targetResidenceBienIds = residenceSubtypeBienIds;
+
+        if (!targetBienId && fallbackCalendarRouteToken) {
+          const liteResponse = await fetch(`${API_URL}/biens-lite`, { credentials: 'include' });
+          if (liteResponse.ok) {
+            const litePayload = await liteResponse.json().catch(() => []);
+            const liteBiens = Array.isArray(litePayload) ? litePayload : [];
+            const matchedBien = liteBiens.find((item) => propertyMatchesRouteToken(
+              {
+                id: String(item?.id || "").trim(),
+                reference: String(item?.reference || "").trim() || undefined,
+                slug: String(item?.titre || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+              },
+              fallbackCalendarRouteToken
+            ));
+            if (matchedBien?.id) {
+              targetBienId = String(matchedBien.id);
+              const residenceParentId = normalizeResidenceMatchToken((matchedBien as any).residence_parent_bien_id);
+              const matchedType = normalizeResidenceMatchType((matchedBien as any).type || property?.filterProfile?.mainType || 'appartement');
+              const matchedSubType = normalizeResidenceMatchToken(
+                (matchedBien as any).residence_unit_sub_type
+                || matchedBien?.configuration
+                || property?.residenceUnitSubType
+                || property?.filterProfile?.subType
+                || ''
+              );
+              if (residenceParentId) {
+                targetResidenceBienIds = liteBiens
+                  .filter((candidate) => {
+                    if ((candidate as any).visible_sur_site === false) return false;
+                    if (normalizeResidenceMatchToken((candidate as any).residence_parent_bien_id) !== residenceParentId) return false;
+                    if (normalizeResidenceMatchType((candidate as any).type) !== matchedType) return false;
+                    return normalizeResidenceMatchToken((candidate as any).residence_unit_sub_type || candidate.configuration || '') === matchedSubType;
+                  })
+                  .map((candidate) => String(candidate?.id || '').trim())
+                  .filter(Boolean);
+              } else {
+                targetResidenceBienIds = [targetBienId];
+              }
+            }
+          }
+        }
+
+        if (!targetBienId && targetResidenceBienIds.length === 0) {
+          if (!cancelled) {
+            setLiveUnavailableDates(null);
+            setLivePricingPeriods(null);
+          }
+          return;
+        }
+
+        const detailResponse = targetBienId
+          ? await fetch(`${API_URL}/biens/${encodeURIComponent(String(targetBienId))}`, { credentials: 'include' })
           : null;
         if (!cancelled && detailResponse?.ok) {
           const detailPayload = await detailResponse.json().catch(() => ({}));
@@ -1318,7 +1371,7 @@ export default function PropertyDetailsPage() {
           setLivePricingPeriods(nextPricingPeriods);
         }
         const calendars = await Promise.all(
-          residenceSubtypeBienIds.map(async (bienId) => {
+          targetResidenceBienIds.map(async (bienId) => {
             const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: 'include' });
             if (!response.ok) return null;
             const rows = (await response.json().catch(() => [])) as UnavailableDateRow[];
@@ -1327,8 +1380,8 @@ export default function PropertyDetailsPage() {
         );
         if (!cancelled) {
           const normalizedCalendars = calendars.filter((rows): rows is ReturnType<typeof normalizeUnavailableDateRanges> => Array.isArray(rows));
-          if (!(sourceBien?.id && liveUnavailableDates && liveUnavailableDates.length > 0)) {
-            const mergedUnavailableDates = residenceSubtypeBienIds.length > 1
+          if (!(targetBienId && liveUnavailableDates && liveUnavailableDates.length > 0)) {
+            const mergedUnavailableDates = targetResidenceBienIds.length > 1
               ? aggregateUnavailableDatesByUnitCalendars(normalizedCalendars)
               : (normalizedCalendars[0] || []);
             setLiveUnavailableDates(mergedUnavailableDates);
@@ -1341,7 +1394,7 @@ export default function PropertyDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [residenceSubtypeBienIds, sourceBien?.id]);
+  }, [fallbackCalendarRouteToken, property, residenceSubtypeBienIds, sourceBien?.id]);
   const selectedZone = useMemo(
     () => zones.find((item) => item.id === sourceBien?.zone_id),
     [sourceBien?.zone_id, zones]

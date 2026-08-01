@@ -79,16 +79,20 @@ export default function AvailabilityCalendar({
   const isAllowedRangeStart = (key: string) => normalizedAllowedRanges.some((range) => key === range.start);
   const isAllowedRangeEnd = (key: string) => normalizedAllowedRanges.some((range) => key === range.end);
   const isHighlightedRangeDay = (key: string) => normalizedHighlightedRanges.some((range) => key >= range.start && key <= range.end);
+  const isBlockingRangeDay = (range: DateStatus, key: string) => {
+    const startKey = normalizeKey(range.start);
+    const endKey = normalizeKey(range.end);
+    if (!startKey || !endKey) return false;
+    if (endKey <= startKey) return key === startKey;
+    return startKey <= key && key < endKey;
+  };
 
   const getRangeStatusForDay = (day: Date): "blocked" | "pending" | "booked" | null => {
     const key = toDayKey(day);
     const blocking = unavailableDates.find((range) => {
       const status = String(range.status || "").toLowerCase();
       if (status !== "blocked" && status !== "booked" && status !== "pending") return false;
-      const startKey = normalizeKey(range.start);
-      const endKey = normalizeKey(range.end);
-      if (!startKey || !endKey) return false;
-      return startKey <= key && key <= endKey;
+      return isBlockingRangeDay(range, key);
     });
     if (!blocking) return null;
     const status = String(blocking.status || "").toLowerCase();
@@ -102,9 +106,7 @@ export default function AvailabilityCalendar({
     if (isBefore(date, today)) return "past";
 
     const unavailableRange = unavailableDates.find((range) => {
-      const start = parseISO(range.start);
-      const end = parseISO(range.end);
-      return isWithinInterval(date, { start, end });
+      return isBlockingRangeDay(range, toDayKey(date));
     });
 
     if (unavailableRange) return unavailableRange.status;
