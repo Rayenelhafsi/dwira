@@ -1947,7 +1947,6 @@ export default function NotificationsPage() {
     () =>
       filteredCalendarOwners.filter((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
-        if (isOwnerExcludedFromCalendarAppFlow(status)) return false;
         return getOwnerCalendarStatusMeta(status, calendarNowMs).isOverdue;
       }),
     [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
@@ -1963,13 +1962,19 @@ export default function NotificationsPage() {
     [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
   );
   const noAppCalendarOwners = useMemo(
-    () => filteredCalendarOwners.filter((owner) => isOwnerWithoutAppStatus(ownerCalendarStatuses[owner.id] || null)),
-    [filteredCalendarOwners, ownerCalendarStatuses]
+    () => filteredCalendarOwners.filter((owner) => {
+      const status = ownerCalendarStatuses[owner.id] || null;
+      return isOwnerWithoutAppStatus(status) && !getOwnerCalendarStatusMeta(status, calendarNowMs).isOverdue;
+    }),
+    [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
   );
   const noAppCalendarOwnersCount = noAppCalendarOwners.length;
   const phoneOnlyCalendarOwners = useMemo(
-    () => filteredCalendarOwners.filter((owner) => isOwnerPhoneOnlyStatus(ownerCalendarStatuses[owner.id] || null)),
-    [filteredCalendarOwners, ownerCalendarStatuses]
+    () => filteredCalendarOwners.filter((owner) => {
+      const status = ownerCalendarStatuses[owner.id] || null;
+      return isOwnerPhoneOnlyStatus(status) && !getOwnerCalendarStatusMeta(status, calendarNowMs).isOverdue;
+    }),
+    [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
   );
   const phoneOnlyCalendarOwnersCount = phoneOnlyCalendarOwners.length;
   const pendingCalendarUpdateOwnersCount = useMemo(
@@ -4363,9 +4368,16 @@ export default function NotificationsPage() {
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                       <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
-                                      <span className="mt-1 inline-flex rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
-                                        {statusMeta.label}
-                                      </span>
+                                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                                        <span className="inline-flex rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                                          {statusMeta.label}
+                                        </span>
+                                        {!statusMeta.isOverdue ? (
+                                          <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                            A jour
+                                          </span>
+                                        ) : null}
+                                      </div>
                                     </div>
                                     {(status?.updatedAt || status?.createdAt) ? (
                                       <span className="shrink-0 text-[11px] text-indigo-500">
@@ -4459,9 +4471,16 @@ export default function NotificationsPage() {
                                     <div className="flex items-start justify-between gap-3">
                                       <div className="min-w-0">
                                         <p className="truncate text-sm font-semibold text-slate-900">{owner.name}</p>
-                                        <span className="mt-1 inline-flex rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">
-                                          {statusMeta.label}
-                                        </span>
+                                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                                          <span className="inline-flex rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">
+                                            {statusMeta.label}
+                                          </span>
+                                          {!statusMeta.isOverdue ? (
+                                            <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                              A jour
+                                            </span>
+                                          ) : null}
+                                        </div>
                                       </div>
                                       {(status?.updatedAt || status?.createdAt) ? (
                                         <span className="shrink-0 text-[11px] text-cyan-500">
