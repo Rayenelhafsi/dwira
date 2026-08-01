@@ -353,6 +353,27 @@ export type LocationSaisonniereConfig = {
   distance_plage_m?: number | null;
 };
 
+export interface OwnerCalendarPromptStatus {
+  promptId: string;
+  ownerId: string;
+  ownerName: string;
+  promptDate?: string | null;
+  status: string;
+  notificationId?: string | null;
+  overdueNotificationId?: string | null;
+  overdueNotifiedAt?: string | null;
+  respondedAt?: string | null;
+  responseMetadata?: {
+    response?: string | null;
+    bienId?: string | null;
+    propertyTitle?: string | null;
+    respondedAt?: string | null;
+    verifiedAt?: string | null;
+  } | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface Bien {
   id: string;
   reference: string;
@@ -497,6 +518,7 @@ export interface Bien {
   created_at: string;
   updated_at: string;
   admin_last_saved_at?: string | null;
+  owner_calendar_prompt_status?: OwnerCalendarPromptStatus | null;
   media?: Media[];
   unavailableDates?: DateStatus[];
   pricing_periods?: SeasonalPricingPeriod[];

@@ -19001,7 +19001,34 @@ app.get('/api/biens-lite', async (req, res) => {
       FROM biens
       ORDER BY created_at DESC
     `);
-    res.json(Array.isArray(rows) ? rows : []);
+    const normalizedRows = Array.isArray(rows) ? rows : [];
+    const ownerIds = Array.from(new Set(
+      normalizedRows
+        .map((row) => String(row?.proprietaire_id || '').trim())
+        .filter(Boolean)
+    ));
+    let ownerCalendarStatusesByOwnerId = new Map();
+    if (ownerIds.length > 0) {
+      try {
+        const ownerCalendarStatuses = await getOwnerCalendarPromptStatuses();
+        ownerCalendarStatusesByOwnerId = new Map(
+          (Array.isArray(ownerCalendarStatuses) ? ownerCalendarStatuses : [])
+            .map((item) => [String(item?.ownerId || '').trim(), item])
+            .filter(([ownerId]) => ownerId)
+        );
+      } catch (ownerCalendarError) {
+        console.error('Error fetching owner calendar statuses for biens-lite:', ownerCalendarError);
+      }
+    }
+    res.json(
+      normalizedRows.map((row) => {
+        const ownerId = String(row?.proprietaire_id || '').trim();
+        return {
+          ...row,
+          owner_calendar_prompt_status: ownerId ? (ownerCalendarStatusesByOwnerId.get(ownerId) || null) : null,
+        };
+      })
+    );
   } catch (error) {
     console.error('Error fetching biens-lite:', error);
     res.status(500).json({ error: 'Failed to fetch biens-lite' });

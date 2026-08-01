@@ -7,6 +7,27 @@ export interface DateStatus {
   reservationDemandId?: string | null;
 }
 
+export interface OwnerCalendarPromptStatus {
+  promptId: string;
+  ownerId: string;
+  ownerName: string;
+  promptDate?: string | null;
+  status: string;
+  notificationId?: string | null;
+  overdueNotificationId?: string | null;
+  overdueNotifiedAt?: string | null;
+  respondedAt?: string | null;
+  responseMetadata?: {
+    response?: string | null;
+    bienId?: string | null;
+    propertyTitle?: string | null;
+    respondedAt?: string | null;
+    verifiedAt?: string | null;
+  } | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface SeasonalPricingPeriod {
   id?: string;
   start: string;
@@ -64,6 +85,8 @@ export interface Property {
   category: string;
   residenceName?: string | null;
   residenceUnitSubType?: string | null;
+  calendarUpdatedAt?: string | null;
+  ownerCalendarPromptStatus?: OwnerCalendarPromptStatus | null;
   residenceGroupedVariants?: Array<{
     id: string;
     reference?: string;

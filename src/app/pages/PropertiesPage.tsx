@@ -2442,6 +2442,15 @@ export default function PropertiesPage() {
     };
   }, [API_URL, modeBiens, selectedMode, validStayRanges.length]);
 
+  const pendingStayAvailabilityBienIds = useMemo(() => {
+    if (selectedMode !== "location_saisonniere" || validStayRanges.length === 0) return [];
+    return modeBiens
+      .filter((bien) => bien.visible_sur_site !== false && String(bien.type || "").trim().toLowerCase() !== "residence")
+      .map((bien) => String(bien.id || "").trim())
+      .filter(Boolean)
+      .filter((bienId) => !hydratedSearchUnavailableDateIdsRef.current.has(bienId));
+  }, [modeBiens, searchUnavailableDatesByBienId, selectedMode, validStayRanges.length]);
+
   const buildManagedSearchParams = () => {
     const params = new URLSearchParams(searchParams);
     [
@@ -3853,10 +3862,12 @@ export default function PropertiesPage() {
     ));
   }, [regularDisplayResults.length]);
   const isLoadingInitialResults = loading && properties.length === 0 && biens.length === 0;
+  const isResolvingFinalStayResults = hasStrictStaySearch && pendingStayAvailabilityBienIds.length > 0;
+  const isResultsHydrating = isLoadingInitialResults || isResolvingFinalStayResults;
 
   useEffect(() => {
     if (!hasTrackingConsent()) return;
-    if (isLoadingInitialResults) return;
+    if (isResultsHydrating) return;
     const resultIds = displayedPrimaryResults.slice(0, 12).map((row) => String(row.property.id));
     const signature = JSON.stringify({
       mode: selectedMode,
@@ -3888,7 +3899,7 @@ export default function PropertiesPage() {
   }, [
     alternativeScoredResults.length,
     displayedPrimaryResults,
-    isLoadingInitialResults,
+    isResultsHydrating,
     searchParams,
     selectedMode,
     trackingChannel,
@@ -4659,8 +4670,10 @@ export default function PropertiesPage() {
           <div ref={resultsAnchorRef}>
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-3">
-                {isLoadingInitialResults ? (
-                  <span className="font-medium text-gray-500">Chargement des biens...</span>
+                {isResultsHydrating ? (
+                  <span className="font-medium text-gray-500">
+                    {isResolvingFinalStayResults ? "Verification des disponibilites..." : "Chargement des biens..."}
+                  </span>
                 ) : (
                   <>
                     <span className="font-medium text-gray-500">
@@ -4681,7 +4694,7 @@ export default function PropertiesPage() {
                   <button
                     type="button"
                     onClick={() => void handleShareSearch(false)}
-                    disabled={isLoadingInitialResults}
+                    disabled={isResultsHydrating}
                     className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Share2 size={16} />
@@ -4691,7 +4704,7 @@ export default function PropertiesPage() {
                     <button
                       type="button"
                       onClick={() => void handleShareSearch(true)}
-                      disabled={isLoadingInitialResults}
+                      disabled={isResultsHydrating}
                       className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 transition-colors hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Share2 size={16} />
@@ -4701,7 +4714,7 @@ export default function PropertiesPage() {
                 </div>
               </div>
 
-            {isLoadingInitialResults ? (
+            {isResultsHydrating ? (
               <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, index) => (
                   <div key={`property-loading-${index}`} className="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">

@@ -1207,6 +1207,7 @@ export default function PropertyDetailsPage() {
     paymentDeadline?: string;
     reservationDemandId?: string | null;
   }> | null>(null);
+  const [livePricingPeriods, setLivePricingPeriods] = useState<any[] | null>(null);
   const [isAwaitingLogin, setIsAwaitingLogin] = useState(false);
   const [pulsePhase, setPulsePhase] = useState(0);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -1279,11 +1280,43 @@ export default function PropertyDetailsPage() {
   useEffect(() => {
     if (residenceSubtypeBienIds.length === 0) {
       setLiveUnavailableDates(null);
+      setLivePricingPeriods(null);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
+        const detailResponse = sourceBien?.id
+          ? await fetch(`${API_URL}/biens/${encodeURIComponent(String(sourceBien.id))}`, { credentials: 'include' })
+          : null;
+        if (!cancelled && detailResponse?.ok) {
+          const detailPayload = await detailResponse.json().catch(() => ({}));
+          const detailUnavailable = normalizeUnavailableDateRanges(
+            Array.isArray(detailPayload?.unavailableDates) ? detailPayload.unavailableDates : []
+          );
+          if (detailUnavailable.length > 0) {
+            setLiveUnavailableDates(detailUnavailable);
+          }
+          let nextPricingPeriods: any[] = [];
+          if (Array.isArray(detailPayload?.pricing_periods)) {
+            nextPricingPeriods = detailPayload.pricing_periods;
+          } else if (typeof detailPayload?.pricing_periods_json === 'string') {
+            try {
+              const parsedPricing = JSON.parse(detailPayload.pricing_periods_json);
+              nextPricingPeriods = Array.isArray(parsedPricing) ? parsedPricing : [];
+            } catch {
+              nextPricingPeriods = [];
+            }
+          } else if (typeof detailPayload?.location_saisonniere_config_json === 'string') {
+            try {
+              const parsedConfig = JSON.parse(detailPayload.location_saisonniere_config_json);
+              nextPricingPeriods = Array.isArray(parsedConfig?.pricing_periods) ? parsedConfig.pricing_periods : [];
+            } catch {
+              nextPricingPeriods = [];
+            }
+          }
+          setLivePricingPeriods(nextPricingPeriods);
+        }
         const calendars = await Promise.all(
           residenceSubtypeBienIds.map(async (bienId) => {
             const response = await fetch(`${API_URL}/unavailable-dates/${encodeURIComponent(bienId)}`, { credentials: 'include' });
@@ -1294,10 +1327,12 @@ export default function PropertyDetailsPage() {
         );
         if (!cancelled) {
           const normalizedCalendars = calendars.filter((rows): rows is ReturnType<typeof normalizeUnavailableDateRanges> => Array.isArray(rows));
-          const mergedUnavailableDates = residenceSubtypeBienIds.length > 1
-            ? aggregateUnavailableDatesByUnitCalendars(normalizedCalendars)
-            : (normalizedCalendars[0] || []);
-          setLiveUnavailableDates(mergedUnavailableDates);
+          if (!(sourceBien?.id && liveUnavailableDates && liveUnavailableDates.length > 0)) {
+            const mergedUnavailableDates = residenceSubtypeBienIds.length > 1
+              ? aggregateUnavailableDatesByUnitCalendars(normalizedCalendars)
+              : (normalizedCalendars[0] || []);
+            setLiveUnavailableDates(mergedUnavailableDates);
+          }
         }
       } catch {
         // Keep context values as fallback.
@@ -1306,7 +1341,7 @@ export default function PropertyDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [residenceSubtypeBienIds]);
+  }, [residenceSubtypeBienIds, sourceBien?.id]);
   const selectedZone = useMemo(
     () => zones.find((item) => item.id === sourceBien?.zone_id),
     [sourceBien?.zone_id, zones]
@@ -1558,20 +1593,21 @@ out body 40;
   });
   const minStay = Math.max(1, seasonalConfig?.dureeMinSejourNuits || 1);
   const maxStay = Math.max(minStay, seasonalConfig?.dureeMaxSejourNuits || 365);
+  const effectivePricingPeriods = livePricingPeriods ?? (property?.pricingPeriods || []);
   const selectedPricingPeriod = useMemo(() => {
     if (!selectedStart) return null;
     return resolveCurrentPricing({
       today: selectedStart,
       defaultNightlyPrice: property?.pricePerNight || 0,
       defaultWeeklyPrice: property?.pricePerWeek || 0,
-      pricingPeriods: property?.pricingPeriods || [],
+      pricingPeriods: effectivePricingPeriods,
       amicaleId: pricingAmicaleId,
     }).activePeriod;
-  }, [pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart]);
+  }, [effectivePricingPeriods, pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, selectedStart]);
   const periodMinStay = useMemo(() => {
     if (!selectedStart) return null;
-    return getPeriodMinStayForDate(property?.pricingPeriods || [], selectedStart, pricingAmicaleId);
-  }, [pricingAmicaleId, property?.pricingPeriods, selectedStart]);
+    return getPeriodMinStayForDate(effectivePricingPeriods, selectedStart, pricingAmicaleId);
+  }, [effectivePricingPeriods, pricingAmicaleId, selectedStart]);
   const activeStayRuleLabel = useMemo(() => {
     if (!selectedStart || !selectedPricingPeriod) return "";
     const start = String(selectedPricingPeriod.start || "").slice(0, 10);
@@ -1595,7 +1631,7 @@ out body 40;
     const requiredMinStay = getReservationMinStayRequirement({
       startDate,
       endDate,
-      periods: property?.pricingPeriods || [],
+      periods: effectivePricingPeriods,
       fallbackMinStay: minStay,
       amicaleId: pricingAmicaleId,
     });
@@ -1605,7 +1641,7 @@ out body 40;
       unavailableDates: effectiveUnavailableDates || [],
       requiredMinStay,
     });
-  }, [activeLockedFlashOffer, effectiveUnavailableDates, minStay, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedPreviewFlashRange, selectedStart]);
+  }, [activeLockedFlashOffer, effectivePricingPeriods, effectiveUnavailableDates, minStay, pricingAmicaleId, selectedEnd, selectedPreviewFlashRange, selectedStart]);
   const activeWeekdayRule = useMemo(() => {
     if (!selectedStart || !selectedEnd) return { requiredCheckinDay: null, requiredCheckoutDay: null };
     if (selectedRangeRuleRelaxation.active) return { requiredCheckinDay: null, requiredCheckoutDay: null };
@@ -1614,10 +1650,10 @@ out body 40;
     return getReservationWeekdayRule({
       startDate: start,
       endDate: end,
-      periods: property?.pricingPeriods || [],
+      periods: effectivePricingPeriods,
       amicaleId: pricingAmicaleId,
     });
-  }, [pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedRangeRuleRelaxation.active, selectedStart]);
+  }, [effectivePricingPeriods, pricingAmicaleId, selectedEnd, selectedRangeRuleRelaxation.active, selectedStart]);
   const displayedMinStay = useMemo(() => {
     if (selectedRangeRuleRelaxation.active) return 1;
     if (activeLockedFlashOffer) return Math.max(1, Number(activeLockedFlashOffer.minimumNights || 1));
@@ -1669,7 +1705,7 @@ out body 40;
     const minStayForSelectionBase = skipFlashStayRules ? Math.max(1, Number(flashRangeForStayRules?.offer.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
-      periods: property?.pricingPeriods || [],
+      periods: effectivePricingPeriods,
       fallbackMinStay: minStay,
       amicaleId: pricingAmicaleId,
     });
@@ -1690,7 +1726,7 @@ out body 40;
     const weekdayRuleCheck = (skipFlashStayRules || shouldRelaxStayRules) ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
       startDate,
       endDate,
-      periods: property?.pricingPeriods || [],
+      periods: effectivePricingPeriods,
       amicaleId: pricingAmicaleId,
     });
     if (!weekdayRuleCheck.ok) {
@@ -1709,7 +1745,7 @@ out body 40;
     }
 
     return { valid: true, message: "" };
-  }, [activeLockedFlashOffer, activePreviewFlashOffer, amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRanges, effectiveUnavailableDates, findMatchingLockedFlashRange, findMatchingPreviewFlashRange, flashOfferEnabled, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, property?.pricingPeriods, selectedEnd, selectedStart, user?.telephone, visitContactPhone, visitPreferredDate, visitTimeSlot]);
+  }, [activeLockedFlashOffer, activePreviewFlashOffer, amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRanges, effectivePricingPeriods, effectiveUnavailableDates, findMatchingLockedFlashRange, findMatchingPreviewFlashRange, flashOfferEnabled, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, selectedEnd, selectedStart, user?.telephone, visitContactPhone, visitPreferredDate, visitTimeSlot]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -1730,10 +1766,10 @@ out body 40;
       today: selectedStart || searchParams.get("checkIn") || undefined,
       defaultNightlyPrice: Number(property?.pricePerNight || 0),
       defaultWeeklyPrice: Number(property?.pricePerWeek || 0),
-      pricingPeriods: property?.pricingPeriods || [],
+      pricingPeriods: effectivePricingPeriods,
       amicaleId: pricingAmicaleId,
     }),
-    [pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, property?.pricingPeriods, selectedStart, searchParams]
+    [effectivePricingPeriods, pricingAmicaleId, property?.pricePerNight, property?.pricePerWeek, selectedStart, searchParams]
   );
   const displayedNightlyPrice = applyPartnerAgencyMargin(
     applyAmicaleTtc(Number(currentDisplayPricing.nightlyPrice || 0), isAmicalePricingActive),
@@ -3080,7 +3116,7 @@ out body 40;
       const startDate = format(start, 'yyyy-MM-dd');
       const weekdayRuleCheck = validateCheckinWeekdayRule({
         startDate,
-        periods: property?.pricingPeriods || [],
+        periods: effectivePricingPeriods,
         amicaleId: pricingAmicaleId,
       });
       if (!weekdayRuleCheck.ok) {
@@ -3112,7 +3148,7 @@ out body 40;
       const minStayForSelectionBase = skipFlashStayRules ? Math.max(1, Number(flashRangeForStayRules?.offer.minimumNights || 1)) : getReservationMinStayRequirement({
         startDate,
         endDate,
-        periods: property?.pricingPeriods || [],
+        periods: effectivePricingPeriods,
         fallbackMinStay: minStay,
         amicaleId: pricingAmicaleId,
       });
@@ -3135,7 +3171,7 @@ out body 40;
       const weekdayRuleCheck = (skipFlashStayRules || shouldRelaxStayRules) ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
         startDate,
         endDate,
-        periods: property?.pricingPeriods || [],
+        periods: effectivePricingPeriods,
         amicaleId: pricingAmicaleId,
       });
       if (!weekdayRuleCheck.ok) {
@@ -3588,7 +3624,7 @@ out body 40;
     const minStayForSelectionBase = skipFlashStayRules ? Math.max(1, Number(flashRangeForStayRules?.offer.minimumNights || 1)) : getReservationMinStayRequirement({
       startDate,
       endDate,
-      periods: property?.pricingPeriods || [],
+      periods: effectivePricingPeriods,
       fallbackMinStay: minStay,
       amicaleId: pricingAmicaleId,
     });
@@ -3610,7 +3646,7 @@ out body 40;
     const weekdayRuleCheck = (skipFlashStayRules || shouldRelaxStayRules) ? { ok: true, requiredCheckinDay: null, requiredCheckoutDay: null } : validateReservationWeekdayRule({
       startDate,
       endDate,
-      periods: property?.pricingPeriods || [],
+      periods: effectivePricingPeriods,
       amicaleId: pricingAmicaleId,
     });
     if (!isSaleProperty && !skipLockedFlashStayRules && !shouldRelaxStayRules && !weekdayRuleCheck.ok) {

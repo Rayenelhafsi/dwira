@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle, Zap, Flame } from "lucide-react";
+import { Star, MapPin, Users, Bed, Bath, Phone, MessageCircle, Zap, Flame, CalendarDays } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Property } from "../data/properties";
 import { buildTelLink, buildWhatsAppPropertyMessage, getPublicContactForMode, openMessengerPropertyConversation, openWhatsAppApp } from "../utils/deepLinks";
@@ -106,6 +106,36 @@ const formatFlashCountdown = (expiresAt?: string | null, nowMs?: number) => {
   return days > 0
     ? `${days}j ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`
     : `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+};
+
+const parseRelativeDate = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const parsed = new Date(raw.includes("T") ? raw : raw.replace(" ", "T"));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatCalendarStatusLine = (status?: Property["ownerCalendarPromptStatus"] | null) => {
+  const candidates = [
+    status?.respondedAt,
+    status?.responseMetadata?.respondedAt,
+    status?.updatedAt,
+    status?.createdAt,
+  ];
+  const parsed = candidates
+    .map((value) => parseRelativeDate(value))
+    .find((value) => value instanceof Date && !Number.isNaN(value.getTime()));
+  if (!parsed) return "";
+  const dateLabel = new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(parsed);
+  const timeLabel = new Intl.DateTimeFormat("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+  return `Derniere mise a jour le ${dateLabel} a ${timeLabel}`;
 };
 
 export function PropertyCard({
@@ -220,6 +250,7 @@ export function PropertyCard({
   const typeWidgetLabel = subTypeLabel ? `${mainTypeLabel} ${subTypeLabel}` : mainTypeLabel;
   const titleText = String(property.title || "").trim();
   const referenceLabel = buildReferenceLabel(property.reference);
+  const calendarStatusLine = formatCalendarStatusLine(property.ownerCalendarPromptStatus);
   const hasInstantReservation = Boolean(property.seasonalConfig?.reservationInstantanee);
   const isReservationOnRequest = Boolean(property.reservationOnRequest);
   const isGoldInstantCard = hasInstantReservation && !isFlashCard;
@@ -520,6 +551,17 @@ export function PropertyCard({
               <span>{property.bathrooms}</span>
             </div>
           </div>
+
+          {calendarStatusLine ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/85 px-3 py-2.5">
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <div className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white shadow-sm">
+                  <CalendarDays size={13} className="text-emerald-600" />
+                </div>
+                <p className="min-w-0 truncate font-medium">{calendarStatusLine}</p>
+              </div>
+            </div>
+          ) : null}
         </div>
       </Link>
 

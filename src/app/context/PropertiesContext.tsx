@@ -374,6 +374,15 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
       }
     }
   } catch {}
+  let ownerCalendarPromptStatus: any = null;
+  try {
+    const rawOwnerCalendarPromptStatus = (row as any).owner_calendar_prompt_status;
+    if (rawOwnerCalendarPromptStatus) {
+      ownerCalendarPromptStatus = typeof rawOwnerCalendarPromptStatus === 'string'
+        ? JSON.parse(rawOwnerCalendarPromptStatus)
+        : rawOwnerCalendarPromptStatus;
+    }
+  } catch {}
   let unavailableDatesFromRow: any[] = [];
   try {
     const rawUnavailableDates = (row as any).unavailableDates ?? (row as any).unavailable_dates_json;
@@ -637,6 +646,7 @@ function dbRowToBien(row: any, media: any[] = [], unavailableDates: any[] = []):
     created_at: row.created_at,
     updated_at: row.updated_at,
     admin_last_saved_at: (row as any).admin_last_saved_at || null,
+    owner_calendar_prompt_status: ownerCalendarPromptStatus && typeof ownerCalendarPromptStatus === 'object' ? ownerCalendarPromptStatus : null,
     media: (Array.isArray(media) ? media : [])
       .map(m => ({
         id: m.id,
@@ -922,6 +932,13 @@ function bienToProperty(
     category: resolvedCategory,
     residenceName,
     residenceUnitSubType: resolvedSubType || null,
+    calendarUpdatedAt: String(
+      (bien.location_saisonniere_config as any)?.airbnb_last_sync_at
+      || bien.admin_last_saved_at
+      || bien.updated_at
+      || ''
+    ).trim() || null,
+    ownerCalendarPromptStatus: bien.owner_calendar_prompt_status || null,
     isFeatured: bien.is_featured === true,
     reservationOnRequest: bien.reservation_sur_demande === true,
     unavailableDates: effectiveUnavailableDates,

@@ -971,6 +971,10 @@ export default function NotificationsPage() {
   const [calendarEditorDates, setCalendarEditorDates] = useState<DateStatus[]>([]);
   const [calendarEditorPricingPeriods, setCalendarEditorPricingPeriods] = useState<SeasonalPricingPeriod[]>([]);
   const [calendarEditorSaving, setCalendarEditorSaving] = useState(false);
+  const [liveBienCalendarById, setLiveBienCalendarById] = useState<Record<string, {
+    unavailableDates: DateStatus[];
+    pricingPeriods: SeasonalPricingPeriod[];
+  }>>({});
   const [selectedClientDemand, setSelectedClientDemand] = useState<ReservationDemand | null>(null);
   const [calendarReviewLoading, setCalendarReviewLoading] = useState(false);
   const [calendarActionLoadingId, setCalendarActionLoadingId] = useState<string | null>(null);
@@ -1628,6 +1632,9 @@ export default function NotificationsPage() {
   };
 
   const getBienCalendarDates = (bien?: Bien | null) => {
+    const bienId = String(bien?.id || '').trim();
+    const liveRows = bienId ? liveBienCalendarById[bienId]?.unavailableDates : null;
+    if (Array.isArray(liveRows)) return liveRows;
     const rawDates = (bien as (Bien & { unavailable_dates?: DateStatus[] }) | null)?.unavailableDates
       || (bien as (Bien & { unavailable_dates?: DateStatus[] }) | null)?.unavailable_dates
       || [];
@@ -1635,11 +1642,71 @@ export default function NotificationsPage() {
   };
 
   const getBienPricingPeriods = (bien?: Bien | null) => {
+    const bienId = String(bien?.id || '').trim();
+    const liveRows = bienId ? liveBienCalendarById[bienId]?.pricingPeriods : null;
+    if (Array.isArray(liveRows)) return liveRows;
     const directRows = bien?.pricing_periods;
     if (Array.isArray(directRows)) return directRows;
     const nestedRows = bien?.location_saisonniere_config?.pricing_periods;
     return Array.isArray(nestedRows) ? nestedRows : [];
   };
+
+  const fetchBienCalendarData = useCallback(async (bienId: string) => {
+    const normalizedBienId = String(bienId || '').trim();
+    if (!normalizedBienId) {
+      return { unavailableDates: [] as DateStatus[], pricingPeriods: [] as SeasonalPricingPeriod[] };
+    }
+    const response = await fetch(`${API_URL}/biens/${encodeURIComponent(normalizedBienId)}`, { credentials: 'include' });
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response, 'Impossible de charger le calendrier de ce bien'));
+    }
+    const payload = await response.json().catch(() => ({}));
+    const unavailableDates = (Array.isArray(payload?.unavailableDates) ? payload.unavailableDates : [])
+      .map((row: any) => {
+        const start = String(row?.start || row?.start_date || '').slice(0, 10);
+        const end = String(row?.end || row?.end_date || '').slice(0, 10);
+        const rawStatus = String(row?.status || '').trim().toLowerCase();
+        const status: 'blocked' | 'pending' | 'booked' =
+          rawStatus === 'pending' || rawStatus === 'booked' || rawStatus === 'blocked'
+            ? rawStatus
+            : 'blocked';
+        if (!start || !end || end < start) return null;
+        return {
+          id: String(row?.id || '').trim() || undefined,
+          start,
+          end,
+          status,
+          color: String(row?.color || '').trim() || undefined,
+          sync_source: String(row?.sync_source || '').trim() || undefined,
+        };
+      })
+      .filter((row: DateStatus | null): row is DateStatus => Boolean(row));
+    let pricingPeriods: SeasonalPricingPeriod[] = [];
+    if (Array.isArray(payload?.pricing_periods)) {
+      pricingPeriods = payload.pricing_periods;
+    } else if (typeof payload?.pricing_periods_json === 'string') {
+      try {
+        const parsed = JSON.parse(payload.pricing_periods_json);
+        pricingPeriods = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        pricingPeriods = [];
+      }
+    } else {
+      let config = null;
+      try {
+        const rawConfig = payload?.location_saisonniere_config_json;
+        config = rawConfig
+          ? (typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig)
+          : null;
+      } catch {
+        config = null;
+      }
+      pricingPeriods = Array.isArray(config?.pricing_periods) ? config.pricing_periods : [];
+    }
+    const next = { unavailableDates, pricingPeriods };
+    setLiveBienCalendarById((current) => ({ ...current, [normalizedBienId]: next }));
+    return next;
+  }, []);
 
   const syncUnavailableDatesForBien = useCallback(async (bienId: string, dates: DateStatus[]) => {
     const normalizedBienId = String(bienId || '').trim();
@@ -2145,9 +2212,19 @@ export default function NotificationsPage() {
   }, [selectedOwnerBienForCalendar]);
 
   useEffect(() => {
+    if (!selectedOwnerBienForCalendar?.id) return;
+    void fetchBienCalendarData(selectedOwnerBienForCalendar.id).catch(() => {});
+  }, [fetchBienCalendarData, selectedOwnerBienForCalendar?.id]);
+
+  useEffect(() => {
     if (!selectedCalendarBienForCalendar || !calendarBienCalendarRef.current) return;
     calendarBienCalendarRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [selectedCalendarBienForCalendar]);
+
+  useEffect(() => {
+    if (!selectedCalendarBienForCalendar?.id) return;
+    void fetchBienCalendarData(selectedCalendarBienForCalendar.id).catch(() => {});
+  }, [fetchBienCalendarData, selectedCalendarBienForCalendar?.id]);
 
   useEffect(() => {
     if (!chatScrollRef.current) return;
@@ -2421,11 +2498,16 @@ export default function NotificationsPage() {
     }
   };
 
-  const openBienCalendarEditor = (bien?: Bien | null) => {
+  const openBienCalendarEditor = async (bien?: Bien | null) => {
     if (!bien) return;
-    setCalendarEditorBien(bien);
-    setCalendarEditorDates(getBienCalendarDates(bien));
-    setCalendarEditorPricingPeriods(getBienPricingPeriods(bien));
+    try {
+      const liveData = await fetchBienCalendarData(bien.id);
+      setCalendarEditorBien(bien);
+      setCalendarEditorDates(liveData.unavailableDates);
+      setCalendarEditorPricingPeriods(liveData.pricingPeriods);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de charger le calendrier de ce bien');
+    }
   };
 
   const closeCalendarEditor = () => {
