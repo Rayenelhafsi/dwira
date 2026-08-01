@@ -8232,6 +8232,38 @@ function normalizeReferenceBase(value) {
   return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '') || 'REF';
 }
 
+function normalizePublicRouteToken(value) {
+  try {
+    return decodeURIComponent(String(value || '').trim()).toLowerCase();
+  } catch {
+    return String(value || '').trim().toLowerCase();
+  }
+}
+
+function normalizePublicReferenceToken(value) {
+  const raw = normalizePublicRouteToken(value);
+  if (!raw) return '';
+  const compact = raw.replace(/[^a-z0-9]/g, '');
+  if (!compact) return '';
+  const simpleRefMatch = raw.match(/^ref(?:[\s_-]*)(\d+)$/i);
+  if (simpleRefMatch?.[1]) return `ref${simpleRefMatch[1]}`;
+  return compact;
+}
+
+function publicBienMatchesRouteToken(bien, token) {
+  const normalizedToken = normalizePublicRouteToken(token);
+  const normalizedReferenceToken = normalizePublicReferenceToken(token);
+  const bienReferenceToken = normalizePublicReferenceToken(bien?.reference);
+  const bienSlug = String(bien?.titre || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  if (!normalizedToken) return false;
+  return (
+    normalizePublicRouteToken(bien?.reference) === normalizedToken
+    || (normalizedReferenceToken && bienReferenceToken === normalizedReferenceToken)
+    || normalizePublicRouteToken(bienSlug) === normalizedToken
+    || normalizePublicRouteToken(bien?.id) === normalizedToken
+  );
+}
+
 const MODE_REFERENCE_CODES = {
   vente: 'VENTE',
   location_annuelle: 'LOCANNUELLE',
@@ -22357,12 +22389,10 @@ app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/manual-updat
       [ownerId]
     );
     const prompt = rows?.[0] || null;
-    if (!prompt) {
-      return res.status(404).json({ error: 'Aucun suivi calendrier trouve pour ce proprietaire' });
-    }
-
-    const currentStatus = String(prompt.status || '').trim();
-    if (currentStatus === 'confirmed_up_to_date') {
+    const currentStatuses = await getOwnerCalendarPromptStatuses();
+    const currentStatusRow = currentStatuses.find((row) => String(row.ownerId || '').trim() === ownerId) || null;
+    const currentStatus = String(prompt?.status || currentStatusRow?.status || '').trim();
+    if (prompt && currentStatus === 'confirmed_up_to_date') {
       return res.json({
         ok: true,
         ownerId,
@@ -22375,12 +22405,16 @@ app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/manual-updat
 
     let previousMetadata = null;
     try {
-      previousMetadata = prompt.response_metadata_json ? JSON.parse(String(prompt.response_metadata_json)) : null;
+      previousMetadata = prompt?.response_metadata_json
+        ? JSON.parse(String(prompt.response_metadata_json))
+        : (currentStatusRow?.responseMetadata && typeof currentStatusRow.responseMetadata === 'object' ? currentStatusRow.responseMetadata : null);
     } catch {
       previousMetadata = null;
     }
 
     const now = getAgencySqlDateTime();
+    const promptDate = prompt?.prompt_date || String(now).slice(0, 10);
+    const promptId = prompt?.id || `owner_calendar_manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const responseMetadata = {
       ...(previousMetadata && typeof previousMetadata === 'object' ? previousMetadata : {}),
       response: 'manual_admin_update',
@@ -22388,19 +22422,29 @@ app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/manual-updat
       manuallyUpdatedAt: now,
       manuallyUpdatedBy: req.authUser?.id || 'admin',
       previousStatus: currentStatus || null,
-      promptDate: prompt.prompt_date || null,
+      promptDate,
     };
 
-    await pool.query(
-      `UPDATE owner_calendar_prompts
-       SET status = ?, responded_at = ?, response_metadata_json = ?, overdue_notification_id = NULL, overdue_notified_at = NULL, updated_at = ?
-       WHERE id = ?`,
-      ['confirmed_up_to_date', now, JSON.stringify(responseMetadata), now, prompt.id]
-    );
+    if (prompt) {
+      await pool.query(
+        `UPDATE owner_calendar_prompts
+         SET status = ?, responded_at = ?, response_metadata_json = ?, overdue_notification_id = NULL, overdue_notified_at = NULL, updated_at = ?
+         WHERE id = ?`,
+        ['confirmed_up_to_date', now, JSON.stringify(responseMetadata), now, prompt.id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO owner_calendar_prompts (
+           id, owner_id, prompt_date, status, notification_id, overdue_notification_id, overdue_notified_at,
+           responded_at, response_metadata_json, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`,
+        [promptId, ownerId, promptDate, 'confirmed_up_to_date', now, JSON.stringify(responseMetadata), now, now]
+      );
+    }
 
     await pool.query('DELETE FROM owner_calendar_status_flags WHERE owner_id = ?', [ownerId]);
 
-    if (prompt.notification_id) {
+    if (prompt?.notification_id) {
       await pool.query(
         'UPDATE owner_mobile_notifications SET lu = 1 WHERE id = ? AND owner_id = ?',
         [prompt.notification_id, ownerId]
@@ -22416,8 +22460,8 @@ app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/manual-updat
       text: `Calendrier du proprietaire ${ownerIdentity.ownerName} a ete mis a jour manuellement par admin le ${now}.`,
       metadata: {
         kind: 'calendar_prompt_manual_admin_update',
-        promptId: prompt.id,
-        promptDate: prompt.prompt_date || null,
+        promptId,
+        promptDate,
       },
     });
 
@@ -22427,7 +22471,7 @@ app.post('/api/mobile/admin/owner-calendar-prompt-statuses/:ownerId/manual-updat
       ownerName: ownerIdentity.ownerName,
       status: 'confirmed_up_to_date',
       respondedAt: now,
-      promptId: prompt.id,
+      promptId,
     });
   } catch (error) {
     console.error('Error marking owner calendar prompt as manually updated:', error);
@@ -30587,6 +30631,79 @@ app.get('/api/unavailable-dates/:bien_id', async (req, res) => {
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch unavailable dates' });
+  }
+});
+
+app.get('/api/public-bien-calendar/:token', async (req, res) => {
+  try {
+    await ensureReservationDemandSchema();
+    await ensureSeasonalPricingSchema();
+    const token = String(req.params.token || '').trim();
+    if (!token) return res.status(400).json({ error: 'token requis' });
+
+    const [bienRows] = await pool.query(
+      `SELECT
+         id,
+         titre,
+         reference,
+         residence_parent_bien_id,
+         residence_unit_sub_type,
+         configuration,
+         type,
+         visible_sur_site
+       FROM biens
+       WHERE COALESCE(visible_sur_site, 1) = 1`
+    );
+    const visibleBiens = Array.isArray(bienRows) ? bienRows : [];
+    const matchedBien = visibleBiens.find((bien) => publicBienMatchesRouteToken(bien, token));
+    if (!matchedBien?.id) {
+      return res.status(404).json({ error: 'Bien introuvable' });
+    }
+
+    const [unavailableRows] = await pool.query(
+      `SELECT
+         id,
+         bien_id,
+         DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+         DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+         LOWER(TRIM(COALESCE(status, 'blocked'))) AS status,
+         reservation_demand_id,
+         color,
+         DATE_FORMAT(payment_deadline, '%Y-%m-%d %H:%i:%s') AS paymentDeadline
+       FROM unavailable_dates
+       WHERE bien_id = ?
+       ORDER BY start_date ASC, end_date ASC`,
+      [matchedBien.id]
+    );
+
+    const [pricingRows] = await pool.query(
+      `SELECT
+         id,
+         bien_id,
+         scope,
+         amicale_id,
+         DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+         DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+         prix_nuitee,
+         prix_semaine,
+         minimum_nuitees,
+         checkin_jour,
+         checkout_jour
+       FROM bien_pricing_periods
+       WHERE bien_id = ?
+       ORDER BY start_date ASC, end_date ASC`,
+      [matchedBien.id]
+    );
+
+    res.json({
+      bienId: String(matchedBien.id),
+      siblingBienIds: [String(matchedBien.id)],
+      unavailableDates: Array.isArray(unavailableRows) ? unavailableRows : [],
+      pricingPeriods: Array.isArray(pricingRows) ? pricingRows : [],
+    });
+  } catch (error) {
+    console.error('Error fetching public bien calendar:', error);
+    res.status(500).json({ error: 'Failed to fetch public bien calendar' });
   }
 });
 

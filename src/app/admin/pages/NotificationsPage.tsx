@@ -93,7 +93,18 @@ function isOwnerExcludedFromCalendarAppFlow(status?: OwnerCalendarPromptStatus |
 
 function canMarkCalendarOwnerUpdatedManually(status?: OwnerCalendarPromptStatus | null) {
   const value = String(status?.status || '').trim();
-  return value === 'pending' || value === 'update_requested';
+  return value !== 'confirmed_up_to_date';
+}
+
+function isOwnerTemporarilyUpToDate(status?: OwnerCalendarPromptStatus | null, nowMs = Date.now()) {
+  if (!status) return false;
+  const value = String(status?.status || '').trim();
+  if (value === 'confirmed_up_to_date') return true;
+  if (value !== 'no_app' && value !== 'phone_only') return false;
+  const anchor = status.updatedAt || status.createdAt || null;
+  const anchorMs = parseDateForRelative(anchor)?.getTime();
+  if (!anchorMs) return false;
+  return (nowMs - anchorMs) < 48 * 60 * 60 * 1000;
 }
 
 function isPendingCalendarRequestStatus(status?: string | null) {
@@ -1905,6 +1916,7 @@ export default function NotificationsPage() {
   const selectedCalendarOwnerWithoutApp = isOwnerWithoutAppStatus(selectedCalendarStatus);
   const selectedCalendarOwnerPhoneOnly = isOwnerPhoneOnlyStatus(selectedCalendarStatus);
   const selectedCalendarOwnerCanBeMarkedUpdatedManually = canMarkCalendarOwnerUpdatedManually(selectedCalendarStatus);
+  const selectedCalendarOwnerCountsAsUpToDate = isOwnerTemporarilyUpToDate(selectedCalendarStatus, calendarNowMs);
   const selectedCalendarPendingRequest = selectedCalendarOwner ? pendingCalendarRequestByOwner.get(selectedCalendarOwner.id) || null : null;
   const isCalendarReviewActionable = useMemo(() => {
     if (calendarReviewLoading) return false;
@@ -1977,10 +1989,9 @@ export default function NotificationsPage() {
     () =>
       filteredCalendarOwners.filter((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
-        if (isOwnerExcludedFromCalendarAppFlow(status)) return false;
-        return String(status?.status || '').trim() === 'confirmed_up_to_date';
+        return isOwnerTemporarilyUpToDate(status, calendarNowMs);
       }).length,
-    [filteredCalendarOwners, ownerCalendarStatuses]
+    [filteredCalendarOwners, ownerCalendarStatuses, calendarNowMs]
   );
   const firstPendingCalendarOwner = pendingCalendarOwnersCount > 0
     ? filteredCalendarOwners.find((owner) => {
@@ -1996,8 +2007,7 @@ export default function NotificationsPage() {
   const firstUpToDateCalendarOwner = upToDateCalendarOwnersCount > 0
     ? filteredCalendarOwners.find((owner) => {
         const status = ownerCalendarStatuses[owner.id] || null;
-        if (isOwnerExcludedFromCalendarAppFlow(status)) return false;
-        return String(status?.status || '').trim() === 'confirmed_up_to_date';
+        return isOwnerTemporarilyUpToDate(status, calendarNowMs);
       }) || null
     : null;
   const firstPhoneOnlyCalendarOwner = phoneOnlyCalendarOwnersCount > 0 ? phoneOnlyCalendarOwners[0] || null : null;
@@ -4391,6 +4401,17 @@ export default function NotificationsPage() {
                                     >
                                       {calendarOwnerStatusLoadingId === owner.id ? 'Mise a jour...' : 'Admet application'}
                                     </button>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void markCalendarOwnerUpdatedManually(owner);
+                                      }}
+                                      disabled={calendarOwnerStatusLoadingId === owner.id}
+                                      className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                    >
+                                      {calendarOwnerStatusLoadingId === owner.id ? 'Mise a jour...' : 'Toujours a jour'}
+                                    </button>
                                   </div>
                                 </div>
                               </button>
@@ -4475,6 +4496,17 @@ export default function NotificationsPage() {
                                         className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
                                       >
                                         {calendarOwnerStatusLoadingId === owner.id ? 'Mise a jour...' : 'Admet application'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void markCalendarOwnerUpdatedManually(owner);
+                                        }}
+                                        disabled={calendarOwnerStatusLoadingId === owner.id}
+                                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                      >
+                                        {calendarOwnerStatusLoadingId === owner.id ? 'Mise a jour...' : 'Toujours a jour'}
                                       </button>
                                     </div>
                                   </div>
@@ -4572,7 +4604,7 @@ export default function NotificationsPage() {
                                 disabled={calendarOwnerStatusLoadingId === selectedCalendarOwner.id}
                                 className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-60"
                               >
-                                {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Mis a jour manuellement'}
+                                {calendarOwnerStatusLoadingId === selectedCalendarOwner.id ? 'Mise a jour...' : 'Toujours a jour'}
                               </button>
                             ) : null}
                             <button
@@ -4601,9 +4633,16 @@ export default function NotificationsPage() {
                                   <h4 className="mt-1 text-lg font-semibold text-slate-900">{selectedCalendarStatusMeta.label}</h4>
                                   <p className="mt-1 text-sm text-slate-500">{selectedCalendarStatusMeta.detail}</p>
                                 </div>
-                                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${selectedCalendarStatusMeta.tone}`}>
-                                  {selectedCalendarStatusMeta.label}
-                                </span>
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${selectedCalendarStatusMeta.tone}`}>
+                                    {selectedCalendarStatusMeta.label}
+                                  </span>
+                                  {selectedCalendarOwnerCountsAsUpToDate ? (
+                                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                      Compte dans A jour
+                                    </span>
+                                  ) : null}
+                                </div>
                               </div>
                               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">

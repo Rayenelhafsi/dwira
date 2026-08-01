@@ -101,6 +101,23 @@ export default function AvailabilityCalendar({
     return "blocked";
   };
 
+  const getRangeEndingOnDay = (day: Date): DateStatus | null => {
+    const key = toDayKey(day);
+    const endingRange = unavailableDates.find((range) => {
+      const status = String(range.status || "").toLowerCase();
+      if (status !== "blocked" && status !== "booked" && status !== "pending") return false;
+      return normalizeKey(range.end) === key;
+    });
+    return endingRange || null;
+  };
+
+  const getBoundaryBlockedClass = (range: DateStatus | null) => {
+    const status = String(range?.status || "").toLowerCase();
+    if (status === "booked") return "bg-red-500";
+    if (status === "pending") return "bg-orange-200";
+    return blockedDayClass;
+  };
+
   const getDateStatus = (date: Date): "available" | "blocked" | "pending" | "booked" | "past" => {
     if (isOutsideAllowedRange(date)) return "blocked";
     if (isBefore(date, today)) return "past";
@@ -135,10 +152,7 @@ export default function AvailabilityCalendar({
       const endKey = normalizeKey(range.end);
       return endKey === toDayKey(date);
     });
-    if (matchesBoundaryEnd) return true;
-
-    const nextDay = addDays(date, 1);
-    return getRangeStatusForDay(nextDay) === null;
+    return matchesBoundaryEnd;
   };
 
   const isDateInSelectedRange = (date: Date) => {
@@ -279,12 +293,8 @@ export default function AvailabilityCalendar({
     }
 
     const rangeStatus = getRangeStatusForDay(date);
-    const blockedClass =
-      rangeStatus === "booked"
-        ? "bg-red-500"
-        : rangeStatus === "pending"
-          ? "bg-orange-200"
-          : blockedDayClass;
+    const endingRange = getRangeEndingOnDay(date);
+    const blockedClass = getBoundaryBlockedClass(rangeStatus ? { status: rangeStatus, start: "", end: "" } : endingRange);
 
     if (isEnd) {
       if (rangeStatus && canUseAsCheckoutBoundary(date)) {
@@ -307,8 +317,8 @@ export default function AvailabilityCalendar({
     }
 
     const canCheckoutOnThisDay = !!rangeStatus && canUseAsCheckoutBoundary(date);
-    const canCheckinOnThisDay = !!rangeStatus && canUseAsCheckinBoundary(date);
-    const isTransition = !!rangeStatus && (canCheckoutOnThisDay || canCheckinOnThisDay);
+    const canCheckinOnThisDay = canUseAsCheckinBoundary(date);
+    const isTransition = canCheckinOnThisDay || (!!rangeStatus && canCheckoutOnThisDay);
     if (!isTransition) {
       return { enabled: false, leftClass: "", rightClass: "" };
     }

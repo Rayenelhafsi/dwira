@@ -1287,6 +1287,22 @@ export default function PropertyDetailsPage() {
     let cancelled = false;
     void (async () => {
       try {
+        if (fallbackCalendarRouteToken) {
+          const publicCalendarResponse = await fetch(`${API_URL}/public-bien-calendar/${encodeURIComponent(fallbackCalendarRouteToken)}`, { credentials: 'include' });
+          if (!cancelled && publicCalendarResponse.ok) {
+            const publicCalendarPayload = await publicCalendarResponse.json().catch(() => ({}));
+            const directUnavailable = normalizeUnavailableDateRanges(
+              Array.isArray(publicCalendarPayload?.unavailableDates) ? publicCalendarPayload.unavailableDates : []
+            );
+            setLiveUnavailableDates(directUnavailable);
+            const directPricingPeriods = Array.isArray(publicCalendarPayload?.pricingPeriods)
+              ? publicCalendarPayload.pricingPeriods
+              : [];
+            setLivePricingPeriods(directPricingPeriods);
+            return;
+          }
+        }
+
         let targetBienId = sourceBien?.id ? String(sourceBien.id) : "";
         let targetResidenceBienIds = residenceSubtypeBienIds;
 
