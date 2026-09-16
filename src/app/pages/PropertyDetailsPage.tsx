@@ -697,6 +697,45 @@ const parseGoogleMapsLatLng = (url?: string | null): LatLng | null => {
   return null;
 };
 
+const stripMapLocationHint = (value: string): string => {
+  return String(value || '')
+    .replace(/[📍🗺️]/gu, ' ')
+    .replace(/^\s*(?:localisation|emplacement|adresse|lieu|location|الموقع|موقع)\s*[:：-]?\s*/i, '')
+    .replace(/\b(?:ref|reference|référence|المرجع)\s*[:：-]?\s*\S+/gi, ' ')
+    .replace(/\b(?:tel|telephone|téléphone|phone|الهاتف|للمعلومات)\s*[:：-]?\s*[+\d\s().-]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const extractLocationHintFromDescription = (description?: string | null): string => {
+  const lines = String(description || '')
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const locationLine = lines.find((line) =>
+    /(?:📍|localisation|emplacement|adresse|location|الموقع|موقع)/i.test(line)
+  );
+  const cleaned = stripMapLocationHint(locationLine || '');
+  if (!cleaned || cleaned.length > 90) return '';
+  return cleaned;
+};
+
+const buildLocationGeocodeQuery = (parts: Array<string | null | undefined>): string => {
+  const seen = new Set<string>();
+  const cleanedParts = parts
+    .map((item) => stripMapLocationHint(String(item || '')))
+    .filter((item) => item.length > 0 && item.length <= 90)
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  if (cleanedParts.length === 0) return '';
+  const query = cleanedParts.join(', ');
+  return /tunisie|tunisia/i.test(query) ? query : `${query}, Tunisie`;
+};
+
 const hashString = (value: string) => {
   let hash = 0;
   for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
@@ -1415,7 +1454,12 @@ export default function PropertyDetailsPage() {
     () => zones.find((item) => item.id === sourceBien?.zone_id),
     [sourceBien?.zone_id, zones]
   );
-  const selectedBienMapsUrl = String((sourceBien?.location_saisonniere_config as any)?.google_maps_embed_url || '').trim();
+  const selectedBienMapsUrl = String(
+    (sourceBien?.location_saisonniere_config as any)?.google_maps_embed_url
+    || (sourceBien as any)?.google_maps_embed_url
+    || (sourceBien as any)?.google_maps_url
+    || ''
+  ).trim();
   const selectedZoneMapsUrl = String(selectedZone?.google_maps_url || '').trim();
   const selectedMapsUrl = useMemo(() => {
     const value = selectedBienMapsUrl || selectedZoneMapsUrl;
@@ -1424,6 +1468,26 @@ export default function PropertyDetailsPage() {
     const extracted = iframeSrcMatch?.[1] || value;
     return extracted.replace(/&amp;/g, '&').trim();
   }, [selectedBienMapsUrl, selectedZoneMapsUrl]);
+  const selectedGeocodeQuery = useMemo(() => buildLocationGeocodeQuery([
+    extractLocationHintFromDescription(sourceBien?.description || property?.description || ''),
+    (sourceBien as any)?.terrain_zone,
+    selectedZone?.quartier,
+    selectedZone?.region,
+    selectedZone?.gouvernerat,
+    selectedZone?.pays,
+    selectedZone?.nom,
+    property?.location,
+  ]), [
+    property?.description,
+    property?.location,
+    selectedZone?.gouvernerat,
+    selectedZone?.nom,
+    selectedZone?.pays,
+    selectedZone?.quartier,
+    selectedZone?.region,
+    sourceBien?.description,
+    (sourceBien as any)?.terrain_zone,
+  ]);
   const [mapCenter, setMapCenter] = useState<LatLng | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const displayMapCenter = useMemo(
@@ -1444,17 +1508,44 @@ export default function PropertyDetailsPage() {
   }, [displayMapCenter]);
 
   useEffect(() => {
-    const parsed = parseGoogleMapsLatLng(selectedMapsUrl);
-    if (parsed) {
-      setMapCenter(obfuscateLocation(parsed, `${property?.id || ''}-${selectedZone?.id || ''}`));
-      return;
-    }
-    if (selectedZone) {
-      setMapCenter(fallbackApproxLocation(`${property?.id || ''}-${selectedZone.id}-${selectedZone.nom || ''}`));
-      return;
-    }
-    setMapCenter(null);
-  }, [selectedMapsUrl, selectedZone?.id, selectedZone?.nom, property?.id]);
+    let cancelled = false;
+
+    const geocodeFromQuery = async (): Promise<LatLng | null> => {
+      if (!selectedGeocodeQuery) return null;
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(selectedGeocodeQuery)}`;
+        const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return null;
+        const rows = await response.json().catch(() => []);
+        const first = Array.isArray(rows) ? rows[0] : null;
+        const lat = Number(first?.lat);
+        const lng = Number(first?.lon);
+        return isValidLatLng(lat, lng) ? { lat, lng } : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const loadMapCenter = async () => {
+      const parsed = parseGoogleMapsLatLng(selectedMapsUrl);
+      const resolved = parsed || await geocodeFromQuery();
+      if (cancelled) return;
+      if (resolved) {
+        setMapCenter(obfuscateLocation(resolved, `${property?.id || ''}-${selectedZone?.id || ''}`));
+        return;
+      }
+      if (selectedZone) {
+        setMapCenter(fallbackApproxLocation(`${property?.id || ''}-${selectedZone.id}-${selectedZone.nom || ''}`));
+        return;
+      }
+      setMapCenter(null);
+    };
+
+    void loadMapCenter();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMapsUrl, selectedGeocodeQuery, selectedZone?.id, selectedZone?.nom, property?.id]);
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     const raf1 = window.requestAnimationFrame(() => {
