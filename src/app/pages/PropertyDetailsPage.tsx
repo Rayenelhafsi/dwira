@@ -4261,16 +4261,16 @@ out body 40;
       ? "Reserve"
       : "Indisponible";
   const salePrimarySurface = property.type === "terrain"
-    ? property.terrain_surface_m2
+    ? (property.terrain_surface_m2 || sourceBien?.terrain_surface_m2)
     : property.type === "immeuble"
-      ? property.immeuble_surface_batie_m2
+      ? (property.immeuble_surface_batie_m2 || sourceBien?.immeuble_surface_batie_m2 || sourceBien?.immeuble_surface_terrain_m2)
       : property.type === "lotissement"
-        ? property.lotissement_nb_terrains
-        : property.superficie_m2;
+        ? (property.lotissement_nb_terrains || sourceBien?.lotissement_nb_terrains)
+        : (property.superficie_m2 || sourceBien?.superficie_m2 || sourceBien?.surface_local_m2);
   const salePrimarySurfaceLabel = property.type === "lotissement" ? "Terrains" : "Surface";
   const salePrimarySurfaceValue = property.type === "lotissement"
     ? (salePrimarySurface ? `${salePrimarySurface}` : "Sur demande")
-    : (salePrimarySurface ? `${salePrimarySurface} m2` : "Sur demande");
+    : (salePrimarySurface ? `${Number(salePrimarySurface).toLocaleString("fr-FR")} m2` : "Non renseignee");
   const salePaymentModeLabel = property.modalite_paiement_vente === "facilite" ? "Facilite de paiement" : "Comptant";
   const salePromiseLabel = property.montant_premiere_partie_promesse
     ? `${formatTnd(property.montant_premiere_partie_promesse)} DT`

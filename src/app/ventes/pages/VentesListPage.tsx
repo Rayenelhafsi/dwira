@@ -94,17 +94,31 @@ function getPublicPrice(bien: Bien) {
 }
 
 function getSurfaceSummary(bien: Bien) {
+  const formatSurface = (value?: number | string | null) => {
+    const numeric = Number(value || 0);
+    return numeric > 0 ? `${numeric.toLocaleString('fr-FR')} m2` : '';
+  };
   if (bien.type === 'terrain') {
-    return bien.terrain_surface_m2 ? `${bien.terrain_surface_m2} m2` : 'Surface sur demande';
+    return formatSurface(bien.terrain_surface_m2) || 'Surface non renseignee';
   }
   if (bien.type === 'lotissement') {
     return bien.lotissement_nb_terrains ? `${bien.lotissement_nb_terrains} terrains` : 'Lotissement';
   }
   if (bien.type === 'immeuble') {
-    return bien.immeuble_surface_batie_m2 ? `${bien.immeuble_surface_batie_m2} m2 batis` : 'Immeuble';
+    return formatSurface(bien.immeuble_surface_batie_m2 || bien.immeuble_surface_terrain_m2) || 'Immeuble';
   }
-  if (bien.superficie_m2) return `${bien.superficie_m2} m2`;
-  return 'Surface sur demande';
+  return formatSurface(bien.superficie_m2 || bien.surface_local_m2 || bien.terrain_surface_m2 || bien.immeuble_surface_batie_m2) || 'Surface non renseignee';
+}
+
+function getComparableSurface(bien: Bien) {
+  return Number(
+    bien.terrain_surface_m2
+    || bien.surface_local_m2
+    || bien.immeuble_surface_batie_m2
+    || bien.immeuble_surface_terrain_m2
+    || bien.superficie_m2
+    || 0
+  );
 }
 
 function getCommercialMeta(bien: Bien) {
@@ -251,6 +265,7 @@ export default function VentesListPage() {
   const [facadeMin, setFacadeMin] = useState('');
   const [openDropdown, setOpenDropdown] = useState<'type' | 'zone' | 'payment' | null>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   const venteBiens = useMemo(
     () =>
@@ -357,7 +372,7 @@ export default function VentesListPage() {
       if (selectedPayment !== 'all' && (bien.modalite_paiement_vente || 'comptant') !== selectedPayment) return false;
       if (budgetValue > 0 && publicPrice.value > budgetValue) return false;
       if (surfaceMinValue > 0) {
-        const bienSurface = Number(bien.terrain_surface_m2 || bien.immeuble_surface_batie_m2 || bien.superficie_m2 || 0);
+        const bienSurface = getComparableSurface(bien);
         if (bienSurface < surfaceMinValue) return false;
       }
       if (bedroomsMinValue > 0 && Number(bien.nb_chambres || 0) < bedroomsMinValue) return false;
@@ -487,54 +502,60 @@ export default function VentesListPage() {
               </div>
             </label>
 
-            <FilterDropdown
-              label="Type"
-              value={selectedType}
-              onChange={setSelectedType}
-              options={typeDropdownOptions}
-              isOpen={openDropdown === 'type'}
-              onToggle={() => setOpenDropdown((current) => current === 'type' ? null : 'type')}
-              onClose={() => setOpenDropdown((current) => current === 'type' ? null : current)}
-              fieldIcon={Home}
-            />
-
-            <FilterDropdown
-              label="Zone"
-              value={selectedZone}
-              onChange={setSelectedZone}
-              options={zoneDropdownOptions}
-              isOpen={openDropdown === 'zone'}
-              onToggle={() => setOpenDropdown((current) => current === 'zone' ? null : 'zone')}
-              onClose={() => setOpenDropdown((current) => current === 'zone' ? null : current)}
-              fieldIcon={MapPin}
-            />
-
-            <FilterDropdown
-              label="Paiement"
-              value={selectedPayment}
-              onChange={setSelectedPayment}
-              options={paymentDropdownOptions}
-              isOpen={openDropdown === 'payment'}
-              onToggle={() => setOpenDropdown((current) => current === 'payment' ? null : 'payment')}
-              onClose={() => setOpenDropdown((current) => current === 'payment' ? null : current)}
-              fieldIcon={BadgeDollarSign}
-            />
-
             <div className="md:hidden">
               <button
                 type="button"
-                onClick={() => setShowAdvancedFilters((current) => !current)}
+                onClick={() => setShowMobileFilters((current) => !current)}
                 className="flex h-11 w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-800 transition hover:border-slate-300 hover:bg-white"
               >
                 <span className="inline-flex items-center gap-2">
                   <SlidersHorizontal className="h-4 w-4 text-emerald-700" />
-                  Filtres avances
+                  {showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
                 </span>
-                <ChevronDown className={`h-4 w-4 text-slate-500 transition ${showAdvancedFilters ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`h-4 w-4 text-slate-500 transition ${showMobileFilters ? 'rotate-180' : ''}`} />
               </button>
             </div>
 
-            <label className={showAdvancedFilters ? '' : 'hidden md:block'}>
+            <div className={showMobileFilters ? '' : 'hidden md:block'}>
+              <FilterDropdown
+                label="Type"
+                value={selectedType}
+                onChange={setSelectedType}
+                options={typeDropdownOptions}
+                isOpen={openDropdown === 'type'}
+                onToggle={() => setOpenDropdown((current) => current === 'type' ? null : 'type')}
+                onClose={() => setOpenDropdown((current) => current === 'type' ? null : current)}
+                fieldIcon={Home}
+              />
+            </div>
+
+            <div className={showMobileFilters ? '' : 'hidden md:block'}>
+              <FilterDropdown
+                label="Zone"
+                value={selectedZone}
+                onChange={setSelectedZone}
+                options={zoneDropdownOptions}
+                isOpen={openDropdown === 'zone'}
+                onToggle={() => setOpenDropdown((current) => current === 'zone' ? null : 'zone')}
+                onClose={() => setOpenDropdown((current) => current === 'zone' ? null : current)}
+                fieldIcon={MapPin}
+              />
+            </div>
+
+            <div className={showMobileFilters ? '' : 'hidden md:block'}>
+              <FilterDropdown
+                label="Paiement"
+                value={selectedPayment}
+                onChange={setSelectedPayment}
+                options={paymentDropdownOptions}
+                isOpen={openDropdown === 'payment'}
+                onToggle={() => setOpenDropdown((current) => current === 'payment' ? null : 'payment')}
+                onClose={() => setOpenDropdown((current) => current === 'payment' ? null : current)}
+                fieldIcon={BadgeDollarSign}
+              />
+            </div>
+
+            <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Budget max</span>
               <input
                 type="number"
@@ -546,7 +567,7 @@ export default function VentesListPage() {
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               />
             </label>
-            <label className={showAdvancedFilters ? '' : 'hidden md:block'}>
+            <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Surface min</span>
               <input
                 type="number"
@@ -557,7 +578,7 @@ export default function VentesListPage() {
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               />
             </label>
-            <label className={showAdvancedFilters ? '' : 'hidden md:block'}>
+            <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Chambres min</span>
               <input
                 type="number"
@@ -568,7 +589,7 @@ export default function VentesListPage() {
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               />
             </label>
-            <label className={showAdvancedFilters ? '' : 'hidden md:block'}>
+            <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Facade terrain min</span>
               <input
                 type="number"
@@ -579,6 +600,19 @@ export default function VentesListPage() {
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               />
             </label>
+            <div className={showMobileFilters ? 'md:hidden' : 'hidden'}>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedFilters((current) => !current)}
+                className="flex h-11 w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-slate-300"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <SlidersHorizontal className="h-4 w-4 text-emerald-700" />
+                  Filtres avances
+                </span>
+                <ChevronDown className={`h-4 w-4 text-slate-500 transition ${showAdvancedFilters ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
           </div>
         </div>
       </section>
