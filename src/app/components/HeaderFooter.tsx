@@ -140,7 +140,8 @@ export function Header() {
     || getPublicPartnerSlugFromPath(location.pathname)
     || null;
   const isPublicPartnerLanding = Boolean(activePublicPartnerSlug);
-  const isHomePage = location.pathname === "/" || isPublicPartnerLanding;
+  const isSalesLandingPage = location.pathname === "/ventes" || location.pathname === "/ventes/";
+  const isHomePage = location.pathname === "/" || isSalesLandingPage || isPublicPartnerLanding;
   const isAgentAmicaleDashboard = location.pathname.startsWith("/agent-amicale/dashboard");
   const isReservationConfirmationPage =
     location.pathname.startsWith("/reservation/confirmation/")
@@ -479,7 +480,9 @@ export function Header() {
       <div className="container mx-auto px-4 md:px-6 flex items-center justify-between gap-3">
         <Link to="/ventes" className="flex items-center gap-3 z-50">
            <span className={`flex items-center ${(routeMode === "hotellerie" || showPartnerBranding) ? "gap-2" : ""}`}>
-             <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-md border border-[#d8d0bf] bg-white shadow-sm md:h-12 md:w-12">
+             <span className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm md:h-12 md:w-12 ${
+               useSolidHeader ? "border border-[#d8d0bf]" : "border border-white/70 ring-1 ring-white/25"
+             }`}>
                <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
              </span>
              {routeMode === "hotellerie" ? (
@@ -505,12 +508,12 @@ export function Header() {
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden lg:flex items-center gap-5">
+        <nav className={`hidden lg:flex items-center gap-3 ${!useSolidHeader ? "rounded-full border border-white/15 bg-black/12 px-3 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)] backdrop-blur-xl" : ""}`}>
           {navLinks.map((link) => (
             <Link
               key={link.path}
               to={link.path}
-              className={`text-sm font-semibold uppercase tracking-[0.14em] transition-colors hover:text-[#d8b35a] ${
+              className={`rounded-full px-3 py-2 text-sm font-semibold uppercase tracking-[0.14em] transition-colors hover:text-[#d8b35a] ${
                 useLightText ? "text-white/90 drop-shadow-sm" : "text-[#2d3945]"
               } ${isNavLinkActive(link.path) ? "text-[#b49a5a]" : ""}`}
             >
@@ -577,7 +580,7 @@ export function Header() {
                     className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                       !useLightText
                         ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200"
-                        : "text-white hover:bg-white/20 border border-white/30"
+                        : "border border-white/20 bg-white/8 text-white hover:bg-white/16"
                     }`}
                   >
                     <User size={16} />
@@ -588,7 +591,7 @@ export function Header() {
                     className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                       !useLightText
                         ? "text-sky-700 hover:bg-sky-50 border border-sky-200"
-                        : "text-white hover:bg-white/20 border border-white/30"
+                        : "border border-white/20 bg-white/8 text-white hover:bg-white/16"
                     }`}
                   >
                     <Building2 size={16} />
@@ -599,7 +602,7 @@ export function Header() {
                     className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                       !useLightText
                         ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200" 
-                        : "text-white hover:bg-white/20 border border-white/30"
+                        : "border border-white/20 bg-white/8 text-white hover:bg-white/16"
                     }`}
                   >
                     <User size={16} />
@@ -613,7 +616,9 @@ export function Header() {
           <button
             type="button"
             onClick={() => openPhoneApp(headerContact.phone)}
-            className="min-w-[196px] rounded-md bg-[#101820] px-6 py-3 text-sm font-bold text-white shadow-[0_12px_30px_rgba(16,24,32,0.18)] transition-colors hover:bg-[#26323d] flex items-center justify-center gap-2 whitespace-nowrap"
+            className={`min-w-[196px] rounded-full px-6 py-3 text-sm font-bold shadow-[0_12px_30px_rgba(16,24,32,0.18)] transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${
+              useLightText ? "bg-white text-[#101820] hover:bg-white/92" : "bg-[#101820] text-white hover:bg-[#26323d]"
+            }`}
           >
             <Phone size={16} />
             <span>{headerContact.phone.replace("+216", "+216 ")}</span>

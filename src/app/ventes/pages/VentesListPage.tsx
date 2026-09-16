@@ -278,7 +278,7 @@ export default function VentesListPage() {
   const featuredBien = venteBiens[0] || null;
   const heroImage = heroSettings.imageUrl || (featuredBien ? getSaleCardImage(featuredBien) : HERO_FALLBACK);
   const defaultHeroTitle = 'Biens a vendre';
-  const defaultHeroSubtitle = 'Parcourez les references disponibles, filtrez rapidement et ouvrez la fiche complete pour engager une visite.';
+  const defaultHeroSubtitle = 'Une selection immobiliere claire, des references disponibles et un contact direct pour organiser votre visite.';
 
   useEffect(() => {
     let cancelled = false;
@@ -424,50 +424,75 @@ export default function VentesListPage() {
 
   return (
     <div className="min-h-screen bg-[#f4f6f3] text-[#101820]">
-      <section className="relative min-h-[520px] overflow-hidden border-b border-white/10 text-white md:min-h-[620px]">
+      <section className="relative min-h-[560px] overflow-hidden border-b border-white/10 text-white md:min-h-[660px]">
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url("${heroImage}")` }}
         />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(6,10,16,0.92)_0%,rgba(8,16,24,0.76)_46%,rgba(9,48,44,0.42)_100%)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.08)_0%,rgba(0,0,0,0.36)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(4,8,12,0.86)_0%,rgba(8,15,20,0.58)_45%,rgba(7,34,32,0.28)_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_38%,rgba(255,255,255,0.10),transparent_26%),linear-gradient(180deg,rgba(0,0,0,0.02)_0%,rgba(0,0,0,0.40)_100%)]" />
 
-        <div className="relative mx-auto flex min-h-[520px] max-w-7xl flex-col justify-end px-4 pb-20 pt-24 md:min-h-[620px] md:px-6 md:pb-24">
+        <div className="relative mx-auto flex min-h-[560px] max-w-7xl flex-col justify-center px-4 pb-24 pt-28 md:min-h-[660px] md:px-6 md:pb-28 md:pt-36">
           <button
             type="button"
             onClick={handleGoBack}
-            className="absolute left-4 top-24 inline-flex items-center gap-2 rounded-md border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur transition hover:bg-white/15 md:left-6"
+            className="absolute left-4 top-24 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-xl transition hover:bg-white/15 md:left-6 md:top-32"
           >
             <ChevronLeft size={16} />
             Retour
           </button>
 
-          <div className="max-w-4xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-[#d8b35a]">
-              Collection privee
-            </p>
-            <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[0.92] tracking-[-0.02em] md:text-7xl">
-              {heroSettings.title || defaultHeroTitle}
-            </h1>
-            <p className="mt-6 max-w-2xl text-base leading-8 text-white/82 md:text-lg">
-              {heroSettings.subtitle || defaultHeroSubtitle}
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <span className="border border-white/18 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur">
-                {venteBiens.length} references disponibles
-              </span>
-              <span className="border border-white/18 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur">
-                {zoneOptions.length} zones
-              </span>
-              <span className="border border-white/18 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur">
-                Visite commerciale
-              </span>
+          <div className="grid items-end gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
+            <div className="max-w-4xl">
+              <div className="inline-flex items-center gap-3 rounded-full border border-white/18 bg-white/10 px-3 py-2 backdrop-blur-xl">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#d8b35a]" />
+                <span className="text-xs font-semibold uppercase tracking-[0.28em] text-white/86">Dwira Immobilier</span>
+              </div>
+              <h1 className="mt-6 max-w-3xl text-[clamp(3.25rem,7vw,6.7rem)] font-semibold leading-[0.9] tracking-[-0.035em]">
+                {heroSettings.title || defaultHeroTitle}
+              </h1>
+              <p className="mt-6 max-w-2xl text-base leading-8 text-white/82 md:text-xl">
+                {heroSettings.subtitle || defaultHeroSubtitle}
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <a
+                  href="#ventes-recherche"
+                  className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#101820] shadow-[0_18px_45px_rgba(0,0,0,0.20)] transition hover:bg-white/92"
+                >
+                  Explorer les biens
+                  <ArrowUpRight className="h-4 w-4" />
+                </a>
+                <a
+                  href={buildTelLink(DEFAULT_CONTACT_PHONE)}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur-xl transition hover:bg-white/16"
+                >
+                  <Phone className="h-4 w-4" />
+                  Appeler
+                </a>
+              </div>
+            </div>
+
+            <div className="hidden rounded-lg border border-white/16 bg-white/10 p-4 shadow-[0_28px_70px_rgba(0,0,0,0.22)] backdrop-blur-2xl lg:block">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-md border border-white/12 bg-black/18 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58">Biens</p>
+                  <p className="mt-3 text-3xl font-semibold">{venteBiens.length}</p>
+                </div>
+                <div className="rounded-md border border-white/12 bg-black/18 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58">Zones</p>
+                  <p className="mt-3 text-3xl font-semibold">{zoneOptions.length}</p>
+                </div>
+                <div className="rounded-md border border-white/12 bg-black/18 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58">Contact</p>
+                  <p className="mt-3 text-sm font-semibold leading-5">Visite directe</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="relative z-10 mx-auto -mt-10 max-w-7xl px-4 md:px-6">
+      <section id="ventes-recherche" className="relative z-10 mx-auto -mt-12 max-w-7xl px-4 md:px-6">
         <div className="overflow-visible rounded-lg border border-[#d8d0bf] bg-[#fbfaf7] shadow-[0_24px_70px_rgba(16,24,32,0.16)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5dfd2] px-4 py-3 md:px-6 md:py-4">
             <div className="flex items-center gap-3">
@@ -497,8 +522,8 @@ export default function VentesListPage() {
             </div>
           </div>
 
-          <div className="grid gap-3 px-4 py-4 md:grid-cols-2 md:gap-4 md:px-6 md:py-5 xl:grid-cols-8">
-            <label className="xl:col-span-2">
+          <div className="grid gap-3 px-4 py-4 md:grid-cols-2 md:gap-4 md:px-6 md:py-5 xl:grid-cols-12">
+            <label className="xl:col-span-4">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Recherche</span>
               <div className="flex h-11 items-center gap-3 rounded-md border border-[#d8d0bf] bg-white px-4">
                 <Search className="h-4 w-4 text-[#8d7440]" />
@@ -525,7 +550,7 @@ export default function VentesListPage() {
               </button>
             </div>
 
-            <div className={showMobileFilters ? '' : 'hidden md:block'}>
+            <div className={showMobileFilters ? '' : 'hidden md:block xl:col-span-2'}>
               <FilterDropdown
                 label="Type"
                 value={selectedType}
@@ -538,7 +563,7 @@ export default function VentesListPage() {
               />
             </div>
 
-            <div className={showMobileFilters ? '' : 'hidden md:block'}>
+            <div className={showMobileFilters ? '' : 'hidden md:block xl:col-span-2'}>
               <FilterDropdown
                 label="Zone"
                 value={selectedZone}
@@ -551,7 +576,7 @@ export default function VentesListPage() {
               />
             </div>
 
-            <div className={showMobileFilters ? '' : 'hidden md:block'}>
+            <div className={showMobileFilters ? '' : 'hidden md:block xl:col-span-2'}>
               <FilterDropdown
                 label="Paiement"
                 value={selectedPayment}
@@ -564,52 +589,8 @@ export default function VentesListPage() {
               />
             </div>
 
-            <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Budget max</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min="0"
-                value={budgetMax}
-                onChange={(event) => setBudgetMax(event.target.value)}
-                placeholder="Ex: 450000"
-                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
-              />
-            </label>
-            <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Surface min</span>
-              <input
-                type="number"
-                min="0"
-                value={surfaceMin}
-                onChange={(event) => setSurfaceMin(event.target.value)}
-                placeholder="m2"
-                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
-              />
-            </label>
-            <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Chambres min</span>
-              <input
-                type="number"
-                min="0"
-                value={bedroomsMin}
-                onChange={(event) => setBedroomsMin(event.target.value)}
-                placeholder="Ex: 3"
-                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
-              />
-            </label>
-            <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Facade terrain min</span>
-              <input
-                type="number"
-                min="0"
-                value={facadeMin}
-                onChange={(event) => setFacadeMin(event.target.value)}
-                placeholder="Metres"
-                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
-              />
-            </label>
-            <div className={showMobileFilters ? 'md:hidden' : 'hidden'}>
+            <div className={showMobileFilters ? 'md:col-span-2 xl:col-span-2' : 'hidden md:block xl:col-span-2'}>
+              <span className="mb-2 hidden text-xs font-semibold uppercase tracking-[0.2em] text-transparent md:block">Options</span>
               <button
                 type="button"
                 onClick={() => setShowAdvancedFilters((current) => !current)}
@@ -622,6 +603,52 @@ export default function VentesListPage() {
                 <ChevronDown className={`h-4 w-4 text-slate-500 transition ${showAdvancedFilters ? 'rotate-180' : ''}`} />
               </button>
             </div>
+
+            <label className={showAdvancedFilters ? (showMobileFilters ? '' : 'hidden md:block') : 'hidden'}>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Budget max</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                value={budgetMax}
+                onChange={(event) => setBudgetMax(event.target.value)}
+                placeholder="Ex: 450000"
+                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
+              />
+            </label>
+            <label className={showAdvancedFilters ? (showMobileFilters ? '' : 'hidden md:block') : 'hidden'}>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Surface min</span>
+              <input
+                type="number"
+                min="0"
+                value={surfaceMin}
+                onChange={(event) => setSurfaceMin(event.target.value)}
+                placeholder="m2"
+                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
+              />
+            </label>
+            <label className={showAdvancedFilters ? (showMobileFilters ? '' : 'hidden md:block') : 'hidden'}>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Chambres min</span>
+              <input
+                type="number"
+                min="0"
+                value={bedroomsMin}
+                onChange={(event) => setBedroomsMin(event.target.value)}
+                placeholder="Ex: 3"
+                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
+              />
+            </label>
+            <label className={showAdvancedFilters ? (showMobileFilters ? '' : 'hidden md:block') : 'hidden'}>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Facade terrain min</span>
+              <input
+                type="number"
+                min="0"
+                value={facadeMin}
+                onChange={(event) => setFacadeMin(event.target.value)}
+                placeholder="Metres"
+                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
+              />
+            </label>
           </div>
         </div>
       </section>
