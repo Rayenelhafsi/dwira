@@ -1461,13 +1461,20 @@ export default function PropertyDetailsPage() {
     || ''
   ).trim();
   const selectedZoneMapsUrl = String(selectedZone?.google_maps_url || '').trim();
-  const selectedMapsUrl = useMemo(() => {
-    const value = selectedBienMapsUrl || selectedZoneMapsUrl;
+  const normalizeMapsUrl = useCallback((value: string) => {
     if (!value) return '';
     const iframeSrcMatch = value.match(/<iframe[^>]*\s+src=["']([^"']+)["']/i);
     const extracted = iframeSrcMatch?.[1] || value;
     return extracted.replace(/&amp;/g, '&').trim();
-  }, [selectedBienMapsUrl, selectedZoneMapsUrl]);
+  }, []);
+  const selectedBienResolvedMapsUrl = useMemo(
+    () => normalizeMapsUrl(selectedBienMapsUrl),
+    [normalizeMapsUrl, selectedBienMapsUrl]
+  );
+  const selectedZoneResolvedMapsUrl = useMemo(
+    () => normalizeMapsUrl(selectedZoneMapsUrl),
+    [normalizeMapsUrl, selectedZoneMapsUrl]
+  );
   const selectedGeocodeQuery = useMemo(() => buildLocationGeocodeQuery([
     extractLocationHintFromDescription(sourceBien?.description || property?.description || ''),
     (sourceBien as any)?.terrain_zone,
@@ -1527,8 +1534,10 @@ export default function PropertyDetailsPage() {
     };
 
     const loadMapCenter = async () => {
-      const parsed = parseGoogleMapsLatLng(selectedMapsUrl);
-      const resolved = parsed || await geocodeFromQuery();
+      const bienMapsCenter = parseGoogleMapsLatLng(selectedBienResolvedMapsUrl);
+      const geocodedCenter = bienMapsCenter ? null : await geocodeFromQuery();
+      const zoneMapsCenter = bienMapsCenter || geocodedCenter ? null : parseGoogleMapsLatLng(selectedZoneResolvedMapsUrl);
+      const resolved = bienMapsCenter || geocodedCenter || zoneMapsCenter;
       if (cancelled) return;
       if (resolved) {
         setMapCenter(obfuscateLocation(resolved, `${property?.id || ''}-${selectedZone?.id || ''}`));
@@ -1545,7 +1554,7 @@ export default function PropertyDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedMapsUrl, selectedGeocodeQuery, selectedZone?.id, selectedZone?.nom, property?.id]);
+  }, [selectedBienResolvedMapsUrl, selectedGeocodeQuery, selectedZoneResolvedMapsUrl, selectedZone?.id, selectedZone?.nom, property?.id]);
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     const raf1 = window.requestAnimationFrame(() => {

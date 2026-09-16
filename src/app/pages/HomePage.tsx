@@ -105,12 +105,17 @@ type PropertyDisplayCard = {
 };
 const MODE_TABS: Array<{ value: ListingMode; label: string; comingSoon?: boolean }> = [
   { value: "vente", label: "Ventes", comingSoon: false },
+  { value: "location_saisonniere", label: "Locations saisonnières", comingSoon: false },
 ];
 const HERO_TABS: Array<{
-  key: "location_saisonniere" | "hotellerie" | "ventes_flash" | "packs";
+  key: "vente" | "location_saisonniere" | "ventes_flash" | "packs";
   label: string;
   icon: typeof Palmtree;
 }> = [
+  { key: "vente", label: "Ventes", icon: Building2 },
+  { key: "location_saisonniere", label: "Location saisonnière", icon: Palmtree },
+  { key: "ventes_flash", label: "Ventes flash", icon: Flame },
+  { key: "packs", label: "Packs", icon: Layers3 },
 ];
 
 const ZONE_FALLBACK_IMAGE =
@@ -1129,11 +1134,6 @@ export default function HomePage({
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  useEffect(() => {
-    if (routerLocation.pathname === "/" || routerLocation.pathname === "/ventes_flash") {
-      navigate("/ventes", { replace: true });
-    }
-  }, [navigate, routerLocation.pathname]);
   const resultsRef = useRef<HTMLDivElement>(null);
   const flashSectionRef = useRef<HTMLDivElement>(null);
   const filterControlsRef = useRef<HTMLDivElement>(null);
@@ -1523,6 +1523,7 @@ export default function HomePage({
 
   const today = startOfDay(new Date());
   const getModeTabPriority = (mode: ListingMode) => {
+    if (mode === "vente") return 0;
     if (mode === "hotellerie") return 1.5;
     return modePriorities[mode as Exclude<ListingMode, "hotellerie">] || 99;
   };
