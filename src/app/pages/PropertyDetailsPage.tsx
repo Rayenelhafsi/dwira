@@ -4505,24 +4505,24 @@ out body 40;
         ) : null}
         
         {/* Breadcrumb */}
-        <div className="hidden text-sm text-gray-500 mb-6 md:block">
-          <Link to="/" className="hover:text-emerald-600">Accueil</Link>
+        <div className={`hidden text-sm mb-6 md:block ${isSaleProperty ? 'text-[#6d6a61]' : 'text-gray-500'}`}>
+          <Link to={isSaleProperty ? "/ventes" : "/"} className={isSaleProperty ? "hover:text-[#b49a5a]" : "hover:text-emerald-600"}>Accueil</Link>
           <span className="mx-2">/</span>
-          <Link to={isSaleProperty ? "/ventes" : "/logements"} className="hover:text-emerald-600">{isSaleProperty ? "Ventes" : "Logements"}</Link>
+          <Link to={isSaleProperty ? "/ventes" : "/logements"} className={isSaleProperty ? "hover:text-[#b49a5a]" : "hover:text-emerald-600"}>{isSaleProperty ? "Ventes" : "Logements"}</Link>
           <span className="mx-2">/</span>
-          <span className="text-gray-900">{property.title}</span>
+          <span className={isSaleProperty ? "text-[#101820]" : "text-gray-900"}>{property.title}</span>
         </div>
 
         {/* Header */}
         <div className="hidden md:flex flex-col md:flex-row justify-between items-start mb-6">
           <div>
             {isSaleProperty ? (
-              <div className="mb-3 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+              <div className="mb-3 inline-flex items-center rounded-md border border-[#d8d0bf] bg-[#fbfaf7] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8d7440]">
                 {saleTypeLabel} en vente
               </div>
             ) : null}
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">{propertyDisplayTitle}</h1>
-            <div className="flex items-center gap-4 text-gray-600 text-sm">
+            <h1 className={`mb-2 text-3xl ${isSaleProperty ? 'font-semibold tracking-[-0.01em] text-[#101820]' : 'font-bold text-gray-900'}`}>{propertyDisplayTitle}</h1>
+            <div className={`flex items-center gap-4 text-sm ${isSaleProperty ? 'text-[#59636d]' : 'text-gray-600'}`}>
               <div className="flex items-center gap-1">
                 <MapPin size={16} />
                 <span>{property.location}</span>
@@ -4530,9 +4530,9 @@ out body 40;
               {isSaleProperty ? (
                 <>
                   <div className="h-1 w-1 rounded-full bg-gray-300" />
-                  <div className="font-medium text-gray-900">Ref: {saleReference}</div>
+                  <div className="font-medium text-[#101820]">Ref: {saleReference}</div>
                   <div className="h-1 w-1 rounded-full bg-gray-300" />
-                  <div className="font-medium text-emerald-700">{saleStatusLabel}</div>
+                  <div className="font-medium text-[#8d7440]">{saleStatusLabel}</div>
                 </>
               ) : (
                 <div className="flex items-center gap-1">
@@ -4546,7 +4546,7 @@ out body 40;
           <div className="flex gap-2 mt-4 md:mt-0">
             <button 
               onClick={handleShare}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors ${isSaleProperty ? 'border-[#d8d0bf] text-[#101820] hover:border-[#b49a5a] hover:bg-[#fbfaf7]' : 'border-gray-200 hover:bg-gray-50'}`}
             >
               <Share2 size={18} />
               <span className="hidden sm:inline">Partager</span>
@@ -4556,7 +4556,7 @@ out body 40;
               className={`flex items-center gap-2 px-4 py-2 border rounded-lg transition-colors ${
                 isSaved 
                   ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100' 
-                  : 'border-gray-200 hover:bg-gray-50'
+                  : isSaleProperty ? 'border-[#d8d0bf] text-[#101820] hover:border-[#b49a5a] hover:bg-[#fbfaf7]' : 'border-gray-200 hover:bg-gray-50'
               }`}
             >
               <Heart size={18} className={isSaved ? 'fill-current' : ''} />
@@ -4569,11 +4569,11 @@ out body 40;
         <div className="mb-12">
           {isSaleProperty && (
             <div className="mb-4 hidden md:flex items-center justify-between gap-4">
-              <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+              <div className="inline-flex rounded-lg border border-[#d8d0bf] bg-[#fbfaf7] p-1 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setActiveSaleVisualTab('gallery')}
-                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${!isSalePlanView ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                  className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition ${!isSalePlanView ? 'bg-[#101820] text-white' : 'text-[#59636d] hover:bg-white'}`}
                 >
                   <ImageIcon size={16} />
                   Photos
@@ -4582,7 +4582,7 @@ out body 40;
                   <button
                     type="button"
                     onClick={openDefaultSalePlan}
-                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${isSalePlanView ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                    className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition ${isSalePlanView ? 'bg-[#101820] text-white' : 'text-[#59636d] hover:bg-white'}`}
                   >
                     {activeSalePlanTab?.icon || <Route size={16} />}
                     {activeSalePlanTab?.label || 'Plan'}
@@ -4591,13 +4591,13 @@ out body 40;
               </div>
               <div className="flex items-center gap-2">
                 {isSalePlanView && salePlanTabs.length > 1 && (
-                  <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+                  <div className="inline-flex rounded-lg border border-[#d8d0bf] bg-[#fbfaf7] p-1 shadow-sm">
                     {salePlanTabs.map((tab) => (
                       <button
                         key={`desktop-sale-plan-${tab.id}`}
                         type="button"
                         onClick={() => setActiveSaleVisualTab(tab.id)}
-                        className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${activeSaleVisualTab === tab.id ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                        className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition ${activeSaleVisualTab === tab.id ? 'bg-[#b49a5a] text-white' : 'text-[#59636d] hover:bg-white'}`}
                       >
                         {tab.icon}
                         {tab.label}
@@ -4608,7 +4608,7 @@ out body 40;
                 <button
                   type="button"
                   onClick={() => openLightbox(0)}
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-md border border-[#d8d0bf] bg-white px-4 py-2 text-sm font-semibold text-[#101820] transition hover:border-[#b49a5a] hover:bg-[#fbfaf7]"
                 >
                   Ouvrir galerie
                   <ArrowRight size={16} />
@@ -4617,7 +4617,7 @@ out body 40;
             </div>
           )}
           {/* Desktop Grid */}
-          <div className={`hidden md:grid grid-cols-4 grid-rows-2 gap-2 overflow-hidden rounded-[1.7rem] ${isSaleProperty ? 'h-[560px] border border-slate-200 shadow-[0_24px_60px_rgba(15,23,42,0.10)]' : 'h-[500px] rounded-xl'}`}>
+          <div className={`hidden md:grid grid-cols-4 grid-rows-2 gap-2 overflow-hidden ${isSaleProperty ? 'h-[560px] rounded-lg border border-[#d8d0bf] shadow-[0_24px_60px_rgba(16,24,32,0.12)]' : 'h-[500px] rounded-xl'}`}>
             {galleryImages.slice(0, 5).map((imageUrl, index) => {
               const isPrimary = index === 0;
               const wrapperClass = isPrimary ? "col-span-2 row-span-2" : "col-span-1 row-span-1";
@@ -5510,12 +5510,12 @@ out body 40;
 
           {/* Right Column: Booking Card */}
           <div className="lg:col-span-1">
-            <div ref={priceSectionRef} className={`sticky top-24 rounded-[1.8rem] border p-6 ${isSaleProperty ? 'bg-[linear-gradient(180deg,#ffffff,#f7fafc)] border-slate-200 shadow-[0_30px_70px_rgba(15,23,42,0.14)]' : 'bg-white rounded-xl shadow-xl border-gray-100'}`}>
+            <div ref={priceSectionRef} className={`sticky top-24 border p-6 ${isSaleProperty ? 'rounded-lg border-[#d8d0bf] bg-[#fbfaf7] shadow-[0_30px_70px_rgba(16,24,32,0.16)]' : 'bg-white rounded-xl shadow-xl border-gray-100'}`}>
               {isSaleProperty ? (
-                <div className="mb-6 overflow-hidden rounded-[2rem] border border-slate-200 bg-[linear-gradient(155deg,#0f172a,#111827_55%,#14532d)] p-5 text-white shadow-[0_24px_60px_rgba(15,23,42,0.22)]">
+                <div className="mb-6 overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(155deg,#101820,#182331_58%,#26331f)] p-5 text-white shadow-[0_24px_60px_rgba(16,24,32,0.24)]">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center rounded-full bg-white/12 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/85">{saleTypeLabel}</span>
-                    <span className="inline-flex items-center rounded-full bg-emerald-400/14 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">{saleStatusLabel}</span>
+                    <span className="inline-flex items-center rounded-md bg-white/12 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/85">{saleTypeLabel}</span>
+                    <span className="inline-flex items-center rounded-md bg-[#d8b35a]/18 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#f5d98a]">{saleStatusLabel}</span>
                   </div>
                   <div className="mt-5 flex items-start justify-between gap-4">
                     <div>
@@ -5523,16 +5523,16 @@ out body 40;
                       <p className="mt-2 text-3xl font-bold tracking-tight">{saleDisplayPriceLabel}</p>
                       <p className="mt-2 text-sm text-white/70">Reference {saleReference}</p>
                     </div>
-                    <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-emerald-100">
+                    <span className="inline-flex h-12 w-12 items-center justify-center rounded-md bg-white/10 text-[#f5d98a]">
                       <Landmark size={22} />
                     </span>
                   </div>
                   <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-white/8 p-3">
+                    <div className="rounded-md border border-white/10 bg-white/8 p-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">Paiement</p>
                       <p className="mt-2 text-sm font-semibold text-white">{salePaymentModeLabel}</p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/8 p-3">
+                    <div className="rounded-md border border-white/10 bg-white/8 p-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">Promesse</p>
                       <p className="mt-2 text-sm font-semibold text-white">{salePromiseLabel}</p>
                     </div>
@@ -6013,34 +6013,34 @@ out body 40;
                 )}
 
                 {isSaleProperty && (
-                  <div className="space-y-4 rounded-[1.75rem] border border-emerald-200 bg-[linear-gradient(160deg,rgba(236,253,245,0.9),rgba(255,255,255,0.98))] p-4 shadow-[0_18px_38px_rgba(16,185,129,0.08)]">
+                  <div className="space-y-4 rounded-lg border border-[#d8d0bf] bg-white p-4 shadow-[0_18px_38px_rgba(16,24,32,0.06)]">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Rendez-vous de visite</p>
-                        <h4 className="mt-2 text-lg font-semibold text-slate-950">Engagement commercial</h4>
-                        <p className="mt-1 text-sm text-slate-600">Renseignez votre date souhaitee, un creneau et votre numero de rappel.</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#8d7440]">Rendez-vous de visite</p>
+                        <h4 className="mt-2 text-lg font-semibold text-[#101820]">Planifier une visite</h4>
+                        <p className="mt-1 text-sm text-[#59636d]">Choisissez une date, un creneau et un numero de rappel.</p>
                       </div>
-                      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-emerald-700 shadow-sm">
+                      <span className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-[#101820] text-[#f5d98a] shadow-sm">
                         <PhoneCall size={18} />
                       </span>
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">
-                      <label className="grid gap-1 text-sm text-gray-700">
+                      <label className="grid gap-1 text-sm text-[#2d3945]">
                         <span className="font-medium">Date souhaitee</span>
                         <input
                           type="date"
                           value={visitPreferredDate}
                           onChange={(event) => setVisitPreferredDate(event.target.value)}
                           min={todayDateInputMin}
-                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                          className="w-full rounded-md border border-[#d8d0bf] bg-white px-3 py-2 text-sm outline-none focus:border-[#b49a5a] focus:ring-4 focus:ring-[#d8b35a]/15"
                         />
                       </label>
-                      <label className="grid gap-1 text-sm text-gray-700">
+                      <label className="grid gap-1 text-sm text-[#2d3945]">
                         <span className="font-medium">Creneau</span>
                         <select
                           value={visitTimeSlot}
                           onChange={(event) => setVisitTimeSlot(event.target.value)}
-                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                          className="w-full rounded-md border border-[#d8d0bf] bg-white px-3 py-2 text-sm outline-none focus:border-[#b49a5a] focus:ring-4 focus:ring-[#d8b35a]/15"
                         >
                           <option value="">Choisir</option>
                           <option value="09:00-11:00">09:00-11:00</option>
@@ -6050,14 +6050,14 @@ out body 40;
                           <option value="18:00-20:00">18:00-20:00</option>
                         </select>
                       </label>
-                      <label className="grid gap-1 text-sm text-gray-700">
+                      <label className="grid gap-1 text-sm text-[#2d3945]">
                         <span className="font-medium">Telephone de rappel</span>
                         <input
                           type="tel"
                           value={visitContactPhone}
                           onChange={(event) => setVisitContactPhone(event.target.value)}
                           placeholder={String(user?.telephone || "Numero de telephone")}
-                          className="w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm"
+                          className="w-full rounded-md border border-[#d8d0bf] bg-white px-3 py-2 text-sm outline-none focus:border-[#b49a5a] focus:ring-4 focus:ring-[#d8b35a]/15"
                         />
                       </label>
                     </div>
@@ -6067,14 +6067,14 @@ out body 40;
                     type="button"
                     onClick={handleReservationRequest}
                     disabled={!reservationValidation.valid}
-                    className={`w-full rounded-lg px-4 py-3 text-sm font-semibold text-white transition ${isSaleProperty ? "bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300" : (isReservationOnRequest ? "bg-yellow-500 hover:bg-yellow-600 disabled:bg-yellow-300" : "bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300")}`}
+                    className={`w-full rounded-md px-4 py-3 text-sm font-semibold text-white transition ${isSaleProperty ? "bg-[#101820] hover:bg-[#26323d] disabled:bg-[#b7bdc2]" : (isReservationOnRequest ? "bg-yellow-500 hover:bg-yellow-600 disabled:bg-yellow-300" : "bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300")}`}
                   >
                     {isSaleProperty ? 'Demander une visite' : (isReservationOnRequest ? 'Sur demande' : 'Reserver')}
                   </button>
                 {isSaleProperty && (
                   <a
                     href={buildTelLink(saleImmediatePhone)}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#d8d0bf] bg-white px-4 py-3 text-sm font-semibold text-[#101820] transition hover:border-[#b49a5a] hover:bg-[#fbfaf7]"
                   >
                     <PhoneCall size={16} />
                     Appeler immediatement
@@ -6083,7 +6083,7 @@ out body 40;
                 {!reservationValidation.valid && (
                   <p className="mt-2 text-sm font-medium text-red-600">{reservationValidation.message}</p>
                 )}
-                <p className="text-center text-xs text-gray-500 mt-2">{isSaleProperty ? "Votre demande sera transmise a l'agence pour planification de visite" : (isReservationOnRequest ? "Reservation sur demande: l'agence doit confirmer avant validation finale" : "Aucun montant ne vous sera debite pour le moment")}</p>
+                <p className="text-center text-xs text-gray-500 mt-2">{isSaleProperty ? "Votre demande sera transmise a l'agence pour planification de visite." : (isReservationOnRequest ? "Reservation sur demande: l'agence doit confirmer avant validation finale" : "Aucun montant ne vous sera debite pour le moment")}</p>
 
                 {!isSaleProperty && <div className="pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-600">
                    {Array.isArray(pricing.flashPriceSegments) && pricing.flashPriceSegments.length > 1 ? (

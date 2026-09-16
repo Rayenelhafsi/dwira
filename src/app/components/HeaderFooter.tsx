@@ -460,7 +460,6 @@ export function Header() {
   };
 
   const navLinks = [
-    { name: "Accueil", path: "/ventes" },
     { name: "Ventes", path: "/ventes" },
     { name: "Apps", path: "/deploy-mobile" },
     { name: "Contact", path: "/contact" },
@@ -473,14 +472,14 @@ export function Header() {
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all ${isPropertyDetailsPage ? "duration-200" : "duration-300"} ${
         useSolidHeader
-          ? "bg-white/92 backdrop-blur-xl shadow-sm py-2.5 md:py-2"
+          ? "border-b border-[#e6dece] bg-[#fbfaf7]/94 py-2.5 shadow-[0_12px_34px_rgba(16,24,32,0.08)] backdrop-blur-xl md:py-2"
           : "bg-transparent py-4"
       } ${(isAutoHidden || isPropertyTopHidden) ? "-translate-y-[115%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100"}`}
     >
       <div className="container mx-auto px-4 md:px-6 flex items-center justify-between gap-3">
-        <Link to="/" className="flex items-center gap-3 z-50">
+        <Link to="/ventes" className="flex items-center gap-3 z-50">
            <span className={`flex items-center ${(routeMode === "hotellerie" || showPartnerBranding) ? "gap-2" : ""}`}>
-             <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm md:h-12 md:w-12">
+             <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-md border border-[#d8d0bf] bg-white shadow-sm md:h-12 md:w-12">
                <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
              </span>
              {routeMode === "hotellerie" ? (
@@ -493,9 +492,9 @@ export function Header() {
                </span>
              ) : null}
            </span>
-           <div className={`hidden sm:block font-bold leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-emerald-900"}`}>
+           <div className={`hidden sm:block font-bold leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-[#101820]"}`}>
              <span className="block text-lg">Dwira</span>
-             <span className="block text-xs uppercase tracking-widest text-amber-500">
+             <span className="block text-xs uppercase tracking-widest text-[#b49a5a]">
                {routeMode === "hotellerie"
                  ? "Immobilier x Tita Travel"
                  : showPartnerBranding
@@ -511,9 +510,9 @@ export function Header() {
             <Link
               key={link.path}
               to={link.path}
-              className={`text-sm font-medium transition-colors hover:text-emerald-500 ${
-                useLightText ? "text-white/90 drop-shadow-sm" : "text-gray-700"
-              } ${isNavLinkActive(link.path) ? "text-emerald-500 font-bold" : ""}`}
+              className={`text-sm font-semibold uppercase tracking-[0.14em] transition-colors hover:text-[#d8b35a] ${
+                useLightText ? "text-white/90 drop-shadow-sm" : "text-[#2d3945]"
+              } ${isNavLinkActive(link.path) ? "text-[#b49a5a]" : ""}`}
             >
               {link.name}
             </Link>
@@ -614,7 +613,7 @@ export function Header() {
           <button
             type="button"
             onClick={() => openPhoneApp(headerContact.phone)}
-            className="min-w-[196px] px-6 py-3 bg-emerald-600 text-white rounded-full text-sm font-bold hover:bg-emerald-700 transition-colors shadow-lg flex items-center justify-center gap-2 whitespace-nowrap"
+            className="min-w-[196px] rounded-md bg-[#101820] px-6 py-3 text-sm font-bold text-white shadow-[0_12px_30px_rgba(16,24,32,0.18)] transition-colors hover:bg-[#26323d] flex items-center justify-center gap-2 whitespace-nowrap"
           >
             <Phone size={16} />
             <span>{headerContact.phone.replace("+216", "+216 ")}</span>
@@ -623,9 +622,9 @@ export function Header() {
 
         {/* Mobile Menu Button */}
         <button
-          className={`lg:hidden z-[95] inline-flex h-12 w-12 items-center justify-center rounded-2xl border shadow-sm transition-colors ${
+          className={`lg:hidden z-[95] inline-flex h-12 w-12 items-center justify-center rounded-md border shadow-sm transition-colors ${
             useSolidHeader
-              ? "border-gray-200 bg-white text-slate-900"
+              ? "border-[#d8d0bf] bg-white text-[#101820]"
               : "border-white/30 bg-white/12 text-white backdrop-blur-md"
           }`}
           onClick={() => setIsOpen(!isOpen)}

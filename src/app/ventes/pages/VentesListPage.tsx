@@ -187,27 +187,27 @@ function FilterDropdown({
 
   return (
     <div ref={rootRef} className="relative">
-      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</span>
+      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">{label}</span>
       <button
         type="button"
         onClick={onToggle}
-        className={`flex h-12 w-full items-center gap-3 rounded-2xl border px-4 text-left text-sm shadow-sm transition ${
+        className={`flex h-11 w-full items-center gap-3 rounded-md border px-4 text-left text-sm transition ${
           isOpen
-            ? 'border-emerald-300 bg-white ring-4 ring-emerald-100'
-            : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white'
+            ? 'border-[#b49a5a] bg-white ring-4 ring-[#d8b35a]/15'
+            : 'border-[#d8d0bf] bg-white hover:border-[#b49a5a]'
         }`}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#f2ead7] text-[#8d7440]">
           <SelectedIcon className="h-4 w-4" />
         </span>
-        <span className="min-w-0 flex-1 truncate font-medium text-slate-900">{selectedOption?.label || 'Choisir'}</span>
-        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition ${isOpen ? 'rotate-180' : ''}`} />
+        <span className="min-w-0 flex-1 truncate font-medium text-[#101820]">{selectedOption?.label || 'Choisir'}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-[#8d7440] transition ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+0.55rem)] z-30 overflow-hidden rounded-3xl border border-slate-200 bg-white p-2 shadow-[0_28px_70px_rgba(15,23,42,0.18)]">
+        <div className="absolute left-0 right-0 top-[calc(100%+0.55rem)] z-30 overflow-hidden rounded-lg border border-[#d8d0bf] bg-white p-2 shadow-[0_28px_70px_rgba(16,24,32,0.18)]">
           <div className="max-h-72 overflow-y-auto pr-1">
             <div className="space-y-1">
               {options.map((option) => {
@@ -221,21 +221,21 @@ function FilterDropdown({
                       onChange(option.value);
                       onClose();
                     }}
-                    className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm transition ${
+                    className={`flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm transition ${
                       selected
-                        ? 'bg-emerald-50 text-emerald-900'
-                        : 'text-slate-700 hover:bg-slate-50'
+                        ? 'bg-[#f2ead7] text-[#101820]'
+                        : 'text-[#2d3945] hover:bg-[#f7f4ec]'
                     }`}
                     role="option"
                     aria-selected={selected}
                   >
-                    <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                      selected ? 'bg-white text-emerald-700 shadow-sm' : 'bg-slate-100 text-slate-600'
+                    <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
+                      selected ? 'bg-white text-[#8d7440] shadow-sm' : 'bg-[#f2f3f0] text-[#59636d]'
                     }`}>
                       <OptionIcon className="h-4 w-4" />
                     </span>
                     <span className="min-w-0 flex-1 truncate font-medium">{option.label}</span>
-                    {selected ? <Check className="h-4 w-4 shrink-0 text-emerald-600" /> : null}
+                    {selected ? <Check className="h-4 w-4 shrink-0 text-[#8d7440]" /> : null}
                   </button>
                 );
               })}
@@ -423,55 +423,64 @@ export default function VentesListPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#eef3f6] text-slate-950">
-      <section className="relative overflow-hidden border-b border-slate-200 text-white">
+    <div className="min-h-screen bg-[#f4f6f3] text-[#101820]">
+      <section className="relative min-h-[520px] overflow-hidden border-b border-white/10 text-white md:min-h-[620px]">
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url("${heroImage}")` }}
         />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(7,12,24,0.90)_0%,rgba(7,12,24,0.75)_38%,rgba(8,47,73,0.52)_100%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,197,94,0.18),transparent_24%),radial-gradient(circle_at_left,rgba(255,255,255,0.10),transparent_30%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(6,10,16,0.92)_0%,rgba(8,16,24,0.76)_46%,rgba(9,48,44,0.42)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.08)_0%,rgba(0,0,0,0.36)_100%)]" />
 
-        <div className="relative mx-auto max-w-7xl px-4 pb-7 pt-20 md:px-6 md:pb-12 md:pt-24">
+        <div className="relative mx-auto flex min-h-[520px] max-w-7xl flex-col justify-end px-4 pb-20 pt-24 md:min-h-[620px] md:px-6 md:pb-24">
           <button
             type="button"
             onClick={handleGoBack}
-            className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur transition hover:bg-white/15"
+            className="absolute left-4 top-24 inline-flex items-center gap-2 rounded-md border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur transition hover:bg-white/15 md:left-6"
           >
             <ChevronLeft size={16} />
             Retour
           </button>
 
-          <div className="mt-4 max-w-3xl md:mt-8">
-            <div className="rounded-[1.75rem] border border-white/12 bg-black/20 px-4 py-4 backdrop-blur-[4px] sm:rounded-[2rem] sm:bg-black/15 sm:p-1 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-0">
-              <div className="inline-flex items-center rounded-full border border-emerald-300/40 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-100">
-                Collection ventes
-              </div>
-              <h1 className="mt-4 max-w-2xl text-[2.6rem] font-bold leading-[0.98] md:text-6xl">
-                {heroSettings.title || defaultHeroTitle}
-              </h1>
-              <p className="mt-3 max-w-2xl text-[15px] leading-7 text-slate-200 md:mt-4 md:text-lg">
-                {heroSettings.subtitle || defaultHeroSubtitle}
-              </p>
+          <div className="max-w-4xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-[#d8b35a]">
+              Collection privee
+            </p>
+            <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[0.92] tracking-[-0.02em] md:text-7xl">
+              {heroSettings.title || defaultHeroTitle}
+            </h1>
+            <p className="mt-6 max-w-2xl text-base leading-8 text-white/82 md:text-lg">
+              {heroSettings.subtitle || defaultHeroSubtitle}
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <span className="border border-white/18 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur">
+                {venteBiens.length} references disponibles
+              </span>
+              <span className="border border-white/18 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur">
+                {zoneOptions.length} zones
+              </span>
+              <span className="border border-white/18 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur">
+                Visite commerciale
+              </span>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="relative z-10 mx-auto -mt-8 max-w-7xl px-4 md:px-6">
-        <div className="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.12)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 md:px-6 md:py-4">
+      <section className="relative z-10 mx-auto -mt-10 max-w-7xl px-4 md:px-6">
+        <div className="overflow-visible rounded-lg border border-[#d8d0bf] bg-[#fbfaf7] shadow-[0_24px_70px_rgba(16,24,32,0.16)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5dfd2] px-4 py-3 md:px-6 md:py-4">
             <div className="flex items-center gap-3">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-[#101820] text-[#d8b35a]">
                 <SlidersHorizontal size={18} />
               </span>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Recherche vente</p>
-                <h2 className="text-base font-semibold text-slate-950 md:text-lg">Filtres</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8d7440]">Recherche vente</p>
+                <h2 className="text-base font-semibold text-[#101820] md:text-lg">Selectionner un bien</h2>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
+              <span className="inline-flex items-center gap-2 rounded-md border border-[#d8d0bf] bg-white px-3 py-2 text-sm font-medium text-[#2d3945]">
                 <Filter className="h-4 w-4" />
                 {filteredBiens.length} resultat{filteredBiens.length > 1 ? 's' : ''}
               </span>
@@ -479,7 +488,7 @@ export default function VentesListPage() {
                 <button
                   type="button"
                   onClick={resetFilters}
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-md border border-[#d8d0bf] px-3 py-2 text-sm font-medium text-[#2d3945] transition hover:bg-white"
                 >
                   <X className="h-4 w-4" />
                   Reinitialiser
@@ -491,13 +500,13 @@ export default function VentesListPage() {
           <div className="grid gap-3 px-4 py-4 md:grid-cols-2 md:gap-4 md:px-6 md:py-5 xl:grid-cols-8">
             <label className="xl:col-span-2">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Recherche</span>
-              <div className="flex h-11 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
-                <Search className="h-4 w-4 text-slate-500" />
+              <div className="flex h-11 items-center gap-3 rounded-md border border-[#d8d0bf] bg-white px-4">
+                <Search className="h-4 w-4 text-[#8d7440]" />
                 <input
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder="Reference, titre, zone..."
-                  className="h-full w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                  className="h-full w-full bg-transparent text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
                 />
               </div>
             </label>
@@ -506,10 +515,10 @@ export default function VentesListPage() {
               <button
                 type="button"
                 onClick={() => setShowMobileFilters((current) => !current)}
-                className="flex h-11 w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-800 transition hover:border-slate-300 hover:bg-white"
+                className="flex h-11 w-full items-center justify-between rounded-md border border-[#d8d0bf] bg-white px-4 text-sm font-semibold text-[#101820] transition hover:border-[#b49a5a]"
               >
                 <span className="inline-flex items-center gap-2">
-                  <SlidersHorizontal className="h-4 w-4 text-emerald-700" />
+                  <SlidersHorizontal className="h-4 w-4 text-[#8d7440]" />
                   {showMobileFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
                 </span>
                 <ChevronDown className={`h-4 w-4 text-slate-500 transition ${showMobileFilters ? 'rotate-180' : ''}`} />
@@ -556,7 +565,7 @@ export default function VentesListPage() {
             </div>
 
             <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Budget max</span>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Budget max</span>
               <input
                 type="number"
                 inputMode="numeric"
@@ -564,50 +573,50 @@ export default function VentesListPage() {
                 value={budgetMax}
                 onChange={(event) => setBudgetMax(event.target.value)}
                 placeholder="Ex: 450000"
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
               />
             </label>
             <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Surface min</span>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Surface min</span>
               <input
                 type="number"
                 min="0"
                 value={surfaceMin}
                 onChange={(event) => setSurfaceMin(event.target.value)}
                 placeholder="m2"
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
               />
             </label>
             <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Chambres min</span>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Chambres min</span>
               <input
                 type="number"
                 min="0"
                 value={bedroomsMin}
                 onChange={(event) => setBedroomsMin(event.target.value)}
                 placeholder="Ex: 3"
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
               />
             </label>
             <label className={(showMobileFilters && showAdvancedFilters) ? '' : 'hidden md:block'}>
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Facade terrain min</span>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[#6d6a61]">Facade terrain min</span>
               <input
                 type="number"
                 min="0"
                 value={facadeMin}
                 onChange={(event) => setFacadeMin(event.target.value)}
                 placeholder="Metres"
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                className="h-11 w-full rounded-md border border-[#d8d0bf] bg-white px-4 text-sm text-[#101820] outline-none placeholder:text-[#9b978d]"
               />
             </label>
             <div className={showMobileFilters ? 'md:hidden' : 'hidden'}>
               <button
                 type="button"
                 onClick={() => setShowAdvancedFilters((current) => !current)}
-                className="flex h-11 w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-slate-300"
+                className="flex h-11 w-full items-center justify-between rounded-md border border-[#d8d0bf] bg-white px-4 text-sm font-semibold text-[#101820] transition hover:border-[#b49a5a]"
               >
                 <span className="inline-flex items-center gap-2">
-                  <SlidersHorizontal className="h-4 w-4 text-emerald-700" />
+                  <SlidersHorizontal className="h-4 w-4 text-[#8d7440]" />
                   Filtres avances
                 </span>
                 <ChevronDown className={`h-4 w-4 text-slate-500 transition ${showAdvancedFilters ? 'rotate-180' : ''}`} />
@@ -617,14 +626,14 @@ export default function VentesListPage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-8 md:px-6 md:py-10">
+      <section className="mx-auto max-w-7xl px-4 py-10 md:px-6 md:py-14">
         {filteredBiens.length === 0 ? (
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-10 text-center shadow-sm">
-            <h2 className="text-2xl font-bold text-slate-950">Aucun bien ne correspond aux filtres</h2>
-            <p className="mt-2 text-sm text-slate-600">Elargissez la recherche ou reinitialisez les filtres commerciaux.</p>
+          <div className="rounded-lg border border-[#d8d0bf] bg-white p-10 text-center shadow-sm">
+            <h2 className="text-2xl font-semibold text-[#101820]">Aucun bien ne correspond aux filtres</h2>
+            <p className="mt-2 text-sm text-[#59636d]">Elargissez la recherche ou reinitialisez les filtres commerciaux.</p>
           </div>
         ) : (
-          <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
             {filteredBiens.map((bien) => {
               const zoneName = zones.find((z) => z.id === bien.zone_id)?.nom || 'Zone non definie';
               const imageUrl = getSaleCardImage(bien);
@@ -636,7 +645,7 @@ export default function VentesListPage() {
               return (
                 <article
                   key={bien.id}
-                  className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_28px_70px_rgba(15,23,42,0.12)]"
+                  className="group overflow-hidden rounded-lg border border-[#d8d0bf] bg-white shadow-[0_18px_50px_rgba(16,24,32,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_28px_70px_rgba(16,24,32,0.14)]"
                 >
                   <Link to={`/ventes/${bien.type}/${bien.id}`} className="relative block aspect-[16/11] overflow-hidden bg-slate-100">
                     <img
@@ -644,24 +653,24 @@ export default function VentesListPage() {
                       alt={bien.titre}
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                     />
-                    <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.02),rgba(15,23,42,0.55))]" />
+                    <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.00),rgba(8,10,14,0.68))]" />
                     <div className="absolute left-4 top-4 right-4 flex items-start justify-between gap-3">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white shadow-sm">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-[#101820] px-3 py-1 text-xs font-semibold text-white shadow-sm">
                         <CheckCircle2 className="h-3.5 w-3.5" />
                         Disponible
                       </span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-white/92 px-3 py-1 text-xs font-semibold text-slate-900 shadow-sm">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-white/92 px-3 py-1 text-xs font-semibold text-[#101820] shadow-sm">
                         <TypeIcon className="h-3.5 w-3.5" />
                         {typeLabel[bien.type] || bien.type}
                       </span>
                     </div>
                     <div className="absolute inset-x-4 bottom-4 flex items-end justify-between gap-3">
-                      <div className="rounded-[1.2rem] border border-white/15 bg-black/25 px-3 py-2 text-white backdrop-blur-md">
+                      <div className="rounded-md border border-white/15 bg-black/30 px-3 py-2 text-white backdrop-blur-md">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/75">Reference</p>
                         <p className="mt-1 text-sm font-bold">{bien.reference || bien.id}</p>
                       </div>
-                      <div className="rounded-[1.2rem] border border-white/15 bg-white/92 px-3 py-2 text-right text-slate-950 shadow-sm">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Prix</p>
+                      <div className="rounded-md border border-white/15 bg-[#fbfaf7]/95 px-3 py-2 text-right text-[#101820] shadow-sm">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8d7440]">Prix</p>
                         <p className="mt-1 text-lg font-bold">
                           {publicPrice.value.toLocaleString('fr-FR')} DT{publicPrice.suffix}
                         </p>
@@ -672,56 +681,56 @@ export default function VentesListPage() {
                   <div className="flex min-h-full flex-col p-5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
-                          Vente
+                        <p className="inline-flex items-center rounded-md border border-[#d8d0bf] bg-[#fbfaf7] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8d7440]">
+                          Vente privee
                         </p>
-                        <h2 className="mt-3 line-clamp-2 text-2xl font-bold leading-tight text-slate-950">{bien.titre}</h2>
+                        <h2 className="mt-3 line-clamp-2 text-2xl font-semibold leading-tight tracking-[-0.01em] text-[#101820]">{bien.titre}</h2>
                       </div>
                     </div>
 
-                    <div className="mt-3 flex items-center gap-2 text-sm text-slate-600">
-                      <MapPin className="h-4 w-4 shrink-0 text-emerald-700" />
+                    <div className="mt-3 flex items-center gap-2 text-sm text-[#59636d]">
+                      <MapPin className="h-4 w-4 shrink-0 text-[#8d7440]" />
                       <span className="truncate">{zoneName}</span>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    <div className="mt-4 grid grid-cols-2 gap-2 border-y border-[#eee7da] py-4">
+                      <div className="px-1">
+                        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6d6a61]">
                           <Ruler className="h-3.5 w-3.5" />
                           Surface
                         </p>
-                        <p className="mt-2 text-sm font-semibold text-slate-950">{getSurfaceSummary(bien)}</p>
+                        <p className="mt-2 text-sm font-semibold text-[#101820]">{getSurfaceSummary(bien)}</p>
                       </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      <div className="px-1">
+                        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6d6a61]">
                           <BadgeDollarSign className="h-3.5 w-3.5" />
                           Paiement
                         </p>
-                        <p className="mt-2 text-sm font-semibold text-slate-950">{paymentLabel}</p>
+                        <p className="mt-2 text-sm font-semibold text-[#101820]">{paymentLabel}</p>
                       </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      <div className="px-1">
+                        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6d6a61]">
                           <Building2 className="h-3.5 w-3.5" />
                           Type
                         </p>
-                        <p className="mt-2 text-sm font-semibold text-slate-950">{typeLabel[bien.type] || bien.type}</p>
+                        <p className="mt-2 text-sm font-semibold text-[#101820]">{typeLabel[bien.type] || bien.type}</p>
                       </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      <div className="px-1">
+                        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6d6a61]">
                           <Home className="h-3.5 w-3.5" />
                           Infos
                         </p>
-                        <p className="mt-2 text-sm font-semibold text-slate-950">{getCommercialMeta(bien)}</p>
+                        <p className="mt-2 text-sm font-semibold text-[#101820]">{getCommercialMeta(bien)}</p>
                       </div>
                     </div>
 
                     <div className="mt-4 flex flex-wrap items-center gap-2">
-                      <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                      <span className="inline-flex items-center gap-2 rounded-md border border-[#d8d0bf] bg-[#fbfaf7] px-3 py-2 text-xs font-semibold text-[#2d3945]">
                         <Landmark className="h-3.5 w-3.5" />
                         Ref {bien.reference || bien.id}
                       </span>
                       {bien.montant_premiere_partie_promesse ? (
-                        <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                        <span className="inline-flex items-center gap-2 rounded-md border border-[#d8d0bf] bg-white px-3 py-2 text-xs font-semibold text-[#2d3945]">
                           <BadgeDollarSign className="h-3.5 w-3.5" />
                           Promesse {Number(bien.montant_premiere_partie_promesse).toLocaleString('fr-FR')} DT
                         </span>
@@ -731,14 +740,14 @@ export default function VentesListPage() {
                     <div className="mt-5 flex gap-2">
                       <a
                         href={buildTelLink(contactPhone)}
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-md border border-[#d8d0bf] bg-white px-4 py-3 text-sm font-semibold text-[#101820] transition hover:border-[#b49a5a]"
                       >
                         <Phone className="h-4 w-4" />
                         Appeler
                       </a>
                       <Link
                         to={`/ventes/${bien.type}/${bien.id}`}
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-[#101820] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#26323d]"
                       >
                         Voir la fiche
                         <ArrowUpRight className="h-4 w-4" />
