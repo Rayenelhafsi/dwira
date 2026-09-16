@@ -473,7 +473,7 @@ export function Header() {
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all ${isPropertyDetailsPage ? "duration-200" : "duration-300"} ${
         useSolidHeader
-          ? "border-b border-[#e6dece] bg-[#fbfaf7]/94 py-2.5 shadow-[0_12px_34px_rgba(16,24,32,0.08)] backdrop-blur-xl md:py-2"
+          ? "border-b border-emerald-100 bg-white/92 py-2.5 shadow-[0_12px_34px_rgba(6,78,59,0.08)] backdrop-blur-xl md:py-2"
           : "bg-transparent py-4"
       } ${(isAutoHidden || isPropertyTopHidden) ? "-translate-y-[115%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100"}`}
     >
@@ -481,7 +481,7 @@ export function Header() {
         <Link to="/ventes" className="flex items-center gap-3 z-50">
            <span className={`flex items-center ${(routeMode === "hotellerie" || showPartnerBranding) ? "gap-2" : ""}`}>
              <span className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm md:h-12 md:w-12 ${
-               useSolidHeader ? "border border-[#d8d0bf]" : "border border-white/70 ring-1 ring-white/25"
+               useSolidHeader ? "border border-emerald-100" : "border border-white/70 ring-1 ring-white/25"
              }`}>
                <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
              </span>
@@ -497,7 +497,7 @@ export function Header() {
            </span>
            <div className={`hidden sm:block font-bold leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-[#101820]"}`}>
              <span className="block text-lg">Dwira</span>
-             <span className="block text-xs uppercase tracking-widest text-[#b49a5a]">
+             <span className="block text-xs uppercase tracking-widest text-emerald-600">
                {routeMode === "hotellerie"
                  ? "Immobilier x Tita Travel"
                  : showPartnerBranding
@@ -513,9 +513,9 @@ export function Header() {
             <Link
               key={link.path}
               to={link.path}
-              className={`rounded-full px-3 py-2 text-sm font-semibold uppercase tracking-[0.14em] transition-colors hover:text-[#d8b35a] ${
+              className={`rounded-full px-3 py-2 text-sm font-semibold uppercase tracking-[0.14em] transition-colors hover:text-emerald-400 ${
                 useLightText ? "text-white/90 drop-shadow-sm" : "text-[#2d3945]"
-              } ${isNavLinkActive(link.path) ? "text-[#b49a5a]" : ""}`}
+              } ${isNavLinkActive(link.path) ? "text-emerald-600" : ""}`}
             >
               {link.name}
             </Link>
@@ -629,7 +629,7 @@ export function Header() {
         <button
           className={`lg:hidden z-[95] inline-flex h-12 w-12 items-center justify-center rounded-md border shadow-sm transition-colors ${
             useSolidHeader
-              ? "border-[#d8d0bf] bg-white text-[#101820]"
+              ? "border-emerald-100 bg-white text-[#101820]"
               : "border-white/30 bg-white/12 text-white backdrop-blur-md"
           }`}
           onClick={() => setIsOpen(!isOpen)}
