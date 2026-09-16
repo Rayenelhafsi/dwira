@@ -2149,6 +2149,35 @@ export default function BiensPage() {
       setIsSavingPriorities(false);
     }
   };
+  const updateModePriorityDraft = (mode: BienMode, nextPriority: number) => {
+    setPriorityDraft((prev) => {
+      const currentPriority = prev[mode];
+      const swappedMode = (Object.keys(prev) as BienMode[]).find((key) => key !== mode && prev[key] === nextPriority);
+      return {
+        ...prev,
+        [mode]: nextPriority,
+        ...(swappedMode ? { [swappedMode]: currentPriority } : {}),
+      };
+    });
+  };
+  const activateSalesOnlyPriority = async () => {
+    const next: Record<BienMode, number> = {
+      vente: 1,
+      location_saisonniere: 2,
+      location_annuelle: 3,
+    };
+    setPriorityDraft(next);
+    try {
+      setIsSavingPriorities(true);
+      await saveModePriorities(next);
+      toast.success('Mode ventes active en priorite');
+    } catch (error: any) {
+      const message = String(error?.message || '').trim();
+      toast.error(message ? `Erreur priorites: ${message}` : 'Erreur priorites');
+    } finally {
+      setIsSavingPriorities(false);
+    }
+  };
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div></div>;
 
@@ -2212,8 +2241,8 @@ export default function BiensPage() {
       <div className="bg-white p-4 sm:p-5 rounded-lg shadow-sm border border-gray-100">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">Priorite des modes sur l'accueil</h2>
-            <p className="text-sm text-gray-500">Le mode avec priorite 1 sera affiche en premier sur `https://dwiraimmobilier.com`.</p>
+            <h2 className="text-base font-semibold text-gray-900">Priorite publique des modes</h2>
+            <p className="text-sm text-gray-500">Le site client est configure en parcours ventes. Vente doit rester en priorite 1.</p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:min-w-[540px]">
             {([
@@ -2225,7 +2254,7 @@ export default function BiensPage() {
                 <span className="mb-1 block text-sm font-medium text-gray-700">{item.label}</span>
                 <select
                   value={priorityDraft[item.key]}
-                  onChange={(event) => setPriorityDraft((prev) => ({ ...prev, [item.key]: Number(event.target.value) }))}
+                  onChange={(event) => updateModePriorityDraft(item.key, Number(event.target.value))}
                   className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                 >
                   <option value={1}>Priorite 1</option>
@@ -2236,7 +2265,15 @@ export default function BiensPage() {
             ))}
           </div>
         </div>
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={() => void activateSalesOnlyPriority()}
+            disabled={isSavingPriorities}
+            className="inline-flex items-center justify-center rounded-md border border-emerald-600 bg-white px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Activer ventes en premier
+          </button>
           <button
             type="button"
             onClick={() => void handleSaveModePriorities()}

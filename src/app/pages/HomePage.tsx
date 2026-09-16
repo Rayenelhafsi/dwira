@@ -104,18 +104,13 @@ type PropertyDisplayCard = {
   searchParams: string;
 };
 const MODE_TABS: Array<{ value: ListingMode; label: string; comingSoon?: boolean }> = [
-  { value: "location_saisonniere", label: "Location saisonniere", comingSoon: false },
-  { value: "hotellerie", label: "Hotellerie", comingSoon: false },
+  { value: "vente", label: "Ventes", comingSoon: false },
 ];
 const HERO_TABS: Array<{
   key: "location_saisonniere" | "hotellerie" | "ventes_flash" | "packs";
   label: string;
   icon: typeof Palmtree;
 }> = [
-  { key: "location_saisonniere", label: "Location saisonniere", icon: Palmtree },
-  { key: "hotellerie", label: "Hotellerie", icon: Building2 },
-  { key: "ventes_flash", label: "Ventes flash", icon: Flame },
-  { key: "packs", label: "Packs", icon: Layers3 },
 ];
 
 const ZONE_FALLBACK_IMAGE =
@@ -1134,6 +1129,11 @@ export default function HomePage({
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (routerLocation.pathname === "/" || routerLocation.pathname === "/ventes_flash") {
+      navigate("/ventes", { replace: true });
+    }
+  }, [navigate, routerLocation.pathname]);
   const resultsRef = useRef<HTMLDivElement>(null);
   const flashSectionRef = useRef<HTMLDivElement>(null);
   const filterControlsRef = useRef<HTMLDivElement>(null);
@@ -1190,7 +1190,7 @@ export default function HomePage({
   const [typeFilterImageRows, setTypeFilterImageRows] = useState<Array<{ mode_bien: string; main_type: string; sub_type: string | null; image_url: string }>>([]);
   const [homeFilterOptionImageRows, setHomeFilterOptionImageRows] = useState<Array<{ mode_bien: string; filter_group: string; option_key: string; image_url: string }>>([]);
   const [hasSearched, setHasSearched] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<ListingMode>("location_saisonniere");
+  const [selectedMode, setSelectedMode] = useState<ListingMode>("vente");
   const [showChatbotWidget, setShowChatbotWidget] = useState(false);
   const [locationPays, setLocationPays] = useState("Tunisie");
   const [locationGouvernerat, setLocationGouvernerat] = useState("");
@@ -4660,7 +4660,7 @@ export default function HomePage({
           </div>
           
           <p className="text-lg md:text-xl mb-8 max-w-2xl mx-auto drop-shadow-md text-gray-100">
-            Location saisonniere • Hotellerie • Ventes flash • Packs
+            Ventes immobilieres
           </p>
 
           {/* Filter Bar */}
