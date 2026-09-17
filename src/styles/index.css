@@ -1,6 +1,7 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+@import './landing-theme.css';
 
 html {
   scroll-behavior: smooth;

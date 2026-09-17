@@ -1,4 +1,6 @@
 import { Link } from 'react-router';
+import { createPortal } from 'react-dom';
+import { LandingSaleFilters } from '../../pages/LandingSaleFilters';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProperties } from '../../context/PropertiesContext';
 import { Bien } from '../../admin/types';
@@ -246,7 +248,7 @@ function FilterDropdown({
   );
 }
 
-export default function VentesListPage() {
+export default function VentesListPage({ embedded = false, filterContainer = null }: { embedded?: boolean; filterContainer?: HTMLElement | null } = {}) {
   const { biens, zones, proprietaires, isLoading } = useProperties();
   const [heroSettings, setHeroSettings] = useState<{ imageUrl: string; title: string; subtitle: string }>({
     imageUrl: '',
@@ -404,76 +406,20 @@ export default function VentesListPage() {
     setFacadeMin('');
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-emerald-600" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-[#f4f8f5] text-[#101820]">
-      <section className="relative min-h-[560px] overflow-hidden border-b border-white/10 text-white md:min-h-[660px]">
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url("${heroImage}")` }}
-        />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(4,8,12,0.86)_0%,rgba(8,15,20,0.58)_45%,rgba(7,34,32,0.28)_100%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_38%,rgba(255,255,255,0.10),transparent_26%),linear-gradient(180deg,rgba(0,0,0,0.02)_0%,rgba(0,0,0,0.40)_100%)]" />
-
-        <div className="relative mx-auto flex min-h-[560px] max-w-7xl flex-col justify-center px-4 pb-24 pt-28 md:min-h-[660px] md:px-6 md:pb-28 md:pt-36">
-          <div className="grid items-end gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
-            <div className="max-w-4xl">
-              <div className="inline-flex items-center gap-3 rounded-full border border-white/18 bg-white/10 px-3 py-2 backdrop-blur-xl">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                <span className="text-xs font-semibold uppercase tracking-[0.28em] text-white/86">Dwira Immobilier</span>
-              </div>
-              <h1 className="mt-6 max-w-3xl text-[clamp(3.25rem,7vw,6.7rem)] font-semibold leading-[0.9] tracking-[-0.035em]">
-                {heroSettings.title || defaultHeroTitle}
-              </h1>
-              <p className="mt-6 max-w-2xl text-base leading-8 text-white/82 md:text-xl">
-                {heroSettings.subtitle || defaultHeroSubtitle}
-              </p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <a
-                  href="#ventes-recherche"
-                  className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(16,185,129,0.24)] transition hover:bg-emerald-600"
-                >
-                  Explorer les biens
-                  <ArrowUpRight className="h-4 w-4" />
-                </a>
-                <a
-                  href={buildTelLink(DEFAULT_CONTACT_PHONE)}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur-xl transition hover:bg-white/16"
-                >
-                  <Phone className="h-4 w-4" />
-                  Appeler
-                </a>
-              </div>
-            </div>
-
-            <div className="hidden rounded-lg border border-white/16 bg-white/10 p-4 shadow-[0_28px_70px_rgba(0,0,0,0.22)] backdrop-blur-2xl lg:block">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-md border border-white/12 bg-black/18 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58">Biens</p>
-                  <p className="mt-3 text-3xl font-semibold">{venteBiens.length}</p>
-                </div>
-                <div className="rounded-md border border-white/12 bg-black/18 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58">Zones</p>
-                  <p className="mt-3 text-3xl font-semibold">{zoneOptions.length}</p>
-                </div>
-                <div className="rounded-md border border-white/12 bg-black/18 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58">Contact</p>
-                  <p className="mt-3 text-sm font-semibold leading-5">Visite directe</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="ventes-recherche" className="relative z-10 mx-auto -mt-12 max-w-7xl px-4 md:px-6">
+  const salesFilters = embedded ? (
+    <LandingSaleFilters
+      zones={zoneDropdownOptions} types={typeDropdownOptions}
+      zone={{ value: selectedZone, onChange: setSelectedZone }}
+      type={{ value: selectedType, onChange: setSelectedType }}
+      payment={{ value: selectedPayment, onChange: setSelectedPayment }}
+      budget={{ value: budgetMax, onChange: setBudgetMax }}
+      surface={{ value: surfaceMin, onChange: setSurfaceMin }}
+      bedrooms={{ value: bedroomsMin, onChange: setBedroomsMin }}
+      facade={{ value: facadeMin, onChange: setFacadeMin }}
+      onReset={resetFilters} activeCount={activeFiltersCount}
+    />
+  ) : (
+      <section id="ventes-recherche" className={embedded ? "landing-sale-filters relative z-10 text-left" : "relative z-10 mx-auto -mt-12 max-w-7xl px-4 md:px-6"}>
         <div className="overflow-visible rounded-lg border border-emerald-100 bg-white shadow-[0_24px_70px_rgba(6,78,59,0.12)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100 px-4 py-3 md:px-6 md:py-4">
             <div className="flex items-center gap-3">
@@ -633,8 +579,84 @@ export default function VentesListPage() {
           </div>
         </div>
       </section>
+  );
 
-      <section className="mx-auto max-w-7xl px-4 py-10 md:px-6 md:py-14">
+  if (isLoading) {
+    return (
+      <>
+        {embedded && filterContainer ? createPortal(salesFilters, filterContainer) : null}
+        <div className="flex min-h-[60vh] items-center justify-center" role="status" aria-label="Chargement des biens à vendre">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-emerald-600" />
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className={embedded ? "landing-sales text-[#101820]" : "min-h-screen bg-[#f4f8f5] text-[#101820]"}>
+      {!embedded && <section className="relative min-h-[560px] overflow-hidden border-b border-white/10 text-white md:min-h-[660px]">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: `url("${heroImage}")` }}
+        />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(4,8,12,0.86)_0%,rgba(8,15,20,0.58)_45%,rgba(7,34,32,0.28)_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_38%,rgba(255,255,255,0.10),transparent_26%),linear-gradient(180deg,rgba(0,0,0,0.02)_0%,rgba(0,0,0,0.40)_100%)]" />
+
+        <div className="relative mx-auto flex min-h-[560px] max-w-7xl flex-col justify-center px-4 pb-24 pt-28 md:min-h-[660px] md:px-6 md:pb-28 md:pt-36">
+          <div className="grid items-end gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
+            <div className="max-w-4xl">
+              <div className="inline-flex items-center gap-3 rounded-full border border-white/18 bg-white/10 px-3 py-2 backdrop-blur-xl">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span className="text-xs font-semibold uppercase tracking-[0.28em] text-white/86">Dwira Immobilier</span>
+              </div>
+              <h1 className="mt-6 max-w-3xl text-[clamp(3.25rem,7vw,6.7rem)] font-semibold leading-[0.9] tracking-[-0.035em]">
+                {heroSettings.title || defaultHeroTitle}
+              </h1>
+              <p className="mt-6 max-w-2xl text-base leading-8 text-white/82 md:text-xl">
+                {heroSettings.subtitle || defaultHeroSubtitle}
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <a
+                  href="#ventes-recherche"
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(16,185,129,0.24)] transition hover:bg-emerald-600"
+                >
+                  Explorer les biens
+                  <ArrowUpRight className="h-4 w-4" />
+                </a>
+                <a
+                  href={buildTelLink(DEFAULT_CONTACT_PHONE)}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur-xl transition hover:bg-white/16"
+                >
+                  <Phone className="h-4 w-4" />
+                  Appeler
+                </a>
+              </div>
+            </div>
+
+            <div className="hidden rounded-lg border border-white/16 bg-white/10 p-4 shadow-[0_28px_70px_rgba(0,0,0,0.22)] backdrop-blur-2xl lg:block">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-md border border-white/12 bg-black/18 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58">Biens</p>
+                  <p className="mt-3 text-3xl font-semibold">{venteBiens.length}</p>
+                </div>
+                <div className="rounded-md border border-white/12 bg-black/18 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58">Zones</p>
+                  <p className="mt-3 text-3xl font-semibold">{zoneOptions.length}</p>
+                </div>
+                <div className="rounded-md border border-white/12 bg-black/18 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/58">Contact</p>
+                  <p className="mt-3 text-sm font-semibold leading-5">Visite directe</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>}
+
+      {embedded && filterContainer ? createPortal(salesFilters, filterContainer) : salesFilters}
+
+      <section className={embedded ? "landing-sale-results" : "mx-auto max-w-7xl px-4 py-10 md:px-6 md:py-14"}>
+        {embedded && <h2 className="mb-6 text-3xl font-semibold">Biens à vendre</h2>}
         {filteredBiens.length === 0 ? (
           <div className="rounded-lg border border-emerald-100 bg-white p-10 text-center shadow-sm">
             <h2 className="text-2xl font-semibold text-[#101820]">Aucun bien ne correspond aux filtres</h2>

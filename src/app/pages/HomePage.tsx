@@ -40,6 +40,10 @@ import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availabi
 import { resolveMediaUrl } from "../utils/media";
 import { getPropertyFlashOffers, type PropertyFlashOffer } from "../utils/flashOffers";
 import { fetchAmicalesPublic } from "../utils/amicales";
+import { LandingResidences, LandingStats, LandingTestimonials } from "./LandingSections";
+import { useLandingReveal } from "./useLandingReveal";
+
+const LandingSalesPage = lazy(() => import("../ventes/pages/VentesListPage"));
 
 type ListingMode = "vente" | "location_annuelle" | "location_saisonniere" | "hotellerie";
 type PropertyMainType = "appartement" | "residence" | "villa_maison" | "bungalow" | "studio" | "immeuble" | "autre";
@@ -1125,6 +1129,9 @@ export default function HomePage({
   partnerBrandName,
   partnerBrandLogoUrl,
 }: HomePageProps = {}) {
+  const landingRef = useRef<HTMLDivElement>(null);
+  const [salesFilterContainer, setSalesFilterContainer] = useState<HTMLDivElement | null>(null);
+  useLandingReveal(landingRef);
   const INITIAL_VISIBLE_PROPERTIES = 10;
   const hotelDefaults = useMemo(() => buildDefaultHotelSearch(), []);
   // Use shared context for properties
@@ -4598,28 +4605,24 @@ export default function HomePage({
     };
   }, [showLocationDropdown, showCalendar, showCategoryDropdown, showSeasideDropdown, showComfortDropdown]);
   return (
-    <div className="flex flex-col min-h-screen">
+    <div ref={landingRef} className="landing-page flex flex-col min-h-screen" data-mode={selectedMode}>
       {/* Hero Section */}
-      <section className="relative min-h-[90vh] flex items-center justify-center py-20">
-        <div className="absolute inset-0 overflow-hidden">
+      <section className="landing-hero relative flex items-center justify-center">
+        <div className="landing-hero-art absolute inset-0 overflow-hidden">
           <img
-            src={HERO_IMAGE_URL}
-            srcSet={`${HERO_IMAGE_URL_MOBILE} 640w, ${HERO_IMAGE_URL} 1080w`}
-            sizes="(max-width: 768px) 100vw, 1080px"
-            alt="Kelibia Beach"
-            className="hidden md:block w-full h-full object-cover brightness-75"
+            src="/images/landing/hero.png"
+            alt="Façade contemporaine sous un ciel bleu"
+            className="w-full h-full object-cover"
             loading="eager"
             fetchpriority="high"
             decoding="async"
           />
-          <div className="md:hidden absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(16,185,129,0.35),transparent_45%),linear-gradient(160deg,#0f172a_0%,#134e4a_55%,#064e3b_100%)]" />
-          <div className="absolute inset-0 bg-emerald-950/40 mix-blend-multiply pointer-events-none" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
+          <div className="landing-hero-overlay absolute inset-0 pointer-events-none" />
         </div>
 
         <div className="relative z-10 container mx-auto px-4 md:px-6 text-center text-white w-full max-w-6xl">
           <div className="mb-6">
-             <div className="mb-5 flex justify-center">
+             <div className="landing-hero-branding mb-5 flex justify-center">
                {isHotelMode ? (
                  <div className="flex items-center gap-3">
                    <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-24 md:w-24">
@@ -4642,11 +4645,7 @@ export default function HomePage({
                      />
                    </div>
                  </div>
-               ) : (
-                 <div className="h-24 w-24 overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-28 md:w-28">
-                   <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-contain" />
-                 </div>
-               )}
+               ) : null}
              </div>
              <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-4 leading-tight drop-shadow-xl">
                Dwira <span className="text-amber-400">Immobilier</span>
@@ -4661,7 +4660,7 @@ export default function HomePage({
           </div>
           
           <p className="text-lg md:text-xl mb-8 max-w-2xl mx-auto drop-shadow-md text-gray-100">
-            Ventes immobilieres
+            {selectedMode === "vente" ? "Trouvez le bien à acheter" : "Trouvez votre prochain séjour"}
           </p>
 
           {/* Filter Bar */}
@@ -4712,7 +4711,10 @@ export default function HomePage({
             </div>
           </div>
 
-          <div className="pointer-events-auto overflow-visible rounded-[34px] border border-white/60 bg-[linear-gradient(140deg,rgba(255,255,255,0.98),rgba(240,247,255,0.96))] shadow-[0_30px_90px_rgba(2,32,71,0.35),0_0_0_1px_rgba(99,102,241,0.22),0_0_42px_rgba(56,189,248,0.18)] backdrop-blur-xl max-md:shadow-[0_0_0_1px_rgba(56,189,248,0.5),0_0_28px_rgba(56,189,248,0.45),0_0_60px_rgba(99,102,241,0.26)]">
+          {selectedMode === "vente" ? (
+            <div ref={setSalesFilterContainer} className="landing-sale-filter-host" />
+          ) : (
+          <div className="landing-search-panel pointer-events-auto overflow-visible rounded-[34px] border border-white/60 bg-[linear-gradient(140deg,rgba(255,255,255,0.98),rgba(240,247,255,0.96))] shadow-[0_30px_90px_rgba(2,32,71,0.35),0_0_0_1px_rgba(99,102,241,0.22),0_0_42px_rgba(56,189,248,0.18)] backdrop-blur-xl max-md:shadow-[0_0_0_1px_rgba(56,189,248,0.5),0_0_28px_rgba(56,189,248,0.45),0_0_60px_rgba(99,102,241,0.26)]">
             {/* Filter Controls */}
             <div className="p-4 md:p-6">
               {isHotelMode ? (
@@ -5376,7 +5378,7 @@ export default function HomePage({
                     </div>
                   </button>
 
-                  {showCalendar && (
+                  {selectedMode !== "vente" && showCalendar && (
                     <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[75vh] overflow-auto bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 md:w-[400px] md:left-auto md:right-0 hidden md:block">
                         {draftSelectedStayRanges.length > 0 && (
                           <div className="mb-4 flex flex-wrap gap-2">
@@ -5491,7 +5493,7 @@ export default function HomePage({
                     </div>
                   </button>
 
-                  {showCategoryDropdown && (
+                  {selectedMode !== "vente" && showCategoryDropdown && (
                     <div className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block">
                       <div className="p-2">
                         <button
@@ -5605,7 +5607,7 @@ export default function HomePage({
                       <p className={`text-sm font-semibold truncate ${selectedComfortImage ? "text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]" : "text-gray-800"}`}>{selectedComfortSummary}</p>
                     </div>
                   </button>
-                  {showComfortDropdown && (
+                  {selectedMode !== "vente" && showComfortDropdown && (
                     <div ref={comfortDesktopPopupRef} className="absolute top-full left-0 right-0 mt-2 z-[150] max-h-[70vh] overflow-auto bg-white rounded-2xl shadow-xl border border-gray-100 hidden md:block p-2 space-y-2">
                       <div className="sticky top-0 z-10 bg-white pb-2">
                         <button type="button" onClick={confirmComfortSelection} className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700">
@@ -5758,9 +5760,10 @@ export default function HomePage({
               )}
             </div>
           </div>
+          )}
         </div>
 
-        {showLocationDropdown && (
+        {selectedMode !== "vente" && showLocationDropdown && (
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={locationMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-3 space-y-3">
@@ -5861,7 +5864,7 @@ export default function HomePage({
           </div>
         )}
 
-        {showCalendar && (
+        {selectedMode !== "vente" && showCalendar && (
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={calendarMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[72vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-4">
@@ -5916,7 +5919,7 @@ export default function HomePage({
           </div>
         )}
 
-        {showCategoryDropdown && (
+        {selectedMode !== "vente" && showCategoryDropdown && (
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={categoryMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2">
@@ -5999,7 +6002,7 @@ export default function HomePage({
             </div>
           </div>
         )}
-        {showComfortDropdown && (
+        {selectedMode !== "vente" && showComfortDropdown && (
           <div className="fixed inset-0 z-[220] md:hidden">
             <button type="button" className="absolute inset-0 bg-black/35" onClick={closeAllFiltersAndSuppress} />
             <div ref={comfortMobilePopupRef} className="absolute left-3 right-3 bottom-3 max-h-[62vh] overflow-auto bg-white rounded-3xl shadow-2xl border border-gray-100 p-2 space-y-2">
@@ -6050,7 +6053,15 @@ export default function HomePage({
       </section>
 
       {/* Search Results / Featured Properties */}
-      <section ref={resultsRef} className="py-20 bg-gray-50 scroll-mt-20">
+      <LandingResidences />
+      {selectedMode === "vente" && !isSelectedModeComingSoon ? (
+        <section id="landing-catalogue" ref={resultsRef} className="landing-results landing-section scroll-mt-24">
+          <Suspense fallback={<p role="status">Chargement des biens à vendre…</p>}>
+            <LandingSalesPage embedded filterContainer={salesFilterContainer} />
+          </Suspense>
+        </section>
+      ) : (
+      <section id="landing-catalogue" ref={resultsRef} className="landing-results py-20 bg-gray-50 scroll-mt-20">
         <div className="container mx-auto px-4 md:px-6">
           <div className="flex justify-between items-end mb-12">
             <div>
@@ -7351,7 +7362,10 @@ export default function HomePage({
         </div>
       </section>
 
+      )}
+
       {/* Why Choose Us */}
+      <LandingStats propertyCount={properties.length} locationCount={new Set(properties.map((property) => property.location).filter(Boolean)).size} loading={loading} />
       <section className="py-20 bg-white" style={{ contentVisibility: "auto", containIntrinsicSize: "1000px" }}>
         <div className="container mx-auto px-4 md:px-6">
            <div className="text-center max-w-3xl mx-auto mb-16">
@@ -7388,7 +7402,8 @@ export default function HomePage({
       </section>
       
       {/* Call to Action */}
-      <section className="py-20 bg-emerald-700 text-white text-center relative overflow-hidden" style={{ contentVisibility: "auto", containIntrinsicSize: "900px" }}>
+      <LandingTestimonials />
+      <section className="landing-cta py-20 bg-emerald-700 text-white text-center relative overflow-hidden" style={{ contentVisibility: "auto", containIntrinsicSize: "900px" }}>
         <div className="absolute inset-0 opacity-10 pattern-dots"></div>
         <div className="container mx-auto px-4 md:px-6 relative z-10">
           <h2 className="text-3xl md:text-5xl font-bold mb-6">Confiez-nous votre projet</h2>
