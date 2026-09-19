@@ -293,11 +293,14 @@ export function Header() {
   useEffect(() => {
     if (!isOpen) {
       document.body.style.overflow = "";
+      document.body.classList.remove("dwira-mobile-menu-open");
       return;
     }
     document.body.style.overflow = "hidden";
+    document.body.classList.add("dwira-mobile-menu-open");
     return () => {
       document.body.style.overflow = "";
+      document.body.classList.remove("dwira-mobile-menu-open");
     };
   }, [isOpen]);
 
@@ -462,6 +465,9 @@ export function Header() {
 
   const navLinks = [
     { name: "Ventes", path: "/ventes" },
+    { name: "Location saisonniere", path: "/?mode=location_saisonniere" },
+    { name: "Location annuelle", path: "/?mode=location_annuelle" },
+    { name: "Ventes flash", path: "/ventes_flash" },
     { name: "Apps", path: "/deploy-mobile" },
     { name: "Contact", path: "/contact" },
   ];
@@ -650,12 +656,13 @@ export function Header() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: "100%" }}
               transition={{ type: "tween", duration: 0.3 }}
-              className="fixed inset-0 left-0 top-0 z-[90] h-dvh w-screen overflow-hidden bg-white lg:hidden"
+              className="fixed inset-0 left-0 top-0 z-[90] h-dvh w-screen overflow-hidden bg-[radial-gradient(circle_at_20%_0%,rgba(16,185,129,0.18),transparent_34%),linear-gradient(180deg,#f8fafc,#ffffff)] lg:hidden"
             >
-              <div className="relative z-10 flex h-full flex-col overflow-y-auto px-6 pb-10 pt-28">
-                <div className="mb-8 flex flex-col items-center border-b border-gray-100 pb-6">
-                  <div className={`mb-4 flex items-center ${(routeMode === "hotellerie" || showPartnerBranding) ? "gap-3" : ""}`}>
-                    <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-white shadow-sm">
+              <div className="absolute inset-x-5 top-5 h-32 rounded-[32px] bg-[#101820] shadow-[0_24px_70px_rgba(16,24,32,0.18)]" />
+              <div className="relative z-10 flex h-full flex-col overflow-y-auto px-5 pb-8 pt-20">
+                <div className="mb-5 rounded-[30px] border border-white/80 bg-white/92 p-5 shadow-[0_24px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+                  <div className={`mb-4 flex items-center gap-4 ${(routeMode === "hotellerie" || showPartnerBranding) ? "" : ""}`}>
+                    <span className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
                       <img src={logo} alt="Dwira Immobilier" className="h-full w-full rounded-full object-cover" />
                     </span>
                     {routeMode === "hotellerie" ? (
@@ -667,8 +674,12 @@ export function Header() {
                         <img src={partnerBrandLogoUrl || ""} alt={publicPartnerBrand?.name || "Agence partenaire"} className="h-full w-full object-contain p-1" />
                       </span>
                     ) : null}
+                    <div className="min-w-0">
+                      <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-600">Menu</p>
+                      <h2 className="mt-1 text-2xl font-black leading-tight text-[#101820]">Dwira Immobilier</h2>
+                      <p className="mt-1 text-sm font-semibold text-slate-500">Achat, vente et locations a Kelibia</p>
+                    </div>
                   </div>
-                  <h2 className="text-2xl font-bold text-emerald-900">Dwira Immobilier</h2>
                   {routeMode === "hotellerie" ? (
                     <p className="mt-2 text-sm font-medium text-sky-700">En partenariat avec Tita Travel</p>
                   ) : showPartnerBranding ? (
@@ -676,14 +687,15 @@ export function Header() {
                   ) : null}
                 </div>
               
-                <div className="flex flex-col gap-5 py-8">
+                <div className="grid gap-3">
                   {navLinks.map((link) => (
                     <Link
                       key={link.path}
                       to={link.path}
-                      className="text-center text-2xl font-semibold text-gray-800 hover:text-emerald-600"
+                      className="group flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 text-lg font-black text-[#101820] shadow-[0_14px_34px_rgba(15,23,42,0.06)] transition hover:border-emerald-200 hover:bg-emerald-50"
                     >
-                      {link.name}
+                      <span>{link.name}</span>
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 transition group-hover:bg-emerald-600 group-hover:text-white">→</span>
                     </Link>
                   ))}
                 </div>
@@ -729,26 +741,26 @@ export function Header() {
                   </button>
                 </div>
               ) : (
-                <div className="mt-2 flex flex-col items-center gap-3 border-t border-gray-100 pt-6">
+                <div className="mt-5 grid gap-3 rounded-[26px] border border-slate-200 bg-white/86 p-3 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
                   {!isPublicAmicaleFlow ? (
                     <>
                       <Link
                         to="/agent-amicale/login"
-                        className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
+                        className="flex items-center gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-base font-black text-emerald-700 hover:bg-emerald-100"
                       >
                         <User size={24} />
                         <span>Login amicale</span>
                       </Link>
                       <Link
                         to="/partner-agency/login"
-                        className="flex items-center gap-2 text-xl font-semibold text-sky-600 hover:text-sky-700"
+                        className="flex items-center gap-3 rounded-2xl bg-sky-50 px-4 py-3 text-base font-black text-sky-700 hover:bg-sky-100"
                       >
                         <Building2 size={24} />
                         <span>Login agence partenaire</span>
                       </Link>
                       <Link
                         to="/login"
-                        className="flex items-center gap-2 text-xl font-semibold text-emerald-600 hover:text-emerald-700"
+                        className="flex items-center gap-3 rounded-2xl bg-slate-950 px-4 py-3 text-base font-black text-white hover:bg-slate-800"
                       >
                         <User size={24} />
                         <span>Connexion</span>
@@ -758,16 +770,21 @@ export function Header() {
                 </div>
               )}
               
-                <div className="mt-auto flex justify-center gap-6 pt-10">
-                  <a href={facebookUrl} target="_blank" rel="noreferrer" className="text-gray-600 hover:text-blue-600">
-                    <Facebook size={28} />
+                <div className="mt-auto grid grid-cols-[1fr_auto] items-center gap-4 pt-8">
+                  <div className="flex gap-3">
+                  <a href={facebookUrl} target="_blank" rel="noreferrer" className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-600 shadow-sm hover:text-blue-600">
+                    <Facebook size={24} />
                   </a>
-                  <a href="https://www.instagram.com/dwira.immobiliere" target="_blank" rel="noreferrer" className="text-gray-600 hover:text-pink-600">
-                    <Instagram size={28} />
+                  <a href="https://www.instagram.com/dwira.immobiliere" target="_blank" rel="noreferrer" className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-600 shadow-sm hover:text-pink-600">
+                    <Instagram size={24} />
                   </a>
-                  <a href="https://www.tiktok.com/@Dwira.immobilier" target="_blank" rel="noreferrer" className="text-gray-600 hover:text-black">
-                    <TikTokIcon size={28} />
+                  <a href="https://www.tiktok.com/@Dwira.immobilier" target="_blank" rel="noreferrer" className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-600 shadow-sm hover:text-black">
+                    <TikTokIcon size={24} />
                   </a>
+                  </div>
+                  <button type="button" onClick={() => openPhoneApp(headerContact.phone)} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#101820] text-white shadow-[0_18px_34px_rgba(16,24,32,0.24)]">
+                    <Phone size={23} />
+                  </button>
                 </div>
               </div>
             </motion.div>

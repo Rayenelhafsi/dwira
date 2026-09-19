@@ -1,8 +1,9 @@
 import { Link } from 'react-router';
 import { createPortal } from 'react-dom';
 import { LandingSaleFilters } from '../../pages/LandingSaleFilters';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useProperties } from '../../context/PropertiesContext';
+import { useAuth } from '../../context/AuthContext';
 import { Bien } from '../../admin/types';
 import {
   ArrowUpRight,
@@ -14,17 +15,23 @@ import {
   Filter,
   Home,
   Landmark,
+  Loader2,
+  LogIn,
   MapPin,
   Phone,
   Ruler,
   Search,
   SlidersHorizontal,
   Trees,
+  UploadCloud,
+  UserPlus,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { buildTelLink } from '../../utils/deepLinks';
 import { resolveMediaUrl } from '../../utils/media';
 import { buildApiUrl } from '../../utils/api';
+import { loginWithPasskey, registerWithPasskey } from '../../services/auth';
 
 const typeLabel: Record<string, string> = {
   appartement: 'Appartement',
@@ -57,6 +64,63 @@ const HERO_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop stop-color='%230f172a'/%3E%3Cstop offset='1' stop-color='%23134e4a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1600' height='900' fill='url(%23g)'/%3E%3Cpath d='M180 620l250-210 180 155 150-120 270 175H180z' fill='rgba(255,255,255,0.14)'/%3E%3Ccircle cx='1180' cy='220' r='88' fill='rgba(255,255,255,0.08)'/%3E%3C/svg%3E";
 const CARD_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Crect width='1200' height='800' fill='%23dbe4ea'/%3E%3Cpath d='M220 560l180-180 120 120 110-110 170 150H220z' fill='%23b9c5d1'/%3E%3Ccircle cx='430' cy='260' r='56' fill='%23b9c5d1'/%3E%3C/svg%3E";
+const SALE_TYPE_IMAGES: Record<string, string> = {
+  appartement: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23dbeafe'/%3E%3Cpath d='M190 290V115h260v175H190zm44-34h45v-45h-45v45zm0-78h45v-45h-45v45zm70 78h45v-45h-45v45zm0-78h45v-45h-45v45zm70 78h45v-45h-45v45zm0-78h45v-45h-45v45z' fill='%230f172a' fill-opacity='.72'/%3E%3C/svg%3E",
+  villa_maison: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23dcfce7'/%3E%3Cpath d='M145 280V170l175-95 175 95v110h-95v-74H240v74h-95z' fill='%23065046' fill-opacity='.78'/%3E%3C/svg%3E",
+  studio: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23fef3c7'/%3E%3Crect x='190' y='95' width='260' height='190' rx='24' fill='%2392400e' fill-opacity='.72'/%3E%3C/svg%3E",
+  immeuble: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23e0f2fe'/%3E%3Cpath d='M210 295V70h220v225H210zm45-35h45v-35h-45v35zm0-65h45v-35h-45v35zm0-65h45V95h-45v35zm85 130h45v-35h-45v35zm0-65h45v-35h-45v35zm0-65h45V95h-45v35z' fill='%230c4a6e' fill-opacity='.76'/%3E%3C/svg%3E",
+  terrain: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23ecfccb'/%3E%3Cpath d='M70 270l170-105 120 55 120-90 90 140H70z' fill='%233f6212' fill-opacity='.7'/%3E%3Cpath d='M105 295h430' stroke='%2365a30d' stroke-width='18' stroke-linecap='round'/%3E%3C/svg%3E",
+  lotissement: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23f1f5f9'/%3E%3Cpath d='M120 110h400v170H120z' fill='%23101820' fill-opacity='.1'/%3E%3Cpath d='M120 165h400M250 110v170M390 110v170' stroke='%23101820' stroke-width='12' stroke-opacity='.55'/%3E%3C/svg%3E",
+  local_commercial: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23fae8ff'/%3E%3Cpath d='M150 280V135h340v145H150zm0-145l35-58h270l35 58H150zm55 145v-86h100v86H205zm135-86h95v52h-95v-52z' fill='%237014a8' fill-opacity='.72'/%3E%3C/svg%3E",
+};
+
+type OwnerSaleRequestDraft = {
+  title: string;
+  propertyType: string;
+  region: string;
+  zone: string;
+  address: string;
+  superficie_m2: string;
+  terrain_surface_m2: string;
+  terrain_facade_m: string;
+  surface_local_m2: string;
+  facade_m: string;
+  prix_affiche_client: string;
+  paymentMode: string;
+  bedrooms: string;
+  type_rue: string;
+  type_papier: string;
+  terrain_type_sol: string;
+  description: string;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  availability: string;
+};
+
+const OWNER_REQUEST_INITIAL: OwnerSaleRequestDraft = {
+  title: '',
+  propertyType: 'appartement',
+  region: '',
+  zone: '',
+  address: '',
+  superficie_m2: '',
+  terrain_surface_m2: '',
+  terrain_facade_m: '',
+  surface_local_m2: '',
+  facade_m: '',
+  prix_affiche_client: '',
+  paymentMode: 'comptant',
+  bedrooms: '',
+  type_rue: '',
+  type_papier: '',
+  terrain_type_sol: '',
+  description: '',
+  contactName: '',
+  contactPhone: '',
+  contactEmail: '',
+  availability: '',
+};
 
 const normalizeText = (value?: string | null) =>
   String(value || '')
@@ -248,8 +312,303 @@ function FilterDropdown({
   );
 }
 
+export function OwnerSaleRequestBox({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+}) {
+  const { user } = useAuth();
+  const { login } = useAuth();
+  const [step, setStep] = useState(0);
+  const [draft, setDraft] = useState<OwnerSaleRequestDraft>(OWNER_REQUEST_INITIAL);
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authLoading, setAuthLoading] = useState<'login' | 'register' | null>(null);
+  const isAuthenticatedOwner = Boolean(user && user.role === 'user');
+  const isTerrain = draft.propertyType === 'terrain' || draft.propertyType === 'lotissement';
+  const isBuiltProperty = !isTerrain && draft.propertyType !== 'local_commercial';
+
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') {
+      document.body.classList.remove('dwira-owner-sale-open');
+      return;
+    }
+    document.body.classList.add('dwira-owner-sale-open');
+    return () => {
+      document.body.classList.remove('dwira-owner-sale-open');
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !user) return;
+    setDraft((current) => ({
+      ...current,
+      contactName: current.contactName || user.name || '',
+      contactEmail: current.contactEmail || user.email || '',
+      contactPhone: current.contactPhone || user.telephone || '',
+    }));
+  }, [open, user]);
+
+  const updateDraft = (key: keyof OwnerSaleRequestDraft, value: string) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+
+  const requiredFields = [
+    'title',
+    'propertyType',
+    'region',
+    'zone',
+    'address',
+    'surface',
+    'price',
+    'paymentMode',
+    'documents',
+    'description',
+    'contactName',
+    'contactPhone',
+    'contactEmail',
+    'availability',
+  ] as Array<keyof OwnerSaleRequestDraft>;
+
+  const missingFields = requiredFields.filter((key) => !String(draft[key] || '').trim());
+  const canSubmit = isAuthenticatedOwner && missingFields.length === 0 && photos.length > 0 && !submitting;
+
+  const uploadPhotos = async () => {
+    const urls: string[] = [];
+    for (const file of photos) {
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('upload_scope', 'owner_sale_request');
+      const response = await fetch(buildApiUrl('/upload'), {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(payload?.error || 'Upload photo impossible'));
+      urls.push(String(payload?.url || payload?.imageUrl || '').trim());
+    }
+    return urls.filter(Boolean);
+  };
+
+  const submitRequest = async () => {
+    if (!isAuthenticatedOwner) {
+      toast.error('Connectez-vous comme proprietaire avant de soumettre.');
+      return;
+    }
+    if (missingFields.length > 0) {
+      toast.error('Completez tous les champs obligatoires.');
+      return;
+    }
+    if (photos.length === 0) {
+      toast.error('Ajoutez au moins une photo du bien.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const photoUrls = await uploadPhotos();
+      const response = await fetch(buildApiUrl('/owner-sale-listing-requests'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          ...draft,
+          photos: photoUrls,
+          source: 'landing_ventes',
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(payload?.error || 'Demande impossible'));
+      toast.success('Demande envoyee a l equipe ventes.');
+      setDraft(OWNER_REQUEST_INITIAL);
+      setPhotos([]);
+      setStep(0);
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Demande impossible');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePasskeyAuth = async (mode: 'login' | 'register') => {
+    const email = authEmail.trim() || draft.contactEmail.trim();
+    const name = authName.trim() || draft.contactName.trim();
+    if (!email) {
+      toast.error('Email requis pour continuer.');
+      return;
+    }
+    if (mode === 'register' && !name) {
+      toast.error('Nom requis pour creer un compte.');
+      return;
+    }
+    setAuthLoading(mode);
+    try {
+      const nextUser = mode === 'register'
+        ? await registerWithPasskey(email, name)
+        : await loginWithPasskey(email);
+      login({ ...nextUser, clientType: nextUser.clientType || 'proprietaire' });
+      toast.success(mode === 'register' ? 'Compte cree.' : 'Connexion reussie.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Authentification impossible');
+    } finally {
+      setAuthLoading(null);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="landing-owner-sale-callout">
+        <div>
+          <p>Vous etes proprietaire ?</p>
+          <h3>Ajoutez votre bien a vendre sur Dwira</h3>
+          <span>Un parcours clair, photos incluses, puis validation par notre equipe ventes.</span>
+        </div>
+        <Link to="/ventes/soumettre-bien">
+          Ajouter mon bien
+          <ArrowUpRight className="h-4 w-4" />
+        </Link>
+      </div>
+    );
+  }
+
+  const stepLabels = ['Compte', 'Bien', 'Emplacement', 'Vente', 'Photos'];
+
+  return (
+    <section className="landing-owner-sale-submission">
+      <div className="w-full overflow-hidden rounded-[28px] bg-white shadow-[0_32px_90px_rgba(15,23,42,0.12)]">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 md:p-6">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-700">Soumission proprietaire</p>
+            <h3 className="mt-2 text-2xl font-black text-slate-950">Ajouter un bien a vendre</h3>
+          </div>
+          <button type="button" onClick={() => onOpenChange(false)} className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-700">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto border-b border-slate-100 px-5 py-3">
+          {stepLabels.map((label, index) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setStep(index)}
+              className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold ${step === index ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-600'}`}
+            >
+              {index + 1}. {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="max-h-[58vh] overflow-y-auto p-5 md:p-6">
+          {step === 0 ? (
+            <div className="grid gap-4">
+              {isAuthenticatedOwner ? (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="font-bold text-emerald-950">Compte connecte</p>
+                  <p className="mt-1 text-sm text-emerald-800">{user?.name} - {user?.email}</p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="font-bold text-amber-950">Connexion obligatoire</p>
+                  <p className="mt-1 text-sm text-amber-800">Connectez-vous si vous avez deja un compte, ou creez un compte proprietaire avant de soumettre.</p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <input value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email du compte" className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm text-slate-950 placeholder:text-slate-500" />
+                    <input value={authName} onChange={(event) => setAuthName(event.target.value)} placeholder="Nom complet" className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm text-slate-950 placeholder:text-slate-500" />
+                    <button type="button" onClick={() => void handlePasskeyAuth('login')} disabled={authLoading !== null} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white disabled:opacity-60">
+                      {authLoading === 'login' ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+                      Connexion
+                    </button>
+                    <button type="button" onClick={() => void handlePasskeyAuth('register')} disabled={authLoading !== null} className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold text-amber-900 disabled:opacity-60">
+                      {authLoading === 'register' ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                      Creer un compte
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="grid gap-3 md:grid-cols-3">
+                <input value={draft.contactName} onChange={(event) => updateDraft('contactName', event.target.value)} placeholder="Nom proprietaire *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+                <input value={draft.contactPhone} onChange={(event) => updateDraft('contactPhone', event.target.value)} placeholder="Telephone *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+                <input value={draft.contactEmail} onChange={(event) => updateDraft('contactEmail', event.target.value)} placeholder="Email *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              </div>
+            </div>
+          ) : null}
+
+          {step === 1 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <input value={draft.title} onChange={(event) => updateDraft('title', event.target.value)} placeholder="Titre du bien *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm md:col-span-2" />
+              <select value={draft.propertyType} onChange={(event) => updateDraft('propertyType', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                {Object.entries(typeLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <input value={draft.surface} onChange={(event) => updateDraft('surface', event.target.value)} placeholder="Surface en m2 *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              {isBuiltProperty ? <input value={draft.bedrooms} onChange={(event) => updateDraft('bedrooms', event.target.value)} placeholder="Chambres / pieces" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" /> : null}
+              {isTerrain ? <input value={draft.facade} onChange={(event) => updateDraft('facade', event.target.value)} placeholder="Facade / lots" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" /> : null}
+              <textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Description detaillee *" rows={4} className="rounded-xl border border-slate-200 px-4 py-3 text-sm md:col-span-2" />
+            </div>
+          ) : null}
+
+          {step === 2 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <input value={draft.region} onChange={(event) => updateDraft('region', event.target.value)} placeholder="Region *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.zone} onChange={(event) => updateDraft('zone', event.target.value)} placeholder="Zone / quartier *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Adresse ou repere *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm md:col-span-2" />
+            </div>
+          ) : null}
+
+          {step === 3 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <input value={draft.price} onChange={(event) => updateDraft('price', event.target.value)} placeholder="Prix souhaite en DT *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <select value={draft.paymentMode} onChange={(event) => updateDraft('paymentMode', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                <option value="comptant">Comptant</option>
+                <option value="facilite">Facilite de paiement</option>
+              </select>
+              <input value={draft.documents} onChange={(event) => updateDraft('documents', event.target.value)} placeholder="Papiers disponibles *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.availability} onChange={(event) => updateDraft('availability', event.target.value)} placeholder="Disponibilite pour visite *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+            </div>
+          ) : null}
+
+          {step === 4 ? (
+            <div className="grid gap-4">
+              <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/60 px-4 py-8 text-center">
+                <UploadCloud className="h-8 w-8 text-emerald-700" />
+                <span className="text-sm font-bold text-slate-950">Ajouter les photos du bien *</span>
+                <input type="file" multiple accept="image/*" className="hidden" onChange={(event) => setPhotos(Array.from(event.target.files || []))} />
+              </label>
+              {photos.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {photos.map((file) => (
+                    <div key={`${file.name}-${file.size}`} className="truncate rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">{file.name}</div>
+                  ))}
+                </div>
+              ) : null}
+              {missingFields.length > 0 ? <p className="text-sm text-amber-700">Champs restants: {missingFields.length}</p> : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 p-5">
+          <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">Precedent</button>
+          {step < stepLabels.length - 1 ? (
+            <button type="button" onClick={() => setStep((current) => Math.min(stepLabels.length - 1, current + 1))} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white">Suivant</button>
+          ) : (
+            <button type="button" onClick={() => void submitRequest()} disabled={!canSubmit} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              Soumettre
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function VentesListPage({ embedded = false, filterContainer = null }: { embedded?: boolean; filterContainer?: HTMLElement | null } = {}) {
   const { biens, zones, proprietaires, isLoading } = useProperties();
+  const saleRailRef = useRef<HTMLDivElement | null>(null);
   const [heroSettings, setHeroSettings] = useState<{ imageUrl: string; title: string; subtitle: string }>({
     imageUrl: '',
     title: '',
@@ -257,12 +616,16 @@ export default function VentesListPage({ embedded = false, filterContainer = nul
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState('all');
+  const [selectedRegion, setSelectedRegion] = useState('all');
   const [selectedZone, setSelectedZone] = useState('all');
   const [selectedPayment, setSelectedPayment] = useState('all');
   const [budgetMax, setBudgetMax] = useState('');
   const [surfaceMin, setSurfaceMin] = useState('');
   const [bedroomsMin, setBedroomsMin] = useState('');
   const [facadeMin, setFacadeMin] = useState('');
+  const [distanceBeachMax, setDistanceBeachMax] = useState('');
+  const [unitsMin, setUnitsMin] = useState('');
+  const [constructibleFilter, setConstructibleFilter] = useState('all');
   const [openDropdown, setOpenDropdown] = useState<'type' | 'zone' | 'payment' | null>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -304,16 +667,36 @@ export default function VentesListPage({ embedded = false, filterContainer = nul
     };
   }, []);
 
+  const availableSaleZones = useMemo(() => {
+    const zoneIds = new Set(venteBiens.map((bien) => bien.zone_id).filter(Boolean));
+    return zones
+      .filter((zone) => zoneIds.has(zone.id))
+      .sort((a, b) => String(a.region || a.nom).localeCompare(String(b.region || b.nom), 'fr', { sensitivity: 'base' }));
+  }, [venteBiens, zones]);
+
+  const regionOptions = useMemo(() => {
+    const values = new Map<string, string>();
+    availableSaleZones.forEach((zone) => {
+      const regionName = String(zone.region || '').trim();
+      if (!regionName) return;
+      const token = normalizeText(regionName);
+      if (token && !values.has(token)) values.set(token, regionName);
+    });
+    return Array.from(values.values()).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+  }, [availableSaleZones]);
+
   const zoneOptions = useMemo(() => {
     const values = new Map<string, string>();
     venteBiens.forEach((bien) => {
-      const zoneName = zones.find((zone) => zone.id === bien.zone_id)?.nom;
+      const zone = zones.find((candidate) => candidate.id === bien.zone_id);
+      if (!zone) return;
+      if (selectedRegion !== 'all' && normalizeText(zone.region) !== normalizeText(selectedRegion)) return;
+      const zoneName = zone.quartier || zone.nom;
       if (!zoneName) return;
-      const token = normalizeText(zoneName);
-      if (token && !values.has(token)) values.set(token, zoneName);
+      if (!values.has(zone.id)) values.set(zone.id, zoneName);
     });
-    return Array.from(values.values()).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
-  }, [venteBiens, zones]);
+    return Array.from(values, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
+  }, [selectedRegion, venteBiens, zones]);
 
   const typeDropdownOptions = useMemo<FilterDropdownOption[]>(
     () => [
@@ -321,6 +704,7 @@ export default function VentesListPage({ embedded = false, filterContainer = nul
       ...Object.entries(typeLabel).map(([value, label]) => ({
         value,
         label,
+        imageUrl: SALE_TYPE_IMAGES[value] || CARD_FALLBACK,
         icon: typeIconMap[value] || Home,
       })),
     ],
@@ -331,8 +715,8 @@ export default function VentesListPage({ embedded = false, filterContainer = nul
     () => [
       { value: 'all', label: 'Toutes les zones', icon: MapPin },
       ...zoneOptions.map((zone) => ({
-        value: zone,
-        label: zone,
+        value: zone.value,
+        label: zone.label,
         icon: MapPin,
       })),
     ],
@@ -353,13 +737,18 @@ export default function VentesListPage({ embedded = false, filterContainer = nul
     const surfaceMinValue = Number(surfaceMin || 0);
     const bedroomsMinValue = Number(bedroomsMin || 0);
     const facadeMinValue = Number(facadeMin || 0);
+    const distanceBeachMaxValue = Number(distanceBeachMax || 0);
+    const unitsMinValue = Number(unitsMin || 0);
     const normalizedSearch = normalizeText(searchTerm);
     return venteBiens.filter((bien) => {
-      const zoneName = zones.find((zone) => zone.id === bien.zone_id)?.nom || '';
+      const zone = zones.find((candidate) => candidate.id === bien.zone_id);
+      const zoneName = zone?.nom || '';
       const haystack = [
         bien.titre,
         bien.reference,
         zoneName,
+        zone?.region,
+        zone?.quartier,
         typeLabel[bien.type] || bien.type,
         bien.description,
       ]
@@ -368,7 +757,8 @@ export default function VentesListPage({ embedded = false, filterContainer = nul
       const publicPrice = getPublicPrice(bien);
       if (normalizedSearch && !haystack.includes(normalizedSearch)) return false;
       if (selectedType !== 'all' && bien.type !== selectedType) return false;
-      if (selectedZone !== 'all' && normalizeText(zoneName) !== normalizeText(selectedZone)) return false;
+      if (selectedRegion !== 'all' && normalizeText(zone?.region) !== normalizeText(selectedRegion)) return false;
+      if (selectedZone !== 'all' && bien.zone_id !== selectedZone) return false;
       if (selectedPayment !== 'all' && (bien.modalite_paiement_vente || 'comptant') !== selectedPayment) return false;
       if (budgetValue > 0 && publicPrice.value > budgetValue) return false;
       if (surfaceMinValue > 0) {
@@ -380,35 +770,95 @@ export default function VentesListPage({ embedded = false, filterContainer = nul
         const bienFacade = Number(bien.terrain_facade_m || bien.facade_m || 0);
         if (bienFacade < facadeMinValue) return false;
       }
+      if (distanceBeachMaxValue > 0 && Number(bien.terrain_distance_plage_m || 0) > distanceBeachMaxValue) return false;
+      if (unitsMinValue > 0) {
+        const bienUnits = bien.type === 'lotissement' ? Number(bien.lotissement_nb_terrains || 0) : Number(bien.immeuble_nb_appartements || 0);
+        if (bienUnits < unitsMinValue) return false;
+      }
+      if (constructibleFilter !== 'all' && Boolean(bien.terrain_constructible) !== (constructibleFilter === 'yes')) return false;
       return true;
     });
-  }, [bedroomsMin, budgetMax, facadeMin, searchTerm, selectedPayment, selectedType, selectedZone, surfaceMin, venteBiens, zones]);
+  }, [bedroomsMin, budgetMax, constructibleFilter, distanceBeachMax, facadeMin, searchTerm, selectedPayment, selectedRegion, selectedType, selectedZone, surfaceMin, unitsMin, venteBiens, zones]);
 
   const activeFiltersCount = [
     searchTerm.trim(),
     selectedType !== 'all' ? selectedType : '',
+    selectedRegion !== 'all' ? selectedRegion : '',
     selectedZone !== 'all' ? selectedZone : '',
     selectedPayment !== 'all' ? selectedPayment : '',
     budgetMax.trim(),
     surfaceMin.trim(),
     bedroomsMin.trim(),
     facadeMin.trim(),
+    distanceBeachMax.trim(),
+    unitsMin.trim(),
+    constructibleFilter !== 'all' ? constructibleFilter : '',
   ].filter(Boolean).length;
 
   const resetFilters = () => {
     setSearchTerm('');
     setSelectedType('all');
+    setSelectedRegion('all');
     setSelectedZone('all');
     setSelectedPayment('all');
     setBudgetMax('');
     setSurfaceMin('');
     setBedroomsMin('');
     setFacadeMin('');
+    setDistanceBeachMax('');
+    setUnitsMin('');
+    setConstructibleFilter('all');
   };
+
+  const scrollSaleRail = useCallback((direction: 1 | -1) => {
+    const rail = saleRailRef.current;
+    if (!rail) return;
+    const cards = Array.from(rail.querySelectorAll<HTMLElement>('article'));
+    const firstCard = cards[0];
+    const step = firstCard ? firstCard.offsetWidth + 18 : rail.clientWidth * 0.76;
+    const maxLeft = rail.scrollWidth - rail.clientWidth;
+    const currentIndex = firstCard ? Math.round(rail.scrollLeft / step) : 0;
+    const nextIndex = direction > 0
+      ? (currentIndex + 1) % Math.max(cards.length, 1)
+      : (currentIndex - 1 + Math.max(cards.length, 1)) % Math.max(cards.length, 1);
+    const nextLeft = nextIndex * step;
+    rail.scrollTo({
+      left: nextLeft > maxLeft - 8 ? 0 : Math.max(0, nextLeft),
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!embedded || filteredBiens.length <= 1) return;
+    const rail = saleRailRef.current;
+    const centerNearestCard = () => {
+      if (!rail) return;
+      const firstCard = rail.querySelector<HTMLElement>('article');
+      if (!firstCard) return;
+      const step = firstCard.offsetWidth + 18;
+      const nearestIndex = Math.round(rail.scrollLeft / step);
+      rail.scrollTo({ left: nearestIndex * step, behavior: 'smooth' });
+    };
+    const timer = window.setInterval(() => scrollSaleRail(1), 5200);
+    rail?.addEventListener('scrollend', centerNearestCard);
+    return () => {
+      window.clearInterval(timer);
+      rail?.removeEventListener('scrollend', centerNearestCard);
+    };
+  }, [embedded, filteredBiens.length, scrollSaleRail]);
 
   const salesFilters = embedded ? (
     <LandingSaleFilters
-      zones={zoneDropdownOptions} types={typeDropdownOptions}
+      regions={[{ value: 'all', label: 'Toutes les régions' }, ...regionOptions.map((region) => {
+        const match = availableSaleZones.find((zone) => normalizeText(zone.region) === normalizeText(region));
+        return { value: region, label: region, imageUrl: resolveMediaUrl(match?.region_image_url || match?.image_url) || getSaleCardImage(venteBiens.find((bien) => bien.zone_id === match?.id) || venteBiens[0]) };
+      })]}
+      zones={[{ value: 'all', label: selectedRegion === 'all' ? 'Choisir une région' : 'Toutes les zones' }, ...zoneOptions.map((option) => {
+        const zone = zones.find((candidate) => candidate.id === option.value);
+        return { ...option, imageUrl: resolveMediaUrl(zone?.quartier_image_url || zone?.region_image_url || zone?.image_url) || getSaleCardImage(venteBiens.find((bien) => bien.zone_id === option.value) || venteBiens[0]) };
+      })]}
+      types={typeDropdownOptions}
+      region={{ value: selectedRegion, onChange: setSelectedRegion }}
       zone={{ value: selectedZone, onChange: setSelectedZone }}
       type={{ value: selectedType, onChange: setSelectedType }}
       payment={{ value: selectedPayment, onChange: setSelectedPayment }}
@@ -416,6 +866,9 @@ export default function VentesListPage({ embedded = false, filterContainer = nul
       surface={{ value: surfaceMin, onChange: setSurfaceMin }}
       bedrooms={{ value: bedroomsMin, onChange: setBedroomsMin }}
       facade={{ value: facadeMin, onChange: setFacadeMin }}
+      distanceBeach={{ value: distanceBeachMax, onChange: setDistanceBeachMax }}
+      units={{ value: unitsMin, onChange: setUnitsMin }}
+      constructible={{ value: constructibleFilter, onChange: setConstructibleFilter }}
       onReset={resetFilters} activeCount={activeFiltersCount}
     />
   ) : (
@@ -656,14 +1109,24 @@ export default function VentesListPage({ embedded = false, filterContainer = nul
       {embedded && filterContainer ? createPortal(salesFilters, filterContainer) : salesFilters}
 
       <section className={embedded ? "landing-sale-results" : "mx-auto max-w-7xl px-4 py-10 md:px-6 md:py-14"}>
-        {embedded && <h2 className="mb-6 text-3xl font-semibold">Biens à vendre</h2>}
+        {embedded && (
+          <div className="landing-sale-carousel-head">
+            <h2>Biens à vendre</h2>
+            {filteredBiens.length > 1 ? (
+              <div className="landing-sale-carousel-controls">
+                  <button type="button" onClick={() => scrollSaleRail(-1)} aria-label="Bien precedent">{'<'}</button>
+                  <button type="button" onClick={() => scrollSaleRail(1)} aria-label="Bien suivant">{'>'}</button>
+              </div>
+            ) : null}
+          </div>
+        )}
         {filteredBiens.length === 0 ? (
           <div className="rounded-lg border border-emerald-100 bg-white p-10 text-center shadow-sm">
             <h2 className="text-2xl font-semibold text-[#101820]">Aucun bien ne correspond aux filtres</h2>
             <p className="mt-2 text-sm text-[#59636d]">Elargissez la recherche ou reinitialisez les filtres commerciaux.</p>
           </div>
         ) : (
-          <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
+          <div ref={embedded ? saleRailRef : undefined} className={embedded ? "landing-sale-card-rail" : "grid gap-6 md:grid-cols-2 2xl:grid-cols-3"}>
             {filteredBiens.map((bien) => {
               const zoneName = zones.find((z) => z.id === bien.zone_id)?.nom || 'Zone non definie';
               const imageUrl = getSaleCardImage(bien);

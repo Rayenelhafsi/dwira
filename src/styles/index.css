@@ -83,6 +83,19 @@ body {
   will-change: transform;
 }
 
+body.dwira-mobile-menu-open .dwira-mobile-action-dock,
+body.dwira-mobile-menu-open .dwira-mobile-calendar-fab {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+body.dwira-owner-sale-open .dwira-chatbot-launcher {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .dwira-attention-tab,
   .dwira-attention-badge,

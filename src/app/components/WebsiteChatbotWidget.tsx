@@ -617,7 +617,7 @@ export default function WebsiteChatbotWidget() {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="fixed bottom-5 right-5 z-[95] inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg transition hover:bg-emerald-700"
+        className="dwira-chatbot-launcher fixed bottom-5 right-5 z-[95] inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg transition hover:bg-emerald-700"
         aria-label="Ouvrir assistant"
       >
         {open ? <X size={22} /> : <MessageCircle size={22} />}

@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import type { Dispatch, SetStateAction, UIEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
-import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload, CheckCircle2, CircleDollarSign, UtensilsCrossed, ExternalLink, LayoutGrid, Rows3, Flame, Building2, Palmtree, Layers3 } from "lucide-react";
+import { Search, MapPin, Calendar, CalendarDays, ArrowRight, Star, Key, KeyRound, Globe, Facebook, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Home, Check, Waves, Wind, SlidersHorizontal, Users, BedDouble, LoaderCircle, AlertCircle, Sparkles, ShieldCheck, ShieldX, TicketPercent, Minus, Plus, Upload, CheckCircle2, CircleDollarSign, UtensilsCrossed, ExternalLink, LayoutGrid, Rows3, Flame, Building2, Palmtree } from "lucide-react";
 import { useProperties } from "../context/PropertiesContext";
 import { useAuth } from "../context/AuthContext";
 import { PropertyCard } from "../components/PropertyCard";
@@ -40,7 +40,7 @@ import { hasBlockingUnavailableDates, isValidStayRange } from "../utils/availabi
 import { resolveMediaUrl } from "../utils/media";
 import { getPropertyFlashOffers, type PropertyFlashOffer } from "../utils/flashOffers";
 import { fetchAmicalesPublic } from "../utils/amicales";
-import { LandingResidences, LandingStats, LandingTestimonials } from "./LandingSections";
+import { LandingStats, LandingTestimonials } from "./LandingSections";
 import { useLandingReveal } from "./useLandingReveal";
 
 const LandingSalesPage = lazy(() => import("../ventes/pages/VentesListPage"));
@@ -112,14 +112,14 @@ const MODE_TABS: Array<{ value: ListingMode; label: string; comingSoon?: boolean
   { value: "location_saisonniere", label: "Locations saisonnières", comingSoon: false },
 ];
 const HERO_TABS: Array<{
-  key: "vente" | "location_saisonniere" | "ventes_flash" | "packs";
+  key: "vente" | "location_saisonniere" | "location_annuelle" | "ventes_flash";
   label: string;
   icon: typeof Palmtree;
 }> = [
   { key: "vente", label: "Ventes", icon: Building2 },
   { key: "location_saisonniere", label: "Location saisonnière", icon: Palmtree },
+  { key: "location_annuelle", label: "Location annuelle", icon: KeyRound },
   { key: "ventes_flash", label: "Ventes flash", icon: Flame },
-  { key: "packs", label: "Packs", icon: Layers3 },
 ];
 
 const ZONE_FALLBACK_IMAGE =
@@ -4671,8 +4671,6 @@ export default function HomePage({
               const isSelected =
                 tab.key === "ventes_flash"
                   ? isFlashLanding
-                  : tab.key === "packs"
-                    ? routerLocation.pathname === "/packs" || routerLocation.pathname.startsWith("/packs/")
                   : !isFlashLanding && selectedMode === tab.key;
               return (
               <button
@@ -4681,10 +4679,6 @@ export default function HomePage({
                 onClick={() => {
                   if (tab.key === "ventes_flash") {
                     navigate("/ventes_flash");
-                    return;
-                  }
-                  if (tab.key === "packs") {
-                    navigate("/packs");
                     return;
                   }
                   setSelectedMode(tab.key);
@@ -4698,12 +4692,14 @@ export default function HomePage({
                 }}
                 className={`relative min-w-0 rounded-[18px] border px-2 py-3 text-xs font-semibold leading-tight transition-all duration-200 sm:px-3 sm:text-sm md:rounded-[22px] md:px-5 ${
                   isSelected
-                    ? "z-10 border-white/70 bg-white/78 text-emerald-800 shadow-[0_10px_30px_rgba(15,23,42,0.18)] backdrop-blur-xl"
-                    : "border-white/18 bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl hover:bg-white/20"
+                    ? tab.key === "location_saisonniere"
+                      ? "z-10 border-emerald-500 bg-emerald-600 text-white shadow-[0_14px_34px_rgba(6,95,70,0.30)]"
+                      : "z-10 border-slate-950 bg-slate-950 text-white shadow-[0_14px_34px_rgba(15,23,42,0.26)]"
+                    : "border-white/80 bg-white/82 text-slate-900 shadow-[0_10px_30px_rgba(15,23,42,0.10)] backdrop-blur-xl hover:bg-white"
                 }`}
               >
                 <span className="flex items-center justify-center gap-2">
-                  <Icon size={16} className={isSelected ? "text-emerald-600" : "text-white"} />
+                  <Icon size={22} className={isSelected ? "text-white" : "text-slate-700"} />
                   <span>{tab.label}</span>
                 </span>
               </button>
@@ -6053,9 +6049,8 @@ export default function HomePage({
       </section>
 
       {/* Search Results / Featured Properties */}
-      <LandingResidences />
       {selectedMode === "vente" && !isSelectedModeComingSoon ? (
-        <section id="landing-catalogue" ref={resultsRef} className="landing-results landing-section scroll-mt-24">
+        <section id="landing-catalogue" ref={resultsRef} className="landing-results landing-section landing-residences landing-sale-showcase scroll-mt-24">
           <Suspense fallback={<p role="status">Chargement des biens à vendre…</p>}>
             <LandingSalesPage embedded filterContainer={salesFilterContainer} />
           </Suspense>
@@ -7365,6 +7360,23 @@ export default function HomePage({
       )}
 
       {/* Why Choose Us */}
+      {selectedMode === "vente" && !isSelectedModeComingSoon ? (
+        <section className="landing-owner-sale-section landing-section">
+          <div className="landing-owner-sale-wrap">
+            <div className="landing-owner-sale-callout">
+              <div>
+                <p>Vous etes proprietaire ?</p>
+                <h3>Ajoutez votre bien a vendre sur Dwira</h3>
+                <span>Une page dediee pour transmettre les informations, les photos et vos disponibilites.</span>
+              </div>
+              <Link to="/ventes/soumettre-bien">
+                Ajouter mon bien
+                <ArrowRight size={16} />
+              </Link>
+            </div>
+          </div>
+        </section>
+      ) : null}
       <LandingStats propertyCount={properties.length} locationCount={new Set(properties.map((property) => property.location).filter(Boolean)).size} loading={loading} />
       <section className="py-20 bg-white" style={{ contentVisibility: "auto", containIntrinsicSize: "1000px" }}>
         <div className="container mx-auto px-4 md:px-6">

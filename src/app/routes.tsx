@@ -74,6 +74,7 @@ const ventesRoutes = PUBLIC_COMING_SOON.ventes
         Component: VentesLayout,
         children: [
           { index: true, lazy: lazyPage(() => import("./ventes/pages/VentesListPage")) },
+          { path: "soumettre-bien", lazy: lazyPage(() => import("./ventes/pages/OwnerSaleSubmissionPage")) },
           { path: ":type/:id", lazy: lazyPage(() => import("./ventes/pages/VenteDetailsRouter")) },
         ],
       },

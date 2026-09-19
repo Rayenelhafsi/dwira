@@ -14343,6 +14343,97 @@ app.get('/api/admin/sales-demands', requireAdminSession, async (req, res) => {
   }
 });
 
+app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    await ensureOwnerSaleListingRequestsSchema();
+    const user = req.authUser || {};
+    if (!user?.id || String(user.role || '') !== 'user') {
+      return res.status(401).json({ error: 'Compte client requis' });
+    }
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const required = ['title', 'propertyType', 'region', 'zone', 'address', 'surface', 'price', 'paymentMode', 'documents', 'description', 'contactName', 'contactPhone', 'contactEmail', 'availability'];
+    const missing = required.filter((key) => !String(body?.[key] || '').trim());
+    const photos = Array.isArray(body.photos) ? body.photos.map((item) => String(item || '').trim()).filter(Boolean) : [];
+    if (missing.length > 0) return res.status(400).json({ error: `Champs obligatoires manquants: ${missing.join(', ')}` });
+    if (photos.length === 0) return res.status(400).json({ error: 'Au moins une photo est requise' });
+    const surface = Number(body.surface || 0);
+    const price = Number(body.price || 0);
+    if (!Number.isFinite(surface) || surface <= 0) return res.status(400).json({ error: 'Surface invalide' });
+    if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Prix invalide' });
+
+    const now = getAgencySqlDateTime();
+    const id = `oslr_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    const payload = {
+      title: String(body.title || '').trim(),
+      propertyType: String(body.propertyType || '').trim(),
+      region: String(body.region || '').trim(),
+      zone: String(body.zone || '').trim(),
+      address: String(body.address || '').trim(),
+      surface,
+      price,
+      paymentMode: String(body.paymentMode || 'comptant').trim(),
+      bedrooms: String(body.bedrooms || '').trim(),
+      facade: String(body.facade || '').trim(),
+      documents: String(body.documents || '').trim(),
+      description: String(body.description || '').trim(),
+      availability: String(body.availability || '').trim(),
+      source: String(body.source || 'public').trim(),
+    };
+
+    await pool.query(
+      `INSERT INTO owner_sale_listing_requests
+       (id, owner_user_id, owner_name, owner_email, owner_phone, property_type, title, region, zone, address, surface_m2, price_tnd, payment_mode, payload_json, photos_json, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        String(user.id || '').trim(),
+        String(body.contactName || user.name || '').trim(),
+        String(body.contactEmail || user.email || '').trim(),
+        String(body.contactPhone || user.telephone || '').trim(),
+        payload.propertyType,
+        payload.title,
+        payload.region,
+        payload.zone,
+        payload.address,
+        surface,
+        price,
+        payload.paymentMode,
+        JSON.stringify(payload),
+        JSON.stringify(photos),
+        'nouvelle_demande',
+        now,
+        now,
+      ]
+    );
+    res.status(201).json({ id, status: 'nouvelle_demande' });
+  } catch (error) {
+    console.error('Error creating owner sale listing request:', error);
+    res.status(500).json({ error: 'Impossible de soumettre la demande proprietaire' });
+  }
+});
+
+app.get('/api/admin/owner-sale-listing-requests', requireAdminSession, async (req, res) => {
+  try {
+    await ensureOwnerSaleListingRequestsSchema();
+    const [rows] = await pool.query(
+      `SELECT *,
+        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM owner_sale_listing_requests
+       ORDER BY created_at DESC
+       LIMIT 200`
+    );
+    res.json((rows || []).map((row) => ({
+      ...row,
+      payload: parseOwnerSaleRequestJson(row.payload_json, {}),
+      photos: parseOwnerSaleRequestJson(row.photos_json, []),
+    })));
+  } catch (error) {
+    console.error('Error fetching owner sale listing requests:', error);
+    res.status(500).json({ error: 'Impossible de charger les demandes proprietaires' });
+  }
+});
+
 app.patch('/api/admin/sales-demands/:id', requireAdminSession, express.json({ limit: '1mb' }), async (req, res) => {
   try {
     await ensureReservationDemandSchema();
@@ -29600,6 +29691,44 @@ async function ensureReservationDemandSchema() {
     });
   }
   await ensureReservationDemandSchemaPromise;
+}
+
+async function ensureOwnerSaleListingRequestsSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS owner_sale_listing_requests (
+      id VARCHAR(100) PRIMARY KEY,
+      owner_user_id VARCHAR(100) NULL,
+      owner_name VARCHAR(180) NOT NULL,
+      owner_email VARCHAR(180) NOT NULL,
+      owner_phone VARCHAR(80) NOT NULL,
+      property_type VARCHAR(60) NOT NULL,
+      title VARCHAR(240) NOT NULL,
+      region VARCHAR(160) NOT NULL,
+      zone VARCHAR(160) NOT NULL,
+      address VARCHAR(300) NOT NULL,
+      surface_m2 DECIMAL(12,2) NOT NULL DEFAULT 0,
+      price_tnd DECIMAL(14,2) NOT NULL DEFAULT 0,
+      payment_mode VARCHAR(40) NOT NULL DEFAULT 'comptant',
+      payload_json LONGTEXT NULL,
+      photos_json LONGTEXT NULL,
+      status VARCHAR(40) NOT NULL DEFAULT 'nouvelle_demande',
+      admin_note TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_owner_sale_listing_requests_status (status, created_at),
+      KEY idx_owner_sale_listing_requests_owner (owner_user_id, created_at)
+    )
+  `);
+}
+
+function parseOwnerSaleRequestJson(value, fallback) {
+  try {
+    if (!value) return fallback;
+    const parsed = JSON.parse(String(value));
+    return parsed === null || parsed === undefined ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
 }
 
 let ensurePropertyGroupsSchemaPromise = null;

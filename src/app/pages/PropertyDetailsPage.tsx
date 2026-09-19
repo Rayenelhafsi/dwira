@@ -31,6 +31,7 @@ import { buildPropertyDetailsPath, buildReservationConfirmationPath, getProperty
 import { applyAmicaleTtc, applySitepAccommodationRule, formatTnd, isSitepAmicale } from "../utils/amicalePricing";
 import { applyPartnerAgencyMargin } from "../utils/partnerAgencyPricing";
 import { getFlashNightlyAmount, getPropertyFlashOffers, isValidDateOnly, type PropertyFlashOffer } from "../utils/flashOffers";
+import type { Property } from "../data/properties";
 import { aggregateUnavailableDatesByUnitCalendars, normalizeUnavailableDateRanges } from "../utils/availability";
 import {
   clearAuthPendingLogin,
@@ -54,6 +55,17 @@ const GOOGLE_HYBRID_TILE_URL = "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={
 const GOOGLE_TILE_ATTRIBUTION = '&copy; <a href="https://maps.google.com">Google</a>';
 const SALE_PLAN_2D_MOTIF = "plan_2d";
 const SALE_PLAN_3D_MOTIF = "plan_3d";
+
+const getSaleOtherPropertyDetails = (property: Property) => {
+  const surface = Number(property.superficie_m2 || property.surface_local_m2 || 0);
+  const payment = property.modalite_paiement_vente === "facilite" ? "Facilite paiement" : "Comptant";
+  const type = String(property.category || property.filterProfile?.displayCategory || property.filterProfile?.propertyType || "Bien a vendre").trim();
+  return [
+    surface > 0 ? `${surface.toLocaleString("fr-FR")} m2` : "",
+    type,
+    payment,
+  ].filter(Boolean).slice(0, 3);
+};
 
 function GoogleIcon() {
   return (
@@ -4400,6 +4412,7 @@ out body 40;
   const mobileFloatingActions = typeof document !== "undefined" && isMobileViewport && !showPaidServicesDialog && !showBookingCalendarDialog && !lightboxOpen && !showLoginPrompt
     ? createPortal(
         <div
+          className="dwira-mobile-action-dock"
           style={{
             position: "fixed",
             left: "50%",
@@ -4592,7 +4605,7 @@ out body 40;
           <button
             type="button"
             onClick={() => scrollToSection(calendarSectionRef.current)}
-            className="dwira-fab-bubble fixed bottom-24 right-4 z-50 inline-flex h-14 w-14 items-center justify-center rounded-full border border-emerald-200/80 bg-white/88 text-emerald-700 shadow-[0_18px_38px_rgba(15,23,42,0.22)] backdrop-blur-xl ring-1 ring-white/80 transition-transform duration-200 hover:scale-[1.03] md:hidden"
+            className="dwira-mobile-calendar-fab dwira-fab-bubble fixed bottom-24 right-4 z-50 inline-flex h-14 w-14 items-center justify-center rounded-full border border-emerald-200/80 bg-white/88 text-emerald-700 shadow-[0_18px_38px_rgba(15,23,42,0.22)] backdrop-blur-xl ring-1 ring-white/80 transition-transform duration-200 hover:scale-[1.03] md:hidden"
             aria-label="Voir le calendrier"
           >
             <span className="pointer-events-none absolute inset-0 rounded-full bg-emerald-100/70" />
@@ -6408,7 +6421,10 @@ out body 40;
           {/* Properties Carousel */}
           <div className="overflow-hidden" ref={otherPropertiesRef}>
             <div className="flex gap-6">
-              {filteredOtherProperties.map((otherProperty) => (
+              {filteredOtherProperties.map((otherProperty) => {
+                const isOtherSale = otherProperty.priceContext === 'sale';
+                const otherSaleDetails = isOtherSale ? getSaleOtherPropertyDetails(otherProperty) : [];
+                return (
                   <div 
                     key={otherProperty.id} 
                     className="flex-[0_0_280px] min-w-0 sm:flex-[0_0_320px]"
@@ -6442,18 +6458,32 @@ out body 40;
                           {otherProperty.title}
                         </h3>
                         <div className="flex items-baseline gap-1">
-                          <span className="text-lg font-bold text-gray-900">{formatTnd(applyAmicaleTtc(otherProperty.pricePerNight, isAmicalePricingActive))} TND{isAmicalePricingActive ? " TTC" : ""}</span>
-                          <span className="text-gray-500 text-sm">{otherProperty.priceContext === 'sale' ? '/ vente' : '/ nuit'}</span>
+                          <span className="text-lg font-bold text-gray-900">
+                            {formatTnd(isOtherSale ? otherProperty.pricePerNight : applyAmicaleTtc(otherProperty.pricePerNight, isAmicalePricingActive))} TND{!isOtherSale && isAmicalePricingActive ? " TTC" : ""}
+                          </span>
+                          <span className="text-gray-500 text-sm">{isOtherSale ? 'vente' : '/ nuit'}</span>
                         </div>
                         <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
-                          <span>{otherProperty.guests} voyageurs</span>
-                          <span>|</span>
-                          <span>{otherProperty.category}</span>
+                          {isOtherSale ? (
+                            otherSaleDetails.map((detail, index) => (
+                              <span key={`${otherProperty.id}-sale-detail-${detail}`} className="inline-flex items-center gap-3">
+                                {index > 0 ? <span>|</span> : null}
+                                <span>{detail}</span>
+                              </span>
+                            ))
+                          ) : (
+                            <>
+                              <span>{otherProperty.guests} voyageurs</span>
+                              <span>|</span>
+                              <span>{otherProperty.category}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </Link>
                   </div>
-                ))}
+                );
+              })}
             </div>
           </div>
         </div>

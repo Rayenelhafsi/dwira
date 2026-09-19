@@ -41,6 +41,27 @@ type SalesDemand = {
   updated_at?: string | null;
 };
 
+type OwnerSaleListingRequest = {
+  id: string;
+  owner_user_id?: string | null;
+  owner_name: string;
+  owner_email: string;
+  owner_phone: string;
+  property_type: string;
+  title: string;
+  region: string;
+  zone: string;
+  address: string;
+  surface_m2: number;
+  price_tnd: number;
+  payment_mode: string;
+  status: string;
+  admin_note?: string | null;
+  created_at?: string | null;
+  payload?: Record<string, any>;
+  photos?: string[];
+};
+
 type DemandDraft = {
   sales_stage: SalesStage;
   visit_preferred_date: string;
@@ -215,6 +236,7 @@ export default function VentesAdminPage() {
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
   const [demands, setDemands] = useState<SalesDemand[]>([]);
+  const [ownerListingRequests, setOwnerListingRequests] = useState<OwnerSaleListingRequest[]>([]);
   const [drafts, setDrafts] = useState<Record<string, DemandDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("demandes");
@@ -247,10 +269,16 @@ export default function VentesAdminPage() {
         credentials: "include",
         cache: "no-store",
       });
+      const ownerRequestsResponse = await fetch(`${API_URL}/admin/owner-sale-listing-requests`, {
+        credentials: "include",
+        cache: "no-store",
+      }).catch(() => null);
       const payload = await response.json().catch(() => []);
       if (!response.ok) throw new Error(String(payload?.error || "Chargement ventes impossible"));
+      const ownerRequestsPayload = ownerRequestsResponse?.ok ? await ownerRequestsResponse.json().catch(() => []) : [];
       const rows = Array.isArray(payload) ? payload : [];
       setDemands(rows);
+      setOwnerListingRequests(Array.isArray(ownerRequestsPayload) ? ownerRequestsPayload : []);
       setDrafts((current) => {
         const next = { ...current };
         rows.forEach((row: SalesDemand) => {
@@ -553,6 +581,7 @@ export default function VentesAdminPage() {
           <TabsTrigger value="demandes" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Demandes</TabsTrigger>
           <TabsTrigger value="calendrier" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Calendrier / RDV</TabsTrigger>
           <TabsTrigger value="pipeline" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Pipeline</TabsTrigger>
+          <TabsTrigger value="proprietaires" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Demandes proprietaires ({ownerListingRequests.length})</TabsTrigger>
           <TabsTrigger value="references" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">References</TabsTrigger>
         </TabsList>
 
@@ -779,6 +808,64 @@ export default function VentesAdminPage() {
               </div>
             ))}
           </div>
+        </TabsContent>
+
+        <TabsContent value="proprietaires" className="mt-6">
+          {ownerListingRequests.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">Aucune demande proprietaire pour le moment.</div>
+          ) : (
+            <div className="grid gap-5 xl:grid-cols-2">
+              {ownerListingRequests.map((request) => {
+                const payload = request.payload || {};
+                const photos = Array.isArray(request.photos) ? request.photos : [];
+                return (
+                  <article key={request.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="grid gap-0 md:grid-cols-[220px_minmax(0,1fr)]">
+                      <div className="grid min-h-56 grid-cols-2 gap-1 bg-slate-100 p-1">
+                        {(photos.length > 0 ? photos.slice(0, 4) : [null]).map((photo, index) => (
+                          <div key={`${request.id}-photo-${index}`} className="overflow-hidden rounded-xl bg-slate-200">
+                            {photo ? <img src={resolveMediaUrl(photo)} alt={request.title} className="h-full min-h-24 w-full object-cover" /> : <div className="flex h-full min-h-24 items-center justify-center text-xs text-slate-500">Photo</div>}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="space-y-4 p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Soumission proprietaire</p>
+                            <h3 className="mt-1 text-xl font-bold text-slate-950">{request.title}</h3>
+                            <p className="mt-1 text-sm text-slate-600">{getSaleTypeLabel(request.property_type)} - {request.region}, {request.zone}</p>
+                          </div>
+                          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">{statusLabel(request.status)}</span>
+                        </div>
+                        <div className="grid gap-3 text-sm md:grid-cols-3">
+                          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Prix</p><p className="font-bold text-slate-950">{formatCurrency(Number(request.price_tnd || 0))}</p></div>
+                          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Surface</p><p className="font-bold text-slate-950">{Number(request.surface_m2 || 0).toLocaleString("fr-FR")} m2</p></div>
+                          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Paiement</p><p className="font-bold text-slate-950">{request.payment_mode === "facilite" ? "Facilite" : "Comptant"}</p></div>
+                        </div>
+                        <div className="grid gap-2 text-sm text-slate-700 md:grid-cols-2">
+                          <p><span className="font-semibold">Proprietaire:</span> {request.owner_name}</p>
+                          <p><span className="font-semibold">Telephone:</span> {request.owner_phone}</p>
+                          <p><span className="font-semibold">Email:</span> {request.owner_email}</p>
+                          <p><span className="font-semibold">Creee:</span> {dateLabel(request.created_at)}</p>
+                        </div>
+                        <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">{String(payload.description || "-")}</p>
+                        <div className="grid gap-2 text-xs text-slate-600 md:grid-cols-2">
+                          <p><span className="font-semibold">Adresse:</span> {request.address}</p>
+                          <p><span className="font-semibold">Papiers:</span> {String(payload.documents || "-")}</p>
+                          <p><span className="font-semibold">Disponibilite:</span> {String(payload.availability || "-")}</p>
+                          <p><span className="font-semibold">Photos:</span> {photos.length}</p>
+                        </div>
+                        <Link to={buildSalesCreateHref(String(request.property_type || "appartement"))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+                          <Plus className="h-4 w-4" />
+                          Creer le bien vente
+                        </Link>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="references" className="mt-6">
