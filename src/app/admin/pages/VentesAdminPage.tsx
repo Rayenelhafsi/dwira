@@ -278,16 +278,17 @@ export default function VentesAdminPage() {
       if (assignedFilter.trim()) params.set("assigned_admin_id", assignedFilter.trim());
       if (dateFrom) params.set("date_from", dateFrom);
       if (dateTo) params.set("date_to", dateTo);
-      const response = await fetch(`${API_URL}/admin/sales-demands${params.toString() ? `?${params.toString()}` : ""}`, {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const ownerRequestsResponse = await fetch(`${API_URL}/admin/owner-sale-listing-requests`, {
-        credentials: "include",
-        cache: "no-store",
-      }).catch(() => null);
-      const payload = await response.json().catch(() => []);
-      if (!response.ok) throw new Error(String(payload?.error || "Chargement ventes impossible"));
+      const [response, ownerRequestsResponse] = await Promise.all([
+        fetch(`${API_URL}/admin/sales-demands${params.toString() ? `?${params.toString()}` : ""}`, {
+          credentials: "include",
+          cache: "no-store",
+        }).catch(() => null),
+        fetch(`${API_URL}/admin/owner-sale-listing-requests`, {
+          credentials: "include",
+          cache: "no-store",
+        }).catch(() => null),
+      ]);
+      const payload = response?.ok ? await response.json().catch(() => []) : [];
       const ownerRequestsPayload = ownerRequestsResponse?.ok ? await ownerRequestsResponse.json().catch(() => []) : [];
       const rows = Array.isArray(payload) ? payload : [];
       setDemands(rows);
@@ -299,6 +300,14 @@ export default function VentesAdminPage() {
         });
         return next;
       });
+      if (response && !response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        toast.error(String(errorPayload?.error || "Demandes visites ventes indisponibles"));
+      }
+      if (ownerRequestsResponse && !ownerRequestsResponse.ok) {
+        const errorPayload = await ownerRequestsResponse.json().catch(() => null);
+        toast.error(String(errorPayload?.error || "Demandes proprietaires indisponibles"));
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Chargement ventes impossible");
     } finally {

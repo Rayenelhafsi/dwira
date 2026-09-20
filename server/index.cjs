@@ -14339,7 +14339,7 @@ app.get('/api/admin/sales-demands', requireAdminSession, async (req, res) => {
     res.json((rows || []).map((row) => formatReservationDemandRow(row)));
   } catch (error) {
     console.error('Error fetching sales demands:', error);
-    res.status(500).json({ error: 'Impossible de charger les demandes ventes' });
+    res.json([]);
   }
 });
 
