@@ -33,8 +33,9 @@ import {
 import { toast } from 'sonner';
 import { buildTelLink } from '../../utils/deepLinks';
 import { resolveMediaUrl } from '../../utils/media';
-import { buildApiUrl } from '../../utils/api';
+import { buildApiUrl, fetchWithApiFallback } from '../../utils/api';
 import { getAuthProviders, getSessionUser, loginWithPasskey, startSocialLogin } from '../../services/auth';
+import { saveAuthReturnTo } from '../../utils/pendingReservation';
 
 const typeLabel: Record<string, string> = {
   appartement: 'Appartement',
@@ -460,9 +461,8 @@ export function OwnerSaleRequestBox({
       const formData = new FormData();
       formData.append('image', file);
       formData.append('upload_scope', 'owner_sale_request');
-      const response = await fetch(buildApiUrl('/upload'), {
+      const response = await fetchWithApiFallback('/upload', {
         method: 'POST',
-        credentials: 'include',
         body: formData,
       });
       const payload = await response.json().catch(() => null);
@@ -515,6 +515,7 @@ export function OwnerSaleRequestBox({
   };
 
   const redirectToAccountCreation = () => {
+    saveAuthReturnTo('/ventes/soumettre-bien');
     navigate(`/login?returnTo=${encodeURIComponent('/ventes/soumettre-bien')}`);
   };
 
@@ -523,6 +524,7 @@ export function OwnerSaleRequestBox({
       toast.error('Methode de connexion indisponible pour le moment.');
       return;
     }
+    saveAuthReturnTo('/ventes/soumettre-bien');
     startSocialLogin(provider, '/ventes/soumettre-bien');
   };
 
