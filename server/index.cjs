@@ -14351,13 +14351,20 @@ app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, expres
       return res.status(401).json({ error: 'Compte client requis' });
     }
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const required = ['title', 'propertyType', 'region', 'zone', 'address', 'surface', 'price', 'paymentMode', 'documents', 'description', 'contactName', 'contactPhone', 'contactEmail', 'availability'];
+    const propertyType = String(body.propertyType || body.type || '').trim();
+    const baseRequired = ['title', 'region', 'zone', 'address', 'prix_affiche_client', 'paymentMode', 'type_rue', 'type_papier', 'description', 'contactName', 'contactPhone', 'contactEmail', 'availability'];
+    const typeRequired = propertyType === 'terrain' || propertyType === 'lotissement'
+      ? ['terrain_surface_m2', 'terrain_facade_m', 'terrain_type_sol']
+      : propertyType === 'local_commercial'
+        ? ['surface_local_m2', 'facade_m']
+        : ['superficie_m2', 'bedrooms'];
+    const required = [...baseRequired, ...typeRequired];
     const missing = required.filter((key) => !String(body?.[key] || '').trim());
     const photos = Array.isArray(body.photos) ? body.photos.map((item) => String(item || '').trim()).filter(Boolean) : [];
     if (missing.length > 0) return res.status(400).json({ error: `Champs obligatoires manquants: ${missing.join(', ')}` });
     if (photos.length === 0) return res.status(400).json({ error: 'Au moins une photo est requise' });
-    const surface = Number(body.surface || 0);
-    const price = Number(body.price || 0);
+    const surface = Number(body.terrain_surface_m2 || body.surface_local_m2 || body.superficie_m2 || 0);
+    const price = Number(body.prix_affiche_client || 0);
     if (!Number.isFinite(surface) || surface <= 0) return res.status(400).json({ error: 'Surface invalide' });
     if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Prix invalide' });
 
@@ -14365,16 +14372,23 @@ app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, expres
     const id = `oslr_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
     const payload = {
       title: String(body.title || '').trim(),
-      propertyType: String(body.propertyType || '').trim(),
+      propertyType,
+      mode: 'vente',
+      type: propertyType,
       region: String(body.region || '').trim(),
       zone: String(body.zone || '').trim(),
       address: String(body.address || '').trim(),
-      surface,
-      price,
-      paymentMode: String(body.paymentMode || 'comptant').trim(),
-      bedrooms: String(body.bedrooms || '').trim(),
-      facade: String(body.facade || '').trim(),
-      documents: String(body.documents || '').trim(),
+      superficie_m2: body.superficie_m2 === '' ? null : Number(body.superficie_m2 || 0) || null,
+      nb_chambres: body.bedrooms === '' ? null : Number(body.bedrooms || 0) || null,
+      surface_local_m2: body.surface_local_m2 === '' ? null : Number(body.surface_local_m2 || 0) || null,
+      facade_m: body.facade_m === '' ? null : Number(body.facade_m || 0) || null,
+      terrain_surface_m2: body.terrain_surface_m2 === '' ? null : Number(body.terrain_surface_m2 || 0) || null,
+      terrain_facade_m: body.terrain_facade_m === '' ? null : Number(body.terrain_facade_m || 0) || null,
+      terrain_type_sol: String(body.terrain_type_sol || '').trim() || null,
+      prix_affiche_client: price,
+      modalite_paiement_vente: String(body.paymentMode || 'comptant').trim(),
+      type_rue: String(body.type_rue || '').trim(),
+      type_papier: String(body.type_papier || '').trim(),
       description: String(body.description || '').trim(),
       availability: String(body.availability || '').trim(),
       source: String(body.source || 'public').trim(),
@@ -14397,7 +14411,7 @@ app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, expres
         payload.address,
         surface,
         price,
-        payload.paymentMode,
+        payload.modalite_paiement_vente,
         JSON.stringify(payload),
         JSON.stringify(photos),
         'nouvelle_demande',
@@ -14431,6 +14445,49 @@ app.get('/api/admin/owner-sale-listing-requests', requireAdminSession, async (re
   } catch (error) {
     console.error('Error fetching owner sale listing requests:', error);
     res.status(500).json({ error: 'Impossible de charger les demandes proprietaires' });
+  }
+});
+
+app.patch('/api/admin/owner-sale-listing-requests/:id', requireAdminSession, express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    await ensureOwnerSaleListingRequestsSchema();
+    const id = String(req.params?.id || '').trim();
+    const status = String(req.body?.status || '').trim();
+    const adminNote = String(req.body?.admin_note || '').trim();
+    const allowed = new Set(['nouvelle_demande', 'en_revision', 'validee', 'mise_en_ligne', 'rejetee']);
+    if (!id) return res.status(400).json({ error: 'Demande introuvable' });
+    if (status && !allowed.has(status)) return res.status(400).json({ error: 'Statut invalide' });
+    const fields = [];
+    const params = [];
+    if (status) {
+      fields.push('status = ?');
+      params.push(status);
+    }
+    if (req.body?.admin_note !== undefined) {
+      fields.push('admin_note = ?');
+      params.push(adminNote || null);
+    }
+    if (fields.length === 0) return res.status(400).json({ error: 'Aucune modification' });
+    fields.push('updated_at = ?');
+    params.push(getAgencySqlDateTime(), id);
+    await pool.query(`UPDATE owner_sale_listing_requests SET ${fields.join(', ')} WHERE id = ?`, params);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating owner sale listing request:', error);
+    res.status(500).json({ error: 'Impossible de modifier la demande proprietaire' });
+  }
+});
+
+app.delete('/api/admin/owner-sale-listing-requests/:id', requireAdminSession, async (req, res) => {
+  try {
+    await ensureOwnerSaleListingRequestsSchema();
+    const id = String(req.params?.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'Demande introuvable' });
+    await pool.query('DELETE FROM owner_sale_listing_requests WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting owner sale listing request:', error);
+    res.status(500).json({ error: 'Impossible de supprimer la demande proprietaire' });
   }
 });
 

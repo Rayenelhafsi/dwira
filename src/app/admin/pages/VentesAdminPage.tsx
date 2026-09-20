@@ -447,6 +447,39 @@ export default function VentesAdminPage() {
     }
   };
 
+  const updateOwnerListingRequest = async (id: string, patch: { status?: string; admin_note?: string }) => {
+    try {
+      const response = await fetch(`${API_URL}/admin/owner-sale-listing-requests/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(patch),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(payload?.error || "Mise a jour impossible"));
+      toast.success("Demande proprietaire mise a jour");
+      await loadDemands("refresh");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Mise a jour impossible");
+    }
+  };
+
+  const deleteOwnerListingRequest = async (id: string) => {
+    if (!window.confirm("Supprimer cette demande proprietaire ?")) return;
+    try {
+      const response = await fetch(`${API_URL}/admin/owner-sale-listing-requests/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(payload?.error || "Suppression impossible"));
+      toast.success("Demande supprimee");
+      await loadDemands("refresh");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Suppression impossible");
+    }
+  };
+
   return (
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -835,12 +868,12 @@ export default function VentesAdminPage() {
                             <h3 className="mt-1 text-xl font-bold text-slate-950">{request.title}</h3>
                             <p className="mt-1 text-sm text-slate-600">{getSaleTypeLabel(request.property_type)} - {request.region}, {request.zone}</p>
                           </div>
-                          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">{statusLabel(request.status)}</span>
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{statusLabel(request.status)}</span>
                         </div>
                         <div className="grid gap-3 text-sm md:grid-cols-3">
-                          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Prix</p><p className="font-bold text-slate-950">{formatCurrency(Number(request.price_tnd || 0))}</p></div>
+                          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Prix</p><p className="font-bold text-slate-950">{formatCurrency(Number(payload.prix_affiche_client || request.price_tnd || 0))}</p></div>
                           <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Surface</p><p className="font-bold text-slate-950">{Number(request.surface_m2 || 0).toLocaleString("fr-FR")} m2</p></div>
-                          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Paiement</p><p className="font-bold text-slate-950">{request.payment_mode === "facilite" ? "Facilite" : "Comptant"}</p></div>
+                          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Paiement</p><p className="font-bold text-slate-950">{payload.modalite_paiement_vente === "facilite" || request.payment_mode === "facilite" ? "Facilite" : "Comptant"}</p></div>
                         </div>
                         <div className="grid gap-2 text-sm text-slate-700 md:grid-cols-2">
                           <p><span className="font-semibold">Proprietaire:</span> {request.owner_name}</p>
@@ -851,14 +884,33 @@ export default function VentesAdminPage() {
                         <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">{String(payload.description || "-")}</p>
                         <div className="grid gap-2 text-xs text-slate-600 md:grid-cols-2">
                           <p><span className="font-semibold">Adresse:</span> {request.address}</p>
-                          <p><span className="font-semibold">Papiers:</span> {String(payload.documents || "-")}</p>
+                          <p><span className="font-semibold">Type de rue:</span> {String(payload.type_rue || "-")}</p>
+                          <p><span className="font-semibold">Type de papier:</span> {String(payload.type_papier || "-")}</p>
+                          <p><span className="font-semibold">Type de sol:</span> {String(payload.terrain_type_sol || "-")}</p>
                           <p><span className="font-semibold">Disponibilite:</span> {String(payload.availability || "-")}</p>
                           <p><span className="font-semibold">Photos:</span> {photos.length}</p>
                         </div>
-                        <Link to={buildSalesCreateHref(String(request.property_type || "appartement"))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
-                          <Plus className="h-4 w-4" />
-                          Creer le bien vente
-                        </Link>
+                        <textarea
+                          defaultValue={String(request.admin_note || "")}
+                          onBlur={(event) => void updateOwnerListingRequest(request.id, { admin_note: event.target.value })}
+                          rows={2}
+                          placeholder="Note admin avant validation..."
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => void updateOwnerListingRequest(request.id, { status: "validee" })} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700">
+                            <CheckCircle2 className="h-4 w-4" />
+                            Valider
+                          </button>
+                          <Link to={buildSalesCreateHref(String(request.property_type || "appartement"))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+                            <Plus className="h-4 w-4" />
+                            Creer/modifier avant mise en ligne
+                          </Link>
+                          <button type="button" onClick={() => void deleteOwnerListingRequest(request.id)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100">
+                            <XCircle className="h-4 w-4" />
+                            Supprimer
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </article>

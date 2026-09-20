@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { createPortal } from 'react-dom';
 import { LandingSaleFilters } from '../../pages/LandingSaleFilters';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -13,7 +13,10 @@ import {
   CheckCircle2,
   ChevronDown,
   Filter,
+  Facebook,
+  Globe,
   Home,
+  KeyRound,
   Landmark,
   Loader2,
   LogIn,
@@ -31,7 +34,7 @@ import { toast } from 'sonner';
 import { buildTelLink } from '../../utils/deepLinks';
 import { resolveMediaUrl } from '../../utils/media';
 import { buildApiUrl } from '../../utils/api';
-import { loginWithPasskey, registerWithPasskey } from '../../services/auth';
+import { getAuthProviders, loginWithPasskey, startSocialLogin } from '../../services/auth';
 
 const typeLabel: Record<string, string> = {
   appartement: 'Appartement',
@@ -121,6 +124,28 @@ const OWNER_REQUEST_INITIAL: OwnerSaleRequestDraft = {
   contactEmail: '',
   availability: '',
 };
+
+const TYPE_RUE_OPTIONS = [
+  { value: 'goudronnee', label: 'Rue goudronnee' },
+  { value: 'piste', label: 'Piste' },
+  { value: 'double_voie', label: 'Double voie' },
+  { value: 'facade', label: 'Facade' },
+];
+
+const TYPE_PAPIER_OPTIONS = [
+  { value: 'titre_bleu', label: 'Titre bleu' },
+  { value: 'contrat', label: 'Contrat' },
+  { value: 'certificat_possession', label: 'Certificat de possession' },
+  { value: 'papier_indivision', label: 'Papier indivision' },
+  { value: 'autre', label: 'Autre document' },
+];
+
+const TERRAIN_SOL_OPTIONS = [
+  { value: 'plat', label: 'Plat' },
+  { value: 'legerement_pente', label: 'Legerement pente' },
+  { value: 'pente', label: 'Pente' },
+  { value: 'rocheux', label: 'Rocheux' },
+];
 
 const normalizeText = (value?: string | null) =>
   String(value || '')
@@ -321,15 +346,16 @@ export function OwnerSaleRequestBox({
 }) {
   const { user } = useAuth();
   const { login } = useAuth();
+  const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<OwnerSaleRequestDraft>(OWNER_REQUEST_INITIAL);
   const [photos, setPhotos] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [authEmail, setAuthEmail] = useState('');
-  const [authName, setAuthName] = useState('');
-  const [authLoading, setAuthLoading] = useState<'login' | 'register' | null>(null);
+  const [providers, setProviders] = useState({ google: false, facebook: false, apple: false, passkey: true });
+  const [authLoading, setAuthLoading] = useState<'passkey' | null>(null);
   const isAuthenticatedOwner = Boolean(user && user.role === 'user');
   const isTerrain = draft.propertyType === 'terrain' || draft.propertyType === 'lotissement';
+  const isLocalCommercial = draft.propertyType === 'local_commercial';
   const isBuiltProperty = !isTerrain && draft.propertyType !== 'local_commercial';
 
   useEffect(() => {
@@ -353,26 +379,45 @@ export function OwnerSaleRequestBox({
     }));
   }, [open, user]);
 
+  useEffect(() => {
+    if (!open) return;
+    void getAuthProviders().then((availableProviders) => {
+      setProviders({
+        google: Boolean(availableProviders.google),
+        facebook: Boolean(availableProviders.facebook),
+        apple: Boolean(availableProviders.apple),
+        passkey: availableProviders.passkey !== false,
+      });
+    });
+  }, [open]);
+
   const updateDraft = (key: keyof OwnerSaleRequestDraft, value: string) => {
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
-  const requiredFields = [
+  const requiredFields: Array<keyof OwnerSaleRequestDraft> = [
     'title',
     'propertyType',
     'region',
     'zone',
     'address',
-    'surface',
-    'price',
+    'prix_affiche_client',
     'paymentMode',
-    'documents',
+    'type_rue',
+    'type_papier',
     'description',
     'contactName',
     'contactPhone',
     'contactEmail',
     'availability',
-  ] as Array<keyof OwnerSaleRequestDraft>;
+  ];
+  if (isTerrain) {
+    requiredFields.push('terrain_surface_m2', 'terrain_facade_m', 'terrain_type_sol');
+  } else if (isLocalCommercial) {
+    requiredFields.push('surface_local_m2', 'facade_m');
+  } else {
+    requiredFields.push('superficie_m2', 'bedrooms');
+  }
 
   const missingFields = requiredFields.filter((key) => !String(draft[key] || '').trim());
   const canSubmit = isAuthenticatedOwner && missingFields.length === 0 && photos.length > 0 && !submitting;
@@ -417,6 +462,8 @@ export function OwnerSaleRequestBox({
         credentials: 'include',
         body: JSON.stringify({
           ...draft,
+          type: draft.propertyType,
+          mode: 'vente',
           photos: photoUrls,
           source: 'landing_ventes',
         }),
@@ -435,26 +482,52 @@ export function OwnerSaleRequestBox({
     }
   };
 
-  const handlePasskeyAuth = async (mode: 'login' | 'register') => {
-    const email = authEmail.trim() || draft.contactEmail.trim();
-    const name = authName.trim() || draft.contactName.trim();
-    if (!email) {
-      toast.error('Email requis pour continuer.');
+  const redirectToAccountCreation = () => {
+    navigate(`/login?returnTo=${encodeURIComponent('/ventes/soumettre-bien')}`);
+  };
+
+  const handleSocialLogin = (provider: 'google' | 'facebook' | 'apple') => {
+    if (!providers[provider]) {
+      toast.error('Methode de connexion indisponible pour le moment.');
       return;
     }
-    if (mode === 'register' && !name) {
-      toast.error('Nom requis pour creer un compte.');
+    startSocialLogin(provider, '/ventes/soumettre-bien');
+  };
+
+  const handlePasskeyLogin = async () => {
+    if (!providers.passkey) {
+      toast.error('Passkey indisponible pour le moment.');
       return;
     }
-    setAuthLoading(mode);
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      toast.error('Passkey non supporte sur ce navigateur/appareil.');
+      return;
+    }
+    setAuthLoading('passkey');
     try {
-      const nextUser = mode === 'register'
-        ? await registerWithPasskey(email, name)
-        : await loginWithPasskey(email);
+      const nextUser = await loginWithPasskey();
       login({ ...nextUser, clientType: nextUser.clientType || 'proprietaire' });
-      toast.success(mode === 'register' ? 'Compte cree.' : 'Connexion reussie.');
+      setDraft((current) => ({
+        ...current,
+        contactName: current.contactName || nextUser.name || '',
+        contactEmail: current.contactEmail || nextUser.email || '',
+        contactPhone: current.contactPhone || nextUser.telephone || '',
+      }));
+      if (!nextUser.profileCompleted) {
+        toast.info('Completez votre profil client pour continuer.');
+        redirectToAccountCreation();
+        return;
+      }
+      toast.success('Connexion reussie.');
+      setStep(1);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Authentification impossible');
+      const message = error instanceof Error ? error.message : 'Authentification impossible';
+      if (/aucun|passkey|not found|404|introuvable|configure/i.test(message)) {
+        toast.info('Compte introuvable. Creez un compte pour continuer.');
+        redirectToAccountCreation();
+      } else {
+        toast.error(message);
+      }
     } finally {
       setAuthLoading(null);
     }
@@ -477,14 +550,20 @@ export function OwnerSaleRequestBox({
   }
 
   const stepLabels = ['Compte', 'Bien', 'Emplacement', 'Vente', 'Photos'];
+  const goNextStep = () => {
+    if (step === 0 && !isAuthenticatedOwner) {
+      toast.error('Connectez-vous ou creez un compte pour continuer.');
+      return;
+    }
+    setStep((current) => Math.min(stepLabels.length - 1, current + 1));
+  };
 
   return (
     <section className="landing-owner-sale-submission">
       <div className="w-full overflow-hidden rounded-[28px] bg-white shadow-[0_32px_90px_rgba(15,23,42,0.12)]">
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 md:p-6">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-700">Soumission proprietaire</p>
-            <h3 className="mt-2 text-2xl font-black text-slate-950">Ajouter un bien a vendre</h3>
+            <h3 className="text-2xl font-black text-slate-950">Soumettre un bien a vendre</h3>
           </div>
           <button type="button" onClick={() => onOpenChange(false)} className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-700">
             <X className="h-5 w-5" />
@@ -508,33 +587,36 @@ export function OwnerSaleRequestBox({
           {step === 0 ? (
             <div className="grid gap-4">
               {isAuthenticatedOwner ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                  <p className="font-bold text-emerald-950">Compte connecte</p>
-                  <p className="mt-1 text-sm text-emerald-800">{user?.name} - {user?.email}</p>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="font-bold text-slate-950">Compte connecte</p>
+                  <p className="mt-1 text-sm text-slate-600">{user?.name} - {user?.email}</p>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                  <p className="font-bold text-amber-950">Connexion obligatoire</p>
-                  <p className="mt-1 text-sm text-amber-800">Connectez-vous si vous avez deja un compte, ou creez un compte proprietaire avant de soumettre.</p>
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <input value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email du compte" className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm text-slate-950 placeholder:text-slate-500" />
-                    <input value={authName} onChange={(event) => setAuthName(event.target.value)} placeholder="Nom complet" className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm text-slate-950 placeholder:text-slate-500" />
-                    <button type="button" onClick={() => void handlePasskeyAuth('login')} disabled={authLoading !== null} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white disabled:opacity-60">
-                      {authLoading === 'login' ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-                      Connexion
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <button type="button" onClick={() => handleSocialLogin('google')} disabled={!providers.google} className="inline-flex items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50">
+                      <Globe className="h-5 w-5 text-emerald-700" />
+                      Google
                     </button>
-                    <button type="button" onClick={() => void handlePasskeyAuth('register')} disabled={authLoading !== null} className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold text-amber-900 disabled:opacity-60">
-                      {authLoading === 'register' ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-                      Creer un compte
+                    <button type="button" onClick={() => handleSocialLogin('apple')} disabled={!providers.apple} className="inline-flex items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50">
+                      <UserPlus className="h-5 w-5 text-slate-950" />
+                      Apple
+                    </button>
+                    <button type="button" onClick={() => void handlePasskeyLogin()} disabled={authLoading !== null || !providers.passkey} className="inline-flex items-center justify-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50">
+                      {authLoading === 'passkey' ? <Loader2 className="h-5 w-5 animate-spin" /> : <KeyRound className="h-5 w-5" />}
+                      Passkey
+                    </button>
+                    <button type="button" onClick={() => handleSocialLogin('facebook')} disabled={!providers.facebook} className="inline-flex items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50">
+                      <Facebook className="h-5 w-5 text-blue-600" />
+                      Facebook
+                    </button>
+                    <button type="button" onClick={redirectToAccountCreation} className="inline-flex items-center justify-center gap-3 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800 md:col-span-2">
+                      <LogIn className="h-5 w-5" />
+                      Premiere fois ? Creer un compte
                     </button>
                   </div>
                 </div>
               )}
-              <div className="grid gap-3 md:grid-cols-3">
-                <input value={draft.contactName} onChange={(event) => updateDraft('contactName', event.target.value)} placeholder="Nom proprietaire *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-                <input value={draft.contactPhone} onChange={(event) => updateDraft('contactPhone', event.target.value)} placeholder="Telephone *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-                <input value={draft.contactEmail} onChange={(event) => updateDraft('contactEmail', event.target.value)} placeholder="Email *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-              </div>
             </div>
           ) : null}
 
@@ -544,9 +626,26 @@ export function OwnerSaleRequestBox({
               <select value={draft.propertyType} onChange={(event) => updateDraft('propertyType', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
                 {Object.entries(typeLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
-              <input value={draft.surface} onChange={(event) => updateDraft('surface', event.target.value)} placeholder="Surface en m2 *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-              {isBuiltProperty ? <input value={draft.bedrooms} onChange={(event) => updateDraft('bedrooms', event.target.value)} placeholder="Chambres / pieces" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" /> : null}
-              {isTerrain ? <input value={draft.facade} onChange={(event) => updateDraft('facade', event.target.value)} placeholder="Facade / lots" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" /> : null}
+              {isTerrain ? (
+                <>
+                  <input value={draft.terrain_surface_m2} onChange={(event) => updateDraft('terrain_surface_m2', event.target.value)} placeholder="Surface terrain en m2 *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+                  <input value={draft.terrain_facade_m} onChange={(event) => updateDraft('terrain_facade_m', event.target.value)} placeholder="Facade terrain en m *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+                  <select value={draft.terrain_type_sol} onChange={(event) => updateDraft('terrain_type_sol', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                    <option value="">Type de sol *</option>
+                    {TERRAIN_SOL_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  </select>
+                </>
+              ) : isLocalCommercial ? (
+                <>
+                  <input value={draft.surface_local_m2} onChange={(event) => updateDraft('surface_local_m2', event.target.value)} placeholder="Surface local en m2 *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+                  <input value={draft.facade_m} onChange={(event) => updateDraft('facade_m', event.target.value)} placeholder="Facade en m *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+                </>
+              ) : (
+                <>
+                  <input value={draft.superficie_m2} onChange={(event) => updateDraft('superficie_m2', event.target.value)} placeholder="Superficie en m2 *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+                  <input value={draft.bedrooms} onChange={(event) => updateDraft('bedrooms', event.target.value)} placeholder="Nombre de chambres *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+                </>
+              )}
               <textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Description detaillee *" rows={4} className="rounded-xl border border-slate-200 px-4 py-3 text-sm md:col-span-2" />
             </div>
           ) : null}
@@ -561,23 +660,39 @@ export function OwnerSaleRequestBox({
 
           {step === 3 ? (
             <div className="grid gap-3 md:grid-cols-2">
-              <input value={draft.price} onChange={(event) => updateDraft('price', event.target.value)} placeholder="Prix souhaite en DT *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.prix_affiche_client} onChange={(event) => updateDraft('prix_affiche_client', event.target.value)} placeholder="Prix affiche client en DT *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
               <select value={draft.paymentMode} onChange={(event) => updateDraft('paymentMode', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
                 <option value="comptant">Comptant</option>
                 <option value="facilite">Facilite de paiement</option>
               </select>
-              <input value={draft.documents} onChange={(event) => updateDraft('documents', event.target.value)} placeholder="Papiers disponibles *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <select value={draft.type_rue} onChange={(event) => updateDraft('type_rue', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                <option value="">Type de rue *</option>
+                {TYPE_RUE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+              <select value={draft.type_papier} onChange={(event) => updateDraft('type_papier', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                <option value="">Type de papier *</option>
+                {TYPE_PAPIER_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
               <input value={draft.availability} onChange={(event) => updateDraft('availability', event.target.value)} placeholder="Disponibilite pour visite *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
             </div>
           ) : null}
 
           {step === 4 ? (
             <div className="grid gap-4">
-              <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/60 px-4 py-8 text-center">
-                <UploadCloud className="h-8 w-8 text-emerald-700" />
-                <span className="text-sm font-bold text-slate-950">Ajouter les photos du bien *</span>
-                <input type="file" multiple accept="image/*" className="hidden" onChange={(event) => setPhotos(Array.from(event.target.files || []))} />
-              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                {[
+                  'Photo couverture',
+                  'Facade / acces',
+                  'Interieur ou terrain',
+                  'Document / plan utile',
+                ].map((label) => (
+                  <label key={label} className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center transition hover:border-emerald-300 hover:bg-emerald-50/40">
+                    <UploadCloud className="h-7 w-7 text-emerald-700" />
+                    <span className="text-sm font-bold text-slate-950">{label}</span>
+                    <input type="file" multiple accept="image/*" className="hidden" onChange={(event) => setPhotos((current) => [...current, ...Array.from(event.target.files || [])])} />
+                  </label>
+                ))}
+              </div>
               {photos.length > 0 ? (
                 <div className="grid grid-cols-3 gap-2">
                   {photos.map((file) => (
@@ -585,7 +700,7 @@ export function OwnerSaleRequestBox({
                   ))}
                 </div>
               ) : null}
-              {missingFields.length > 0 ? <p className="text-sm text-amber-700">Champs restants: {missingFields.length}</p> : null}
+              {missingFields.length > 0 ? <p className="text-sm text-slate-500">Champs restants: {missingFields.length}</p> : null}
             </div>
           ) : null}
         </div>
@@ -593,7 +708,7 @@ export function OwnerSaleRequestBox({
         <div className="flex items-center justify-between gap-3 border-t border-slate-100 p-5">
           <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">Precedent</button>
           {step < stepLabels.length - 1 ? (
-            <button type="button" onClick={() => setStep((current) => Math.min(stepLabels.length - 1, current + 1))} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white">Suivant</button>
+            <button type="button" onClick={goNextStep} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white">Suivant</button>
           ) : (
             <button type="button" onClick={() => void submitRequest()} disabled={!canSubmit} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
