@@ -34,7 +34,7 @@ import { toast } from 'sonner';
 import { buildTelLink } from '../../utils/deepLinks';
 import { resolveMediaUrl } from '../../utils/media';
 import { buildApiUrl } from '../../utils/api';
-import { getAuthProviders, loginWithPasskey, startSocialLogin } from '../../services/auth';
+import { getAuthProviders, getSessionUser, loginWithPasskey, startSocialLogin } from '../../services/auth';
 
 const typeLabel: Record<string, string> = {
   appartement: 'Appartement',
@@ -381,6 +381,35 @@ export function OwnerSaleRequestBox({
       setStep((current) => (current === 0 ? 1 : current));
     }
   }, [open, user]);
+
+  useEffect(() => {
+    if (!open || user) return;
+    let cancelled = false;
+    const restoreOwnerSession = async () => {
+      const sessionUser = await getSessionUser();
+      if (cancelled || !sessionUser || sessionUser.role !== 'user') return;
+      login({ ...sessionUser, clientType: sessionUser.clientType || 'proprietaire' });
+      setDraft((current) => ({
+        ...current,
+        contactName: current.contactName || sessionUser.name || '',
+        contactEmail: current.contactEmail || sessionUser.email || '',
+        contactPhone: current.contactPhone || sessionUser.telephone || '',
+      }));
+      setStep((current) => (current === 0 ? 1 : current));
+    };
+    void restoreOwnerSession();
+    const handleFocus = () => void restoreOwnerSession();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void restoreOwnerSession();
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [login, open, user]);
 
   useEffect(() => {
     if (!open) return;
