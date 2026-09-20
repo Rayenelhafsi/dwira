@@ -4625,27 +4625,31 @@ export default function HomePage({
              <div className="landing-hero-branding mb-5 flex justify-center">
                {isHotelMode ? (
                  <div className="flex items-center gap-3">
-                   <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-24 md:w-24">
+                   <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2.5 shadow-[0_16px_38px_rgba(0,0,0,0.30)] backdrop-blur-md md:h-28 md:w-28">
                      <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-cover" />
                    </div>
-                   <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-24 md:w-24">
+                   <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2.5 shadow-[0_16px_38px_rgba(0,0,0,0.30)] backdrop-blur-md md:h-28 md:w-28">
                      <img src={titaTravelLogo} alt="Logo Tita Travel" className="h-full w-full rounded-full object-cover" />
                    </div>
                  </div>
                ) : showPartnerHeroBranding ? (
                  <div className="flex items-center gap-3">
-                   <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-24 md:w-24">
+                   <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2.5 shadow-[0_16px_38px_rgba(0,0,0,0.30)] backdrop-blur-md md:h-28 md:w-28">
                      <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-cover" />
                    </div>
-                   <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.28)] backdrop-blur-md md:h-24 md:w-24">
+                   <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2.5 shadow-[0_16px_38px_rgba(0,0,0,0.30)] backdrop-blur-md md:h-28 md:w-28">
                      <img
                        src={activePartnerBrandLogoUrl}
                        alt={`Logo ${activePartnerBrandName || "partenaire"}`}
                        className="h-full w-full rounded-full bg-white object-contain p-1.5"
-                     />
-                   </div>
+                   />
                  </div>
-               ) : null}
+               </div>
+               ) : (
+                 <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/30 bg-white/10 p-2.5 shadow-[0_16px_38px_rgba(0,0,0,0.30)] backdrop-blur-md md:h-28 md:w-28">
+                   <img src={logo} alt="Logo Dwira" className="h-full w-full rounded-full object-cover" />
+                 </div>
+               )}
              </div>
              <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-4 leading-tight drop-shadow-xl">
                Dwira <span className="text-amber-400">Immobilier</span>
@@ -7391,7 +7395,7 @@ export default function HomePage({
                 <MapPin size={36} />
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-3">Expertise Locale</h3>
-              <p className="text-gray-600">Basés à Kélibia, nous connaissons chaque quartier et chaque opportunité du marché local.</p>
+              <p className="text-gray-600">Bases a Kelibia, nous connaissons chaque quartier et chaque opportunite du marche local.</p>
             </div>
             
             <div className="p-8 rounded-3xl bg-gray-50 hover:bg-white hover:shadow-xl transition-all duration-300 border border-transparent hover:border-emerald-100 group">
@@ -7399,7 +7403,7 @@ export default function HomePage({
                 <Key size={36} />
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-3">Gestion Personnalisée</h3>
-              <p className="text-gray-600">De la remise des clés à l'entretien, nous gérons votre bien comme si c'était le nôtre.</p>
+              <p className="text-gray-600">De la remise des cles a l'entretien, nous gerons votre bien comme si c'etait le notre.</p>
             </div>
 
             <div className="p-8 rounded-3xl bg-gray-50 hover:bg-white hover:shadow-xl transition-all duration-300 border border-transparent hover:border-emerald-100 group">
@@ -8376,18 +8380,5 @@ function getHotelStarCount(value: string | number | null | undefined) {
   const numericValue = Math.max(0, Math.min(5, Math.floor(Number(value) || 0)));
   return numericValue;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 

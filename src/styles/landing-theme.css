@@ -153,17 +153,25 @@ body:has(.landing-page) header :is(nav a, nav button) { font-weight: 750; }
 .landing-sale-showcase .landing-sales h2 { font-size: 0; }
 .landing-sale-showcase .landing-sales h2::before { font-size: clamp(28px, 3vw, 44px); }
 .landing-sale-showcase .landing-sale-results article { color: #101820; }
-.landing-sale-carousel-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1180px; margin: 0 auto 26px; padding-inline: 10px; }
+.landing-sale-results {
+  position: relative;
+  max-width: min(1280px, calc(100vw - 28px));
+  margin-inline: auto;
+  overflow: hidden;
+  border-radius: 36px;
+  padding: clamp(20px, 3vw, 34px) 0 10px;
+}
+.landing-sale-carousel-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1060px; margin: 0 auto 24px; padding-inline: clamp(18px, 4vw, 34px); }
 .landing-sale-carousel-head h2 { margin: 0; }
 .landing-sale-carousel-controls { display: inline-flex; gap: 12px; }
-.landing-sale-carousel-controls button { display: inline-flex; width: 42px; height: 42px; align-items: center; justify-content: center; border-radius: 14px; border: 1px solid rgb(255 255 255 / 28%); color: white; font-size: 22px; font-weight: 400; line-height: 1; background: rgb(255 255 255 / 7%); box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%), 0 10px 24px rgb(0 0 0 / 14%); transition: transform 180ms ease, background 180ms ease, border-color 180ms ease; }
+.landing-sale-carousel-controls button { display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid rgb(255 255 255 / 24%); color: white; font-size: 20px; font-weight: 300; line-height: 1; background: rgb(255 255 255 / 6%); box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%), 0 10px 24px rgb(0 0 0 / 14%); transition: transform 180ms ease, background 180ms ease, border-color 180ms ease; }
 .landing-sale-carousel-controls button:hover { transform: translateY(-2px); border-color: rgb(255 255 255 / 70%); background: rgb(255 255 255 / 16%); }
-.landing-sale-card-rail { --sale-card-width: clamp(286px, 27vw, 344px); display: grid; grid-auto-flow: column; grid-auto-columns: var(--sale-card-width); grid-template-columns: none; gap: 18px; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scroll-padding-inline: max(22px, calc((100vw - var(--sale-card-width)) / 2)); padding: 6px max(22px, calc((100vw - var(--sale-card-width)) / 2)) 28px; -webkit-overflow-scrolling: touch; scrollbar-width: none; overscroll-behavior-x: contain; }
+.landing-sale-card-rail { --sale-card-width: clamp(292px, 26vw, 342px); display: grid; grid-auto-flow: column; grid-auto-columns: var(--sale-card-width); grid-template-columns: none; gap: 22px; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scroll-padding-inline: calc(50% - (var(--sale-card-width) / 2)); padding: 8px calc(50% - (var(--sale-card-width) / 2)) 34px; -webkit-overflow-scrolling: touch; scrollbar-width: none; overscroll-behavior-x: contain; scroll-behavior: smooth; mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%); -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%); }
 .landing-sale-card-rail::-webkit-scrollbar { display: none; }
-.landing-sale-card-rail > article { width: var(--sale-card-width); min-height: 640px; scroll-snap-align: center; scroll-snap-stop: always; opacity: .96; transition: opacity 420ms ease, box-shadow 420ms ease, translate 420ms cubic-bezier(.2,.8,.2,1); }
+.landing-sale-card-rail > article { width: var(--sale-card-width); min-height: 650px; scroll-snap-align: center; scroll-snap-stop: always; opacity: .78; scale: .965; border-radius: 18px; box-shadow: 0 26px 70px rgb(0 0 0 / 22%); transition: opacity 420ms ease, box-shadow 420ms ease, translate 420ms cubic-bezier(.2,.8,.2,1), scale 420ms cubic-bezier(.2,.8,.2,1); }
 .landing-sale-card-rail > article > div { height: 100%; }
 .landing-sale-card-rail > article:hover,
-.landing-sale-card-rail > article:focus-within { opacity: 1; translate: 0 -4px; }
+.landing-sale-card-rail > article:focus-within { opacity: 1; scale: 1; translate: 0 -4px; }
 .landing-owner-sale-section { background: #ffffff; padding-block: 42px 18px; }
 .landing-owner-sale-wrap { max-width: 1180px; margin: 0 auto; padding-inline: 10px; }
 .landing-owner-sale-callout { display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #dbe6ef; border-radius: 24px; background: linear-gradient(135deg, #ffffff, #f4f8fb); padding: 20px; color: #101820; box-shadow: 0 18px 44px rgb(15 23 42 / 7%); }
@@ -333,8 +341,13 @@ body:has(.landing-page) footer a:hover { color: #ffffff; }
   .landing-stat-grid { grid-template-columns: 1fr; }
   .landing-residences h2 { font-size: 24px; }
   .landing-sale-results > .grid { grid-template-columns: 1fr; }
-  .landing-sale-card-rail { --sale-card-width: min(74vw, 300px); gap: 18px; scroll-padding-inline: calc((100vw - var(--sale-card-width)) / 2); padding-inline: calc((100vw - var(--sale-card-width)) / 2); }
-  .landing-sale-card-rail > article { min-height: 610px; }
+  .landing-sale-results { max-width: 100%; border-radius: 28px 0 0 28px; padding-top: 20px; }
+  .landing-sale-carousel-head { margin-bottom: 18px; padding-inline: 22px; }
+  .landing-sale-carousel-head h2::before { font-size: 28px; }
+  .landing-sale-carousel-controls { gap: 8px; }
+  .landing-sale-carousel-controls button { width: 38px; height: 38px; }
+  .landing-sale-card-rail { --sale-card-width: min(82vw, 324px); gap: 18px; scroll-padding-inline: calc(50% - (var(--sale-card-width) / 2)); padding: 6px calc(50% - (var(--sale-card-width) / 2)) 28px; mask-image: linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%); -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%); }
+  .landing-sale-card-rail > article { min-height: 608px; opacity: .94; scale: 1; }
   .landing-sale-results > .landing-sale-card-rail > article { scroll-snap-align: center; }
   .landing-sale-filters > div { border-radius: 16px; }
   .landing-owner-sale-wrap { margin: 0 auto; padding-inline: 12px; }

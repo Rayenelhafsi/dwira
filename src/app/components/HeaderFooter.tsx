@@ -168,7 +168,15 @@ export function Header() {
   };
 
   const isNavLinkActive = (path: string) => {
-    const [pathname] = String(path || "").split("?");
+    const rawPath = String(path || "");
+    const [pathname, query = ""] = rawPath.split("?");
+    if (query) {
+      const targetParams = new URLSearchParams(query);
+      const currentParams = new URLSearchParams(location.search);
+      if (location.pathname !== pathname) return false;
+      return Array.from(targetParams.entries()).every(([key, value]) => currentParams.get(key) === value);
+    }
+    if (pathname === "/") return location.pathname === "/" && !new URLSearchParams(location.search).get("mode");
     return location.pathname === pathname || location.pathname.startsWith(`${pathname}/`);
   };
 
@@ -479,11 +487,11 @@ export function Header() {
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all ${isPropertyDetailsPage ? "duration-200" : "duration-300"} ${
         useSolidHeader
-          ? "border-b border-emerald-100 bg-white/92 py-2.5 shadow-[0_12px_34px_rgba(6,78,59,0.08)] backdrop-blur-xl md:py-2"
-          : "bg-transparent py-4"
+          ? "border-b border-emerald-100 bg-white/94 py-2 shadow-[0_12px_34px_rgba(6,78,59,0.08)] backdrop-blur-xl"
+          : "bg-black/18 py-3 backdrop-blur-md"
       } ${(isAutoHidden || isPropertyTopHidden) ? "-translate-y-[115%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100"}`}
     >
-      <div className="container mx-auto px-4 md:px-6 flex items-center justify-between gap-3">
+      <div className="container mx-auto flex items-center justify-between gap-3 px-4 md:px-6">
         <Link to="/ventes" className="flex items-center gap-3 z-50">
            <span className={`flex items-center ${(routeMode === "hotellerie" || showPartnerBranding) ? "gap-2" : ""}`}>
              <span className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm md:h-12 md:w-12 ${
@@ -501,9 +509,9 @@ export function Header() {
                </span>
              ) : null}
            </span>
-           <div className={`hidden sm:block font-bold leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-[#101820]"}`}>
-             <span className="block text-lg">Dwira</span>
-             <span className="block text-xs uppercase tracking-widest text-emerald-600">
+           <div className={`hidden sm:block font-medium leading-tight ${useLightText ? "text-white drop-shadow-md" : "text-[#101820]"}`}>
+             <span className="block text-lg font-semibold">Dwira</span>
+             <span className="block text-xs font-medium uppercase tracking-widest text-emerald-500">
                {routeMode === "hotellerie"
                  ? "Immobilier x Tita Travel"
                  : showPartnerBranding
@@ -514,14 +522,14 @@ export function Header() {
         </Link>
 
         {/* Desktop Nav */}
-        <nav className={`hidden lg:flex items-center gap-3 ${!useSolidHeader ? "rounded-full border border-white/15 bg-black/12 px-3 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)] backdrop-blur-xl" : ""}`}>
+        <nav className={`hidden lg:flex items-center gap-2 ${!useSolidHeader ? "rounded-none border-0 bg-transparent p-0 shadow-none backdrop-blur-0" : ""}`}>
           {navLinks.map((link) => (
             <Link
               key={link.path}
               to={link.path}
-              className={`rounded-full px-3 py-2 text-sm font-semibold uppercase tracking-[0.14em] transition-colors hover:text-emerald-400 ${
-                useLightText ? "text-white/90 drop-shadow-sm" : "text-[#2d3945]"
-              } ${isNavLinkActive(link.path) ? "text-emerald-600" : ""}`}
+              className={`rounded-full px-3 py-2 text-sm font-medium normal-case tracking-[-0.01em] transition-all ${
+                useLightText ? "text-white/84 hover:bg-white/10 hover:text-white" : "text-[#2d3945] hover:bg-emerald-50 hover:text-emerald-700"
+              } ${isNavLinkActive(link.path) ? (useLightText ? "text-white underline decoration-emerald-300 underline-offset-8" : "text-emerald-700 underline decoration-emerald-500 underline-offset-8") : ""}`}
             >
               {link.name}
             </Link>
@@ -529,20 +537,20 @@ export function Header() {
           
           {/* Auth Section */}
           {user ? (
-            <div className="flex items-center gap-3">
+            <div className="ml-2 flex items-center gap-2">
               {user.role === 'user' && (
                 <Link
                   to="/mes-reservations"
                   className={`relative flex h-10 w-10 items-center justify-center rounded-full border transition-colors ${
                     useLightText
-                      ? 'border-white/30 text-white hover:bg-white/20'
+                      ? 'border-white/24 bg-white/8 text-white hover:bg-white/16'
                       : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
                   }`}
                   title="Mes demandes"
                 >
                   <ShoppingBag size={18} />
                   {reservationCount > 0 && (
-                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
                       {reservationCount}
                     </span>
                   )}
@@ -550,40 +558,40 @@ export function Header() {
               )}
               <Link 
                 to={user.role === 'admin' ? '/admin' : '/'}
-                className="flex items-center gap-2"
+                className={`flex items-center gap-2 rounded-full px-1.5 py-1 pr-3 transition-colors ${useLightText ? "text-white hover:bg-white/10" : "text-slate-700 hover:bg-slate-50"}`}
               >
                 {user.avatar ? (
                   <img 
                     src={user.avatar} 
                     alt={user.name} 
-                    className="w-8 h-8 rounded-full border-2 border-emerald-500"
+                    className="h-8 w-8 rounded-full border-2 border-emerald-500"
                   />
                 ) : (
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
                     useLightText ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'
                   }`}>
                     <User size={16} />
                   </div>
                 )}
-                <span className={`text-sm font-medium ${useLightText ? 'text-white' : 'text-gray-700'}`}>
+                <span className={`max-w-[92px] truncate text-sm font-medium ${useLightText ? 'text-white' : 'text-gray-700'}`}>
                   {user.name}
                 </span>
               </Link>
               <button
                 onClick={handleLogout}
-                className="p-2 rounded-full hover:bg-red-100 text-red-500 transition-colors"
+                className="rounded-full p-2 text-red-500 transition-colors hover:bg-red-100"
                 title="Déconnexion"
               >
                 <LogOut size={18} />
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="ml-1 flex items-center gap-2">
               {!isPublicAmicaleFlow ? (
                 <>
                   <Link
                     to="/agent-amicale/login"
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
                       !useLightText
                         ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200"
                         : "border border-white/20 bg-white/8 text-white hover:bg-white/16"
@@ -594,7 +602,7 @@ export function Header() {
                   </Link>
                   <Link
                     to="/partner-agency/login"
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
                       !useLightText
                         ? "text-sky-700 hover:bg-sky-50 border border-sky-200"
                         : "border border-white/20 bg-white/8 text-white hover:bg-white/16"
@@ -605,7 +613,7 @@ export function Header() {
                   </Link>
                   <Link
                     to="/login"
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${
                       !useLightText
                         ? "text-emerald-700 hover:bg-emerald-50 border border-emerald-200" 
                         : "border border-white/20 bg-white/8 text-white hover:bg-white/16"
@@ -622,8 +630,8 @@ export function Header() {
           <button
             type="button"
             onClick={() => openPhoneApp(headerContact.phone)}
-            className={`min-w-[196px] rounded-full px-6 py-3 text-sm font-bold shadow-[0_12px_30px_rgba(16,24,32,0.18)] transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${
-              useLightText ? "bg-white text-[#101820] hover:bg-white/92" : "bg-[#101820] text-white hover:bg-[#26323d]"
+            className={`ml-2 flex min-w-[176px] items-center justify-center gap-2 whitespace-nowrap rounded-full px-5 py-3 text-sm font-semibold shadow-[0_12px_30px_rgba(16,24,32,0.16)] transition-colors ${
+              useLightText ? "bg-emerald-500 text-white hover:bg-emerald-400" : "bg-[#101820] text-white hover:bg-[#26323d]"
             }`}
           >
             <Phone size={16} />

@@ -377,6 +377,9 @@ export function OwnerSaleRequestBox({
       contactEmail: current.contactEmail || user.email || '',
       contactPhone: current.contactPhone || user.telephone || '',
     }));
+    if (user.role === 'user') {
+      setStep((current) => (current === 0 ? 1 : current));
+    }
   }, [open, user]);
 
   useEffect(() => {
