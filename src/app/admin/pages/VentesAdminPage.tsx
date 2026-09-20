@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { BadgeDollarSign, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, Eye, Filter, FolderOpen, Hash, Home, ImageIcon, LandPlot, Layers3, Mail, MapPin, PencilLine, Phone, Plus, RefreshCw, Ruler, Save, UserCheck, XCircle } from "lucide-react";
+import { BadgeDollarSign, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, Eye, Filter, FolderOpen, Hash, Home, ImageIcon, LandPlot, Layers3, Mail, MapPin, MessageCircle, Paperclip, PencilLine, Phone, Plus, RefreshCw, Ruler, Save, Send, UploadCloud, UserCheck, XCircle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { useAuth } from "../../context/AuthContext";
 import { useProperties } from "../../context/PropertiesContext";
@@ -60,6 +60,16 @@ type OwnerSaleListingRequest = {
   created_at?: string | null;
   payload?: Record<string, any>;
   photos?: string[];
+};
+
+type OwnerRequestMessage = {
+  id: string;
+  request_id: string;
+  sender_role: "owner" | "admin";
+  message_text?: string | null;
+  attachment_url?: string | null;
+  attachment_name?: string | null;
+  created_at?: string | null;
 };
 
 type DemandDraft = {
@@ -237,6 +247,9 @@ export default function VentesAdminPage() {
   const [reloading, setReloading] = useState(false);
   const [demands, setDemands] = useState<SalesDemand[]>([]);
   const [ownerListingRequests, setOwnerListingRequests] = useState<OwnerSaleListingRequest[]>([]);
+  const [ownerRequestMessages, setOwnerRequestMessages] = useState<Record<string, OwnerRequestMessage[]>>({});
+  const [ownerRequestChatDrafts, setOwnerRequestChatDrafts] = useState<Record<string, string>>({});
+  const [ownerRequestSendingId, setOwnerRequestSendingId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DemandDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("demandes");
@@ -477,6 +490,130 @@ export default function VentesAdminPage() {
       await loadDemands("refresh");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Suppression impossible");
+    }
+  };
+
+  const publishOwnerListingRequest = async (request: OwnerSaleListingRequest) => {
+    const payload = request.payload || {};
+    const photos = Array.isArray(request.photos) ? request.photos.filter(Boolean) : [];
+    try {
+      const createResponse = await fetch(`${API_URL}/biens`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          titre: request.title,
+          description: String(payload.description || ""),
+          mode: "vente",
+          type: request.property_type,
+          nb_chambres: Number(payload.nb_chambres || payload.bedrooms || 0),
+          nb_salle_bain: 0,
+          prix_nuitee: Number(payload.prix_affiche_client || request.price_tnd || 0),
+          prix_affiche_client: Number(payload.prix_affiche_client || request.price_tnd || 0),
+          tarification_methode: "prix_fixe",
+          modalite_paiement_vente: payload.modalite_paiement_vente || request.payment_mode || "comptant",
+          type_rue: payload.type_rue || "",
+          type_papier: payload.type_papier || "",
+          superficie_m2: payload.superficie_m2 || null,
+          configuration: payload.configuration || (payload.bedrooms ? `S+${payload.bedrooms}` : null),
+          surface_local_m2: payload.surface_local_m2 || null,
+          facade_m: payload.facade_m || null,
+          type_terrain: request.property_type === "lotissement" ? "lotissement" : "terrain",
+          terrain_surface_m2: payload.terrain_surface_m2 || null,
+          terrain_facade_m: payload.terrain_facade_m || null,
+          terrain_type_sol: payload.terrain_type_sol || null,
+          terrain_prix_affiche_total: Number(payload.prix_affiche_client || request.price_tnd || 0),
+          statut: "disponible",
+          visible_sur_site: true,
+        }),
+      });
+      const created = await createResponse.json().catch(() => null);
+      if (!createResponse.ok) throw new Error(String(created?.error || "Creation du bien impossible"));
+      const bienId = String(created?.id || "").trim();
+      if (bienId) {
+        for (const [index, photo] of photos.entries()) {
+          await fetch(`${API_URL}/media`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              bien_id: bienId,
+              type: "image",
+              url: photo,
+              position: index,
+              motif_upload: index === 0 ? "photo_couverture" : "photo_proprietaire",
+            }),
+          }).catch(() => null);
+        }
+      }
+      await updateOwnerListingRequest(request.id, { status: "mise_en_ligne", admin_note: request.admin_note || "" });
+      toast.success("Bien publie sur le site");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Publication impossible");
+    }
+  };
+
+  const loadOwnerRequestMessages = async (requestId: string) => {
+    try {
+      const response = await fetch(`${API_URL}/owner-sale-listing-requests/${encodeURIComponent(requestId)}/messages`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const rows = await response.json().catch(() => []);
+      if (!response.ok) throw new Error(String(rows?.error || "Chat indisponible"));
+      setOwnerRequestMessages((current) => ({ ...current, [requestId]: Array.isArray(rows) ? rows : [] }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Chat indisponible");
+    }
+  };
+
+  const sendOwnerRequestMessage = async (requestId: string, attachment?: { url: string; name: string }) => {
+    const message = String(ownerRequestChatDrafts[requestId] || "").trim();
+    if (!message && !attachment?.url) return;
+    setOwnerRequestSendingId(requestId);
+    try {
+      const response = await fetch(`${API_URL}/owner-sale-listing-requests/${encodeURIComponent(requestId)}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          message,
+          attachment_url: attachment?.url || "",
+          attachment_name: attachment?.name || "",
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(payload?.error || "Message non envoye"));
+      setOwnerRequestChatDrafts((current) => ({ ...current, [requestId]: "" }));
+      await loadOwnerRequestMessages(requestId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Message non envoye");
+    } finally {
+      setOwnerRequestSendingId(null);
+    }
+  };
+
+  const uploadOwnerRequestAttachment = async (requestId: string, file: File) => {
+    setOwnerRequestSendingId(requestId);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      formData.append("upload_scope", "owner_sale_request_chat");
+      formData.append("preferred_provider", "cloudflare");
+      const response = await fetch(`${API_URL}/upload`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(payload?.error || "Piece jointe non envoyee"));
+      const url = String(payload?.url || "").trim();
+      if (!url) throw new Error("URL piece jointe indisponible");
+      await sendOwnerRequestMessage(requestId, { url, name: file.name });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Piece jointe non envoyee");
+    } finally {
+      setOwnerRequestSendingId(null);
     }
   };
 
@@ -897,10 +1034,54 @@ export default function VentesAdminPage() {
                           placeholder="Note admin avant validation..."
                           className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                         />
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <button type="button" onClick={() => void loadOwnerRequestMessages(request.id)} className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700">
+                            <MessageCircle className="h-4 w-4" />
+                            Charger le chat proprietaire
+                          </button>
+                          <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+                            {(ownerRequestMessages[request.id] || []).length === 0 ? (
+                              <p className="rounded-xl bg-white p-3 text-sm text-slate-500">Aucun message charge.</p>
+                            ) : (ownerRequestMessages[request.id] || []).map((message) => (
+                              <div key={message.id} className={`rounded-xl p-3 text-sm ${message.sender_role === "admin" ? "bg-emerald-50 text-emerald-950" : "bg-white text-slate-800"}`}>
+                                <p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">{message.sender_role === "admin" ? "Admin" : "Proprietaire"}</p>
+                                {message.message_text ? <p className="mt-1">{message.message_text}</p> : null}
+                                {message.attachment_url ? <a href={resolveMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-2 font-semibold underline"><Paperclip className="h-4 w-4" />{message.attachment_name || "Piece jointe"}</a> : null}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-3 flex gap-2">
+                            <input
+                              value={ownerRequestChatDrafts[request.id] || ""}
+                              onChange={(event) => setOwnerRequestChatDrafts((current) => ({ ...current, [request.id]: event.target.value }))}
+                              placeholder="Message au proprietaire"
+                              className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                            />
+                            <label className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-100">
+                              <UploadCloud className="h-4 w-4" />
+                              <input type="file" className="hidden" onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                event.target.value = "";
+                                if (file) void uploadOwnerRequestAttachment(request.id, file);
+                              }} />
+                            </label>
+                            <button type="button" disabled={ownerRequestSendingId === request.id} onClick={() => void sendOwnerRequestMessage(request.id)} className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-white disabled:opacity-50">
+                              <Send className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                           <button type="button" onClick={() => void updateOwnerListingRequest(request.id, { status: "validee" })} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700">
                             <CheckCircle2 className="h-4 w-4" />
                             Valider
+                          </button>
+                          <button type="button" onClick={() => void publishOwnerListingRequest(request)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+                            <Eye className="h-4 w-4" />
+                            Mettre en ligne
+                          </button>
+                          <button type="button" onClick={() => void updateOwnerListingRequest(request.id, { status: "rejetee" })} className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-100">
+                            <XCircle className="h-4 w-4" />
+                            Rejeter
                           </button>
                           <Link to={buildSalesCreateHref(String(request.property_type || "appartement"))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
                             <Plus className="h-4 w-4" />

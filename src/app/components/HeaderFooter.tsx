@@ -492,7 +492,7 @@ export function Header() {
       } ${(isAutoHidden || isPropertyTopHidden) ? "-translate-y-[115%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100"}`}
     >
       <div className="container mx-auto flex items-center justify-between gap-3 px-4 md:px-6">
-        <Link to="/ventes" className="flex items-center gap-3 z-50">
+        <Link to="/?mode=vente" className="flex items-center gap-3 z-50">
            <span className={`flex items-center ${(routeMode === "hotellerie" || showPartnerBranding) ? "gap-2" : ""}`}>
              <span className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm md:h-12 md:w-12 ${
                useSolidHeader ? "border border-emerald-100" : "border border-white/70 ring-1 ring-white/25"

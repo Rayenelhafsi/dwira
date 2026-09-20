@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, Navigate, useNavigate } from "react-router";
-import { CalendarClock, Printer, ShoppingBag, TimerReset } from "lucide-react";
+import { CalendarClock, CheckCircle2, MessageCircle, Paperclip, Printer, Send, ShoppingBag, TimerReset, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { useProperties } from "../context/PropertiesContext";
@@ -143,6 +143,31 @@ type ContractApi = {
   url_pdf?: string;
 };
 
+type OwnerSaleListingRequest = {
+  id: string;
+  title: string;
+  property_type: string;
+  region: string;
+  zone: string;
+  address: string;
+  price_tnd: number;
+  status: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  admin_note?: string | null;
+  photos?: string[];
+};
+
+type OwnerRequestMessage = {
+  id: string;
+  request_id: string;
+  sender_role: "owner" | "admin";
+  message_text?: string | null;
+  attachment_url?: string | null;
+  attachment_name?: string | null;
+  created_at?: string | null;
+};
+
 function isReservationDemand(value: unknown): value is ReservationDemand {
   if (!value || typeof value !== "object") return false;
   return Boolean(String((value as Partial<ReservationDemand>).id || "").trim());
@@ -154,6 +179,10 @@ export default function MyReservationsPage() {
   const { properties, refreshData } = useProperties();
   const [reservations, setReservations] = useState<ReservationDemand[]>([]);
   const [hotelReservations, setHotelReservations] = useState<HotelReservationDemand[]>([]);
+  const [ownerSaleRequests, setOwnerSaleRequests] = useState<OwnerSaleListingRequest[]>([]);
+  const [ownerRequestMessages, setOwnerRequestMessages] = useState<Record<string, OwnerRequestMessage[]>>({});
+  const [ownerRequestChatDrafts, setOwnerRequestChatDrafts] = useState<Record<string, string>>({});
+  const [ownerRequestSendingId, setOwnerRequestSendingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activePositiveDemandId, setActivePositiveDemandId] = useState<string | null>(null);
   const [activeContractDemandId, setActiveContractDemandId] = useState<string | null>(null);
@@ -171,15 +200,19 @@ export default function MyReservationsPage() {
       const sessionUser = await getSessionUser();
       if (!sessionUser) {
         setReservations([]);
+        setOwnerSaleRequests([]);
         return;
       }
       const query = new URLSearchParams();
       if (user.id) query.set("client_user_id", user.id);
       query.set("client_email", user.email);
       const response = await fetch(`${API_URL}/reservation-demands?${query.toString()}`, { credentials: "include" });
+      const ownerRequestsResponse = await fetch(`${API_URL}/owner-sale-listing-requests/mine`, { credentials: "include", cache: "no-store" }).catch(() => null);
       const rows = await response.json().catch(() => []);
       if (!response.ok) throw new Error(String(rows?.error || "Impossible de charger vos reservations"));
       setReservations(Array.isArray(rows) ? rows.filter(isReservationDemand) : []);
+      const ownerRows = ownerRequestsResponse?.ok ? await ownerRequestsResponse.json().catch(() => []) : [];
+      setOwnerSaleRequests(Array.isArray(ownerRows) ? ownerRows : []);
       const hotelRows = await listHotelReservationDemands();
       setHotelReservations(Array.isArray(hotelRows) ? hotelRows : []);
     } catch (error) {
@@ -396,6 +429,69 @@ export default function MyReservationsPage() {
     }
   };
 
+  const loadOwnerRequestMessages = async (requestId: string) => {
+    try {
+      const response = await fetch(`${API_URL}/owner-sale-listing-requests/${encodeURIComponent(requestId)}/messages`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Chat indisponible"));
+      const rows = await response.json().catch(() => []);
+      setOwnerRequestMessages((current) => ({ ...current, [requestId]: Array.isArray(rows) ? rows : [] }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Chat indisponible");
+    }
+  };
+
+  const sendOwnerRequestMessage = async (requestId: string, attachment?: { url: string; name: string }) => {
+    const message = String(ownerRequestChatDrafts[requestId] || "").trim();
+    if (!message && !attachment?.url) return;
+    setOwnerRequestSendingId(requestId);
+    try {
+      const response = await fetch(`${API_URL}/owner-sale-listing-requests/${encodeURIComponent(requestId)}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          message,
+          attachment_url: attachment?.url || "",
+          attachment_name: attachment?.name || "",
+        }),
+      });
+      if (!response.ok) throw new Error(await getApiErrorMessage(response, "Message non envoye"));
+      setOwnerRequestChatDrafts((current) => ({ ...current, [requestId]: "" }));
+      await loadOwnerRequestMessages(requestId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Message non envoye");
+    } finally {
+      setOwnerRequestSendingId(null);
+    }
+  };
+
+  const uploadOwnerRequestAttachment = async (requestId: string, file: File) => {
+    setOwnerRequestSendingId(requestId);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      formData.append("upload_scope", "owner_sale_request_chat");
+      formData.append("preferred_provider", "cloudflare");
+      const response = await fetch(`${API_URL}/upload`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(payload?.error || "Piece jointe non envoyee"));
+      const url = String(payload?.url || "").trim();
+      if (!url) throw new Error("URL piece jointe indisponible");
+      await sendOwnerRequestMessage(requestId, { url, name: file.name });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Piece jointe non envoyee");
+    } finally {
+      setOwnerRequestSendingId(null);
+    }
+  };
+
   if (!user || user.role !== "user") {
     return <Navigate to="/login" replace />;
   }
@@ -423,6 +519,91 @@ export default function MyReservationsPage() {
             Actualiser
           </button>
         </div>
+
+        {ownerSaleRequests.length > 0 ? (
+          <section className="mt-8 rounded-[28px] border border-emerald-100 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                <MessageCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Demandes d'ajout de biens</p>
+                <h2 className="text-xl font-semibold text-gray-900">Suivi proprietaire</h2>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-4">
+              {ownerSaleRequests.map((request) => {
+                const messages = ownerRequestMessages[request.id] || [];
+                const photo = Array.isArray(request.photos) ? request.photos[0] : "";
+                return (
+                  <article key={request.id} className="grid gap-4 rounded-2xl border border-gray-200 bg-slate-50 p-4 lg:grid-cols-[180px,1fr]">
+                    <div className="overflow-hidden rounded-2xl bg-white">
+                      {photo ? <img src={resolveAssetUrl(photo)} alt={request.title} className="h-full min-h-36 w-full object-cover" /> : (
+                        <div className="flex min-h-36 items-center justify-center text-sm text-gray-400">Photo</div>
+                      )}
+                    </div>
+                    <div className="grid gap-4 xl:grid-cols-[1fr,360px]">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700">{request.status.replaceAll("_", " ")}</span>
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-gray-600">{formatDateTime(request.created_at)}</span>
+                        </div>
+                        <h3 className="mt-3 text-lg font-semibold text-gray-950">{request.title}</h3>
+                        <p className="mt-1 text-sm text-gray-600">{request.region}, {request.zone} - {Number(request.price_tnd || 0).toLocaleString("fr-FR")} TND</p>
+                        {request.admin_note ? <p className="mt-3 rounded-2xl bg-white p-3 text-sm text-gray-700">Note admin: {request.admin_note}</p> : null}
+                      </div>
+                      <div className="rounded-2xl border border-gray-200 bg-white p-3">
+                        <button
+                          type="button"
+                          onClick={() => void loadOwnerRequestMessages(request.id)}
+                          className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700"
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                          Charger le chat
+                        </button>
+                        <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+                          {messages.length === 0 ? (
+                            <p className="rounded-xl bg-slate-50 p-3 text-sm text-gray-500">Aucun message pour le moment.</p>
+                          ) : messages.map((message) => (
+                            <div key={message.id} className={`rounded-xl p-3 text-sm ${message.sender_role === "owner" ? "bg-emerald-50 text-emerald-950" : "bg-slate-100 text-slate-800"}`}>
+                              <p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">{message.sender_role === "owner" ? "Vous" : "Admin"}</p>
+                              {message.message_text ? <p className="mt-1">{message.message_text}</p> : null}
+                              {message.attachment_url ? <a href={resolveAssetUrl(message.attachment_url)} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-2 font-semibold underline"><Paperclip className="h-4 w-4" />{message.attachment_name || "Piece jointe"}</a> : null}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <input
+                            value={ownerRequestChatDrafts[request.id] || ""}
+                            onChange={(event) => setOwnerRequestChatDrafts((current) => ({ ...current, [request.id]: event.target.value }))}
+                            placeholder="Message a l'admin"
+                            className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm"
+                          />
+                          <label className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50">
+                            <UploadCloud className="h-4 w-4" />
+                            <input type="file" className="hidden" onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              event.target.value = "";
+                              if (file) void uploadOwnerRequestAttachment(request.id, file);
+                            }} />
+                          </label>
+                          <button
+                            type="button"
+                            disabled={ownerRequestSendingId === request.id}
+                            onClick={() => void sendOwnerRequestMessage(request.id)}
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-white disabled:opacity-50"
+                          >
+                            {ownerRequestSendingId === request.id ? <CheckCircle2 className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <div className="mt-8">
           {isLoading ? (

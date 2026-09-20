@@ -14419,10 +14419,113 @@ app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, expres
         now,
       ]
     );
+    await pool.query(
+      'INSERT INTO admin_notifications (id, type, message, lu, created_at) VALUES (?, ?, ?, 0, ?)',
+      [
+        `notif_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
+        'owner_sale_listing_request',
+        `Nouvelle demande proprietaire vente: ${payload.title}`,
+        now,
+      ]
+    ).catch((notificationError) => {
+      console.error('Owner sale request notification failed:', notificationError?.message || notificationError);
+    });
     res.status(201).json({ id, status: 'nouvelle_demande' });
   } catch (error) {
     console.error('Error creating owner sale listing request:', error);
     res.status(500).json({ error: 'Impossible de soumettre la demande proprietaire' });
+  }
+});
+
+app.get('/api/owner-sale-listing-requests/mine', requireAuthenticatedSession, async (req, res) => {
+  try {
+    await ensureOwnerSaleListingRequestsSchema();
+    const user = req.authUser || {};
+    if (!user?.id || String(user.role || '') !== 'user') {
+      return res.status(401).json({ error: 'Compte client requis' });
+    }
+    const [rows] = await pool.query(
+      `SELECT *,
+        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM owner_sale_listing_requests
+       WHERE owner_user_id = ?
+       ORDER BY created_at DESC
+       LIMIT 100`,
+      [String(user.id || '').trim()]
+    );
+    res.json((rows || []).map((row) => ({
+      ...row,
+      payload: parseOwnerSaleRequestJson(row.payload_json, {}),
+      photos: parseOwnerSaleRequestJson(row.photos_json, []),
+    })));
+  } catch (error) {
+    console.error('Error fetching owner sale listing requests:', error);
+    res.status(500).json({ error: 'Impossible de charger vos demandes proprietaires' });
+  }
+});
+
+async function fetchOwnerSaleRequestForAccess(id, user) {
+  const [rows] = await pool.query('SELECT * FROM owner_sale_listing_requests WHERE id = ? LIMIT 1', [id]);
+  const request = rows?.[0] || null;
+  if (!request) return null;
+  if (String(user?.role || '') === 'admin' || String(user?.role || '') === 'super_admin') return request;
+  if (String(user?.role || '') === 'user' && String(request.owner_user_id || '') === String(user?.id || '')) return request;
+  return false;
+}
+
+app.get('/api/owner-sale-listing-requests/:id/messages', requireAuthenticatedSession, async (req, res) => {
+  try {
+    await ensureOwnerSaleListingRequestsSchema();
+    const id = String(req.params?.id || '').trim();
+    const access = await fetchOwnerSaleRequestForAccess(id, req.authUser || {});
+    if (access === false) return res.status(403).json({ error: 'Acces refuse' });
+    if (!access) return res.status(404).json({ error: 'Demande introuvable' });
+    const [rows] = await pool.query(
+      `SELECT *,
+        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM owner_sale_listing_request_messages
+       WHERE request_id = ?
+       ORDER BY created_at ASC`,
+      [id]
+    );
+    res.json(rows || []);
+  } catch (error) {
+    console.error('Error fetching owner sale request messages:', error);
+    res.status(500).json({ error: 'Impossible de charger le chat' });
+  }
+});
+
+app.post('/api/owner-sale-listing-requests/:id/messages', requireAuthenticatedSession, express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    await ensureOwnerSaleListingRequestsSchema();
+    const id = String(req.params?.id || '').trim();
+    const access = await fetchOwnerSaleRequestForAccess(id, req.authUser || {});
+    if (access === false) return res.status(403).json({ error: 'Acces refuse' });
+    if (!access) return res.status(404).json({ error: 'Demande introuvable' });
+    const message = String(req.body?.message || '').trim();
+    const attachmentUrl = String(req.body?.attachment_url || '').trim();
+    const attachmentName = String(req.body?.attachment_name || '').trim();
+    if (!message && !attachmentUrl) return res.status(400).json({ error: 'Message ou piece jointe requis' });
+    const now = getAgencySqlDateTime();
+    const senderRole = String(req.authUser?.role || '') === 'user' ? 'owner' : 'admin';
+    const messageId = `oslm_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    await pool.query(
+      `INSERT INTO owner_sale_listing_request_messages
+       (id, request_id, sender_user_id, sender_role, message_text, attachment_url, attachment_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [messageId, id, String(req.authUser?.id || '').trim() || null, senderRole, message || null, attachmentUrl || null, attachmentName || null, now]
+    );
+    if (senderRole === 'owner') {
+      await pool.query(
+        'INSERT INTO admin_notifications (id, type, message, lu, created_at) VALUES (?, ?, ?, 0, ?)',
+        [`notif_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`, 'owner_sale_listing_chat', `Nouveau message proprietaire: ${access.title}`, now]
+      ).catch(() => {});
+    }
+    res.status(201).json({ id: messageId, request_id: id, sender_role: senderRole, message_text: message || null, attachment_url: attachmentUrl || null, attachment_name: attachmentName || null, created_at: now });
+  } catch (error) {
+    console.error('Error creating owner sale request message:', error);
+    res.status(500).json({ error: 'Impossible d envoyer le message' });
   }
 });
 
@@ -29774,6 +29877,19 @@ async function ensureOwnerSaleListingRequestsSchema() {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       KEY idx_owner_sale_listing_requests_status (status, created_at),
       KEY idx_owner_sale_listing_requests_owner (owner_user_id, created_at)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS owner_sale_listing_request_messages (
+      id VARCHAR(100) PRIMARY KEY,
+      request_id VARCHAR(100) NOT NULL,
+      sender_user_id VARCHAR(100) NULL,
+      sender_role VARCHAR(30) NOT NULL DEFAULT 'owner',
+      message_text TEXT NULL,
+      attachment_url TEXT NULL,
+      attachment_name VARCHAR(255) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_owner_sale_listing_request_messages_request_created (request_id, created_at)
     )
   `);
 }

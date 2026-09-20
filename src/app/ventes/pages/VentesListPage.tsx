@@ -126,6 +126,30 @@ const OWNER_REQUEST_INITIAL: OwnerSaleRequestDraft = {
   availability: '',
 };
 
+const OWNER_PHOTO_SLOTS = [
+  { id: 'cover', label: 'Photo couverture' },
+  { id: 'facade', label: 'Facade / acces' },
+  { id: 'interior', label: 'Interieur ou terrain' },
+  { id: 'document', label: 'Document / plan utile' },
+] as const;
+
+type OwnerPhotoSlotId = (typeof OWNER_PHOTO_SLOTS)[number]['id'];
+
+type OwnerPhotoUpload = {
+  fileName: string;
+  previewUrl: string;
+  uploadedUrl: string;
+  status: 'idle' | 'uploading' | 'uploaded' | 'error';
+  error?: string;
+};
+
+const createEmptyPhotoUploads = (): Record<OwnerPhotoSlotId, OwnerPhotoUpload | null> => ({
+  cover: null,
+  facade: null,
+  interior: null,
+  document: null,
+});
+
 const TYPE_RUE_OPTIONS = [
   { value: 'goudronnee', label: 'Rue goudronnee' },
   { value: 'piste', label: 'Piste' },
@@ -350,7 +374,7 @@ export function OwnerSaleRequestBox({
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<OwnerSaleRequestDraft>(OWNER_REQUEST_INITIAL);
-  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoUploads, setPhotoUploads] = useState<Record<OwnerPhotoSlotId, OwnerPhotoUpload | null>>(() => createEmptyPhotoUploads());
   const [submitting, setSubmitting] = useState(false);
   const [providers, setProviders] = useState({ google: false, facebook: false, apple: false, passkey: true });
   const [authLoading, setAuthLoading] = useState<'passkey' | null>(null);
@@ -453,23 +477,48 @@ export function OwnerSaleRequestBox({
   }
 
   const missingFields = requiredFields.filter((key) => !String(draft[key] || '').trim());
-  const canSubmit = isAuthenticatedOwner && missingFields.length === 0 && photos.length > 0 && !submitting;
+  const uploadedPhotoUrls = OWNER_PHOTO_SLOTS
+    .map((slot) => photoUploads[slot.id]?.uploadedUrl || '')
+    .filter(Boolean);
+  const hasUploadingPhotos = OWNER_PHOTO_SLOTS.some((slot) => photoUploads[slot.id]?.status === 'uploading');
+  const canSubmit = isAuthenticatedOwner && missingFields.length === 0 && uploadedPhotoUrls.length > 0 && !hasUploadingPhotos && !submitting;
 
-  const uploadPhotos = async () => {
-    const urls: string[] = [];
-    for (const file of photos) {
+  const uploadPhotoSlot = async (slotId: OwnerPhotoSlotId, file: File) => {
+    const previewUrl = URL.createObjectURL(file);
+    setPhotoUploads((current) => ({
+      ...current,
+      [slotId]: { fileName: file.name, previewUrl, uploadedUrl: '', status: 'uploading' },
+    }));
+    try {
       const formData = new FormData();
       formData.append('image', file);
       formData.append('upload_scope', 'owner_sale_request');
+      formData.append('preferred_provider', 'cloudflare');
       const response = await fetchWithApiFallback('/upload', {
         method: 'POST',
         body: formData,
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(payload?.error || 'Upload photo impossible'));
-      urls.push(String(payload?.url || payload?.imageUrl || '').trim());
+      const uploadedUrl = String(payload?.url || payload?.imageUrl || '').trim();
+      if (!uploadedUrl) throw new Error('URL photo indisponible');
+      setPhotoUploads((current) => ({
+        ...current,
+        [slotId]: { fileName: file.name, previewUrl, uploadedUrl, status: 'uploaded' },
+      }));
+    } catch (error) {
+      setPhotoUploads((current) => ({
+        ...current,
+        [slotId]: {
+          fileName: file.name,
+          previewUrl,
+          uploadedUrl: '',
+          status: 'error',
+          error: error instanceof Error ? error.message : 'Upload impossible',
+        },
+      }));
+      toast.error(error instanceof Error ? error.message : 'Upload photo impossible');
     }
-    return urls.filter(Boolean);
   };
 
   const submitRequest = async () => {
@@ -481,13 +530,16 @@ export function OwnerSaleRequestBox({
       toast.error('Completez tous les champs obligatoires.');
       return;
     }
-    if (photos.length === 0) {
+    if (uploadedPhotoUrls.length === 0) {
       toast.error('Ajoutez au moins une photo du bien.');
+      return;
+    }
+    if (hasUploadingPhotos) {
+      toast.error('Patientez jusqu a la fin de l upload des photos.');
       return;
     }
     setSubmitting(true);
     try {
-      const photoUrls = await uploadPhotos();
       const response = await fetch(buildApiUrl('/owner-sale-listing-requests'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -496,7 +548,7 @@ export function OwnerSaleRequestBox({
           ...draft,
           type: draft.propertyType,
           mode: 'vente',
-          photos: photoUrls,
+          photos: uploadedPhotoUrls,
           source: 'landing_ventes',
         }),
       });
@@ -504,7 +556,7 @@ export function OwnerSaleRequestBox({
       if (!response.ok) throw new Error(String(payload?.error || 'Demande impossible'));
       toast.success('Demande envoyee a l equipe ventes.');
       setDraft(OWNER_REQUEST_INITIAL);
-      setPhotos([]);
+      setPhotoUploads(createEmptyPhotoUploads());
       setStep(0);
       onOpenChange(false);
     } catch (error) {
@@ -714,26 +766,46 @@ export function OwnerSaleRequestBox({
           {step === 4 ? (
             <div className="grid gap-4">
               <div className="grid gap-3 md:grid-cols-2">
-                {[
-                  'Photo couverture',
-                  'Facade / acces',
-                  'Interieur ou terrain',
-                  'Document / plan utile',
-                ].map((label) => (
-                  <label key={label} className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center transition hover:border-emerald-300 hover:bg-emerald-50/40">
-                    <UploadCloud className="h-7 w-7 text-emerald-700" />
-                    <span className="text-sm font-bold text-slate-950">{label}</span>
-                    <input type="file" multiple accept="image/*" className="hidden" onChange={(event) => setPhotos((current) => [...current, ...Array.from(event.target.files || [])])} />
+                {OWNER_PHOTO_SLOTS.map((slot) => {
+                  const upload = photoUploads[slot.id];
+                  const uploaded = upload?.status === 'uploaded';
+                  const uploading = upload?.status === 'uploading';
+                  return (
+                  <label key={slot.id} className={`relative flex min-h-36 cursor-pointer flex-col justify-between overflow-hidden rounded-2xl border border-dashed px-4 py-4 text-left transition ${
+                    uploaded
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-950'
+                      : upload?.status === 'error'
+                        ? 'border-rose-300 bg-rose-50 text-rose-900'
+                        : 'border-slate-300 bg-slate-50 text-slate-950 hover:border-emerald-300 hover:bg-emerald-50/40'
+                  }`}>
+                    {upload?.previewUrl ? (
+                      <img src={upload.previewUrl} alt={slot.label} className="absolute inset-0 h-full w-full object-cover opacity-20" />
+                    ) : null}
+                    <div className="relative z-10 flex items-center justify-between gap-3">
+                      <UploadCloud className={`h-7 w-7 ${uploaded ? 'text-emerald-700' : 'text-slate-500'}`} />
+                      {uploading ? <Loader2 className="h-5 w-5 animate-spin text-slate-500" /> : uploaded ? <CheckCircle2 className="h-5 w-5 text-emerald-700" /> : null}
+                    </div>
+                    <div className="relative z-10 mt-8">
+                      <span className="text-sm font-bold">{slot.label}</span>
+                      {uploaded ? <p className="mt-1 text-xs font-semibold text-emerald-700">Uploaded</p> : null}
+                      {upload?.fileName ? <p className="mt-1 truncate text-xs text-current/70">{upload.fileName}</p> : null}
+                      {upload?.error ? <p className="mt-1 text-xs font-semibold text-rose-700">{upload.error}</p> : null}
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = '';
+                        if (file) void uploadPhotoSlot(slot.id, file);
+                      }}
+                    />
                   </label>
-                ))}
+                  );
+                })}
               </div>
-              {photos.length > 0 ? (
-                <div className="grid grid-cols-3 gap-2">
-                  {photos.map((file) => (
-                    <div key={`${file.name}-${file.size}`} className="truncate rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">{file.name}</div>
-                  ))}
-                </div>
-              ) : null}
+              {uploadedPhotoUrls.length > 0 ? <p className="text-sm font-semibold text-emerald-700">{uploadedPhotoUrls.length} photo(s) uploaded</p> : null}
               {missingFields.length > 0 ? <p className="text-sm text-slate-500">Champs restants: {missingFields.length}</p> : null}
             </div>
           ) : null}
