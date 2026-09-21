@@ -202,10 +202,66 @@ type OwnerSaleListingRequestSeed = {
   photos?: string[];
 };
 
+async function ensureOwnerFromSaleRequest(request: OwnerSaleListingRequestSeed, existingOwners: Proprietaire[] = []): Promise<string> {
+  const payload = request.payload || {};
+  const ownerName = String(request.owner_name || payload.contactName || '').replace(/\s+/g, ' ').trim();
+  const ownerEmail = String(request.owner_email || payload.contactEmail || '').trim();
+  const ownerPhone = String(request.owner_phone || payload.contactPhone || '').trim();
+  const normalizedEmail = ownerEmail.toLowerCase();
+  const normalizedPhone = ownerPhone.replace(/\D+/g, '');
+  const existing = existingOwners.find((owner) => {
+    const emailMatches = normalizedEmail && String(owner.email || '').trim().toLowerCase() === normalizedEmail;
+    const phoneMatches = normalizedPhone && String(owner.telephone || '').replace(/\D+/g, '') === normalizedPhone;
+    const nameMatches = ownerName && String(owner.nom || '').replace(/\s+/g, ' ').trim().toLowerCase() === ownerName.toLowerCase();
+    return emailMatches || phoneMatches || (nameMatches && (emailMatches || phoneMatches));
+  });
+  if (existing?.id) return existing.id;
+  if (!ownerName && !ownerPhone && !ownerEmail) return '';
+  const response = await fetch(`${API_URL}/proprietaires`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      nom: ownerName || ownerPhone || ownerEmail || 'Proprietaire',
+      telephone: ownerPhone,
+      email: ownerEmail,
+      cin: '',
+    }),
+  });
+  const created = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(String(created?.error || 'Creation proprietaire impossible'));
+  return String(created?.id || '').trim();
+}
+
 const toNullableNumber = (value: unknown) => {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeOwnerRequestTypeRue = (value: unknown): TypeRueAppartementVente | null => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  if (normalized === 'goudronnee') return 'route_goudronnee';
+  if (normalized === 'double_voie' || normalized === 'facade') return 'rue_residentielle';
+  if (normalized === 'piste' || normalized === 'route_goudronnee' || normalized === 'rue_residentielle') return normalized as TypeRueAppartementVente;
+  return null;
+};
+
+const normalizeOwnerRequestTypePapier = (value: unknown): TypePapierAppartementVente | null => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  if (normalized === 'titre_bleu') return 'titre_foncier_individuel';
+  if (normalized === 'contrat') return 'contrat_seulement';
+  if (normalized === 'certificat_possession' || normalized === 'papier_indivision') return 'titre_foncier_collectif';
+  if (normalized === 'autre') return 'sans_papier';
+  if (
+    normalized === 'titre_foncier_individuel'
+    || normalized === 'titre_foncier_collectif'
+    || normalized === 'contrat_seulement'
+    || normalized === 'sans_papier'
+  ) return normalized as TypePapierAppartementVente;
+  return null;
 };
 
 function buildBienSeedFromOwnerSaleRequest(request: OwnerSaleListingRequestSeed, fallbackZoneId?: string, fallbackOwnerId?: string): Bien {
@@ -216,7 +272,11 @@ function buildBienSeedFromOwnerSaleRequest(request: OwnerSaleListingRequestSeed,
   const photos = photoSlots.length > 0
     ? photoSlots.map((item) => String(item.url || '').trim()).filter(Boolean)
     : (Array.isArray(request.photos) ? request.photos.filter(Boolean) : []);
-  const ownerLocation = [payload.maps_url || '', request.region, request.zone, request.address].map((item) => String(item || '').trim()).filter(Boolean).join(' - ');
+  const mapsUrl = String(payload.maps_url || request.address || '').trim();
+  const ownerLocation = [mapsUrl, request.region, request.zone, payload.address || request.address].map((item) => String(item || '').trim()).filter(Boolean).join(' - ');
+  const bedrooms = Number(payload.nb_chambres || payload.bedrooms || 0);
+  const normalizedTypeRue = normalizeOwnerRequestTypeRue(payload.type_rue);
+  const normalizedTypePapier = normalizeOwnerRequestTypePapier(payload.type_papier);
   return {
     id: `owner-request-${request.id}`,
     reference: '',
@@ -226,14 +286,14 @@ function buildBienSeedFromOwnerSaleRequest(request: OwnerSaleListingRequestSeed,
     mode: 'vente',
     type,
     residence_units: [],
-    nb_chambres: Number(payload.bedrooms || payload.nb_chambres || 0),
+    nb_chambres: bedrooms,
     nb_salle_bain: Number(payload.nb_salle_bain || 0),
     prix_nuitee: price,
     prix_semaine: null,
-    tarification_methode: 'prix_fixe',
+    tarification_methode: 'avec_commission',
     prix_affiche_client: price,
     prix_fixe_proprietaire: price,
-    prix_proprietaire: null,
+    prix_proprietaire: price,
     prix_final: price,
     revenu_agence: null,
     commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT,
@@ -243,11 +303,11 @@ function buildBienSeedFromOwnerSaleRequest(request: OwnerSaleListingRequestSeed,
     modalite_paiement_vente: (payload.modalite_paiement_vente || request.payment_mode || 'comptant') as ModalitePaiementVente,
     avance: 0,
     caution: 0,
-    type_rue: payload.type_rue || null,
-    type_papier: payload.type_papier || null,
+    type_rue: normalizedTypeRue,
+    type_papier: normalizedTypePapier,
     superficie_m2: toNullableNumber(payload.superficie_m2),
     etage: toNullableNumber(payload.etage),
-    configuration: payload.bedrooms ? `S+${payload.bedrooms}` : null,
+    configuration: bedrooms ? `S+${bedrooms}` : null,
     annee_construction: toNullableNumber(payload.annee_construction),
     distance_plage_m: toNullableNumber(payload.distance_plage_m),
     surface_local_m2: toNullableNumber(payload.surface_local_m2),
@@ -278,7 +338,12 @@ function buildBienSeedFromOwnerSaleRequest(request: OwnerSaleListingRequestSeed,
         email: request.owner_email || payload.contactEmail || '',
         phone: request.owner_phone || payload.contactPhone || '',
       },
+      owner_sale_request_maps_url: mapsUrl,
+      owner_sale_request_type_rue: payload.type_rue || normalizedTypeRue || null,
+      owner_sale_request_type_papier: payload.type_papier || normalizedTypePapier || null,
+      owner_sale_request_visit_days: Array.isArray(payload.visit_days) ? payload.visit_days : [],
     } as any,
+    location_saisonniere_config: mapsUrl ? { google_maps_embed_url: mapsUrl } as any : null,
     menage_en_cours: false,
     zone_id: fallbackZoneId || '',
     proprietaire_id: fallbackOwnerId || '',
@@ -291,8 +356,8 @@ function buildBienSeedFromOwnerSaleRequest(request: OwnerSaleListingRequestSeed,
       const motif =
         slotId === 'plan_2d' ? SALE_PLAN_2D_MOTIF
         : slotId === 'plan_3d' ? SALE_PLAN_3D_MOTIF
-        : slotId === 'street_proof' ? 'preuve_type_rue'
-        : slotId === 'paper_proof' ? 'preuve_type_papier'
+        : slotId === 'street_proof' ? buildProofMotif(PROOF_MOTIF_TYPE_RUE, 'vente', type)
+        : slotId === 'paper_proof' ? buildProofMotif(PROOF_MOTIF_TYPE_PAPIER, 'vente', type)
         : slotId === 'facade' ? 'facade'
         : slotId === 'interior' ? 'interieur'
         : slotId === 'exterior' ? 'exterieur'
@@ -542,6 +607,9 @@ const normalizeBienForEditor = (bien?: Partial<Bien> | null, allBiens: Partial<B
     return {
       ...bien,
       configuration: String(bien.configuration || bien.residence_unit_sub_type || '').trim() || null,
+      tarification_methode: bien.tarification_methode === 'sans_commission' ? 'sans_commission' : (bien.mode === 'vente' ? 'avec_commission' : bien.tarification_methode || null),
+      type_rue: normalizeOwnerRequestTypeRue(bien.type_rue) || null,
+      type_papier: normalizeOwnerRequestTypePapier(bien.type_papier) || null,
     };
   }
   const reconstructedUnits = buildResidenceUnitsFromChildren(bien, allBiens);
@@ -1611,7 +1679,11 @@ export default function BiensPage() {
           if (!response.ok) throw new Error(String(rows?.error || 'Demande proprietaire introuvable'));
           const request = Array.isArray(rows) ? rows.find((item) => String(item?.id || '') === ownerRequestId) : null;
           if (request) {
-            seed = buildBienSeedFromOwnerSaleRequest(request, zones[0]?.id || '', proprietaires[0]?.id || '');
+            const ownerId = await ensureOwnerFromSaleRequest(request, proprietaires).catch((error) => {
+              toast.error(error instanceof Error ? error.message : 'Creation proprietaire impossible');
+              return '';
+            });
+            seed = buildBienSeedFromOwnerSaleRequest(request, zones[0]?.id || '', ownerId || '');
           } else {
             toast.error('Demande proprietaire introuvable');
           }
@@ -3657,7 +3729,24 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   }, [initialData?.id]);
 
   useEffect(() => { setZonesOptions(zones); }, [zones]);
-  useEffect(() => { setProprietaireOptions(proprietaires); }, [proprietaires]);
+  useEffect(() => {
+    const ownerId = String(formData.proprietaire_id || '').trim();
+    const contact = (formData.ui_config as any)?.owner_sale_request_contact || {};
+    if (!ownerId || proprietaires.some((owner) => String(owner.id || '') === ownerId)) {
+      setProprietaireOptions(proprietaires);
+      return;
+    }
+    setProprietaireOptions([
+      ...proprietaires,
+      {
+        id: ownerId,
+        nom: String(contact.name || 'Proprietaire demande').trim(),
+        telephone: String(contact.phone || '').trim(),
+        email: String(contact.email || '').trim(),
+        cin: '',
+      },
+    ]);
+  }, [formData.proprietaire_id, formData.ui_config, proprietaires]);
   useEffect(() => {
     if (initialData || hasSeededDefaultPaidServices) return;
     if ((formData.mode || 'location_saisonniere') !== 'location_saisonniere') return;
@@ -5765,7 +5854,9 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
 
     const selectedMode = (formData.mode || 'location_saisonniere') as BienMode;
     const selectedType = normalizeLegacyType(formData.type as BienType);
-    const tarificationMethode = (formData.tarification_methode || 'avec_commission') as TarificationMethodeVente;
+    const tarificationMethode = (formData.tarification_methode === 'sans_commission' ? 'sans_commission' : 'avec_commission') as TarificationMethodeVente;
+    const resolvedTypeRue = normalizeOwnerRequestTypeRue(formData.type_rue) || null;
+    const resolvedTypePapier = normalizeOwnerRequestTypePapier(formData.type_papier) || null;
     const venteTarification = computeVenteTarification(formData);
     const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
     const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
@@ -5834,8 +5925,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       : explicitNbSalleBain ?? derivedCapacity.bathrooms ?? 0;
     const appartementVenteData = isAppartementVente
       ? {
-          type_rue: formData.type_rue || null,
-          type_papier: formData.type_papier || null,
+          type_rue: resolvedTypeRue,
+          type_papier: resolvedTypePapier,
           superficie_m2: formData.superficie_m2 ?? null,
           etage: formData.etage ?? null,
           configuration: formData.configuration || null,
@@ -5885,8 +5976,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         };
     const localCommercialVenteData = isLocalCommercialVente
       ? {
-          type_rue: formData.type_rue || null,
-          type_papier: formData.type_papier || null,
+          type_rue: resolvedTypeRue,
+          type_papier: resolvedTypePapier,
           surface_local_m2: formData.surface_local_m2 ?? null,
           facade_m: formData.facade_m ?? null,
           hauteur_plafond_m: formData.hauteur_plafond_m ?? null,
@@ -5916,8 +6007,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         };
     const terrainVenteData = isTerrainVente
       ? {
-          type_rue: formData.type_rue || null,
-          type_papier: formData.type_papier || null,
+          type_rue: resolvedTypeRue,
+          type_papier: resolvedTypePapier,
           type_terrain: formData.type_terrain || null,
           terrain_facade_m: formData.terrain_facade_m ?? null,
           terrain_surface_m2: formData.terrain_surface_m2 ?? null,
@@ -6013,8 +6104,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         };
     const immeubleVenteData = isImmeubleVente
       ? {
-          type_rue: formData.type_rue || null,
-          type_papier: formData.type_papier || null,
+          type_rue: resolvedTypeRue,
+          type_papier: resolvedTypePapier,
           immeuble_surface_terrain_m2: formData.immeuble_surface_terrain_m2 ?? null,
           immeuble_surface_batie_m2: formData.immeuble_surface_batie_m2 ?? null,
           immeuble_nb_niveaux: formData.immeuble_nb_niveaux ?? null,
@@ -6223,7 +6314,9 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
             proche_plage: !!formData.proche_plage || derivedSeasonSignals.prochePlage,
             distance_plage_m: (formData.distance_plage_m ?? derivedSeasonSignals.distancePlageM) ?? null,
           }
-        : null,
+        : selectedMode === 'vente' && String(saisonConfig.google_maps_embed_url || '').trim()
+          ? { google_maps_embed_url: normalizeMapsInput(saisonConfig.google_maps_embed_url) } as any
+          : null,
       description: selectedType === 'residence'
         ? String(formData.description || '').trim()
         : buildDescriptionWithCharacteristics(formData.description || '', characteristicDisplayLines),

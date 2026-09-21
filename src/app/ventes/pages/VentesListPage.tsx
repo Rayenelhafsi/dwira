@@ -157,6 +157,7 @@ type OwnerPhotoUpload = {
   fileName: string;
   previewUrl: string;
   uploadedUrl: string;
+  uploadedUrls?: string[];
   status: 'idle' | 'uploading' | 'uploaded' | 'error';
   error?: string;
 };
@@ -513,11 +514,14 @@ export function OwnerSaleRequestBox({
 
   const missingFields = requiredFields.filter((key) => !String(draft[key] || '').trim());
   const uploadedPhotoUrls = OWNER_PHOTO_SLOTS
-    .map((slot) => photoUploads[slot.id]?.uploadedUrl || '')
+    .flatMap((slot) => photoUploads[slot.id]?.uploadedUrls || (photoUploads[slot.id]?.uploadedUrl ? [photoUploads[slot.id]?.uploadedUrl || ''] : []))
     .filter(Boolean);
   const uploadedRequiredPhotoUrls = OWNER_PHOTO_SLOTS
     .filter((slot) => !slot.optional)
-    .map((slot) => photoUploads[slot.id]?.uploadedUrl || '')
+    .map((slot) => {
+      const upload = photoUploads[slot.id];
+      return (upload?.uploadedUrls && upload.uploadedUrls.length > 0) || upload?.uploadedUrl ? 'uploaded' : '';
+    })
     .filter(Boolean);
   const hasUploadingPhotos = OWNER_PHOTO_SLOTS.some((slot) => photoUploads[slot.id]?.status === 'uploading');
   const canSubmit = isAuthenticatedOwner && missingFields.length === 0 && draft.visitDays.length > 0 && uploadedRequiredPhotoUrls.length === OWNER_PHOTO_SLOTS.filter((slot) => !slot.optional).length && !hasUploadingPhotos && !submitting;
@@ -550,9 +554,16 @@ export function OwnerSaleRequestBox({
 
   const uploadPhotoSlot = async (slotId: OwnerPhotoSlotId, file: File) => {
     const previewUrl = URL.createObjectURL(file);
+    const previous = photoUploads[slotId];
     setPhotoUploads((current) => ({
       ...current,
-      [slotId]: { fileName: file.name, previewUrl, uploadedUrl: '', status: 'uploading' },
+      [slotId]: {
+        fileName: previous?.fileName ? `${previous.fileName}, ${file.name}` : file.name,
+        previewUrl,
+        uploadedUrl: previous?.uploadedUrl || '',
+        uploadedUrls: previous?.uploadedUrls || (previous?.uploadedUrl ? [previous.uploadedUrl] : []),
+        status: 'uploading',
+      },
     }));
     try {
       const formData = new FormData();
@@ -569,7 +580,13 @@ export function OwnerSaleRequestBox({
       if (!uploadedUrl) throw new Error('URL photo indisponible');
       setPhotoUploads((current) => ({
         ...current,
-        [slotId]: { fileName: file.name, previewUrl, uploadedUrl, status: 'uploaded' },
+        [slotId]: {
+          fileName: current[slotId]?.fileName ? `${current[slotId]?.fileName}, ${file.name}` : file.name,
+          previewUrl,
+          uploadedUrl,
+          uploadedUrls: [...(current[slotId]?.uploadedUrls || (current[slotId]?.uploadedUrl ? [current[slotId]?.uploadedUrl || ''] : [])), uploadedUrl].filter(Boolean),
+          status: 'uploaded',
+        },
       }));
     } catch (error) {
       setPhotoUploads((current) => ({
@@ -577,7 +594,8 @@ export function OwnerSaleRequestBox({
         [slotId]: {
           fileName: file.name,
           previewUrl,
-          uploadedUrl: '',
+          uploadedUrl: previous?.uploadedUrl || '',
+          uploadedUrls: previous?.uploadedUrls || (previous?.uploadedUrl ? [previous.uploadedUrl] : []),
           status: 'error',
           error: error instanceof Error ? error.message : 'Upload impossible',
         },
@@ -622,11 +640,15 @@ export function OwnerSaleRequestBox({
           paymentMode: draft.paymentMode,
           photos: uploadedPhotoUrls,
           photoSlots: OWNER_PHOTO_SLOTS.map((slot) => ({
+            slot,
+            urls: photoUploads[slot.id]?.uploadedUrls || (photoUploads[slot.id]?.uploadedUrl ? [photoUploads[slot.id]?.uploadedUrl || ''] : []),
+          })).flatMap(({ slot, urls }) => urls.filter(Boolean).map((url, index) => ({
             id: slot.id,
             label: slot.label,
-            url: photoUploads[slot.id]?.uploadedUrl || '',
+            url,
             optional: slot.optional,
-          })).filter((item) => item.url),
+            position: index,
+          }))),
           source: 'landing_ventes',
         }),
       });
@@ -909,10 +931,13 @@ export function OwnerSaleRequestBox({
                       accept="image/*"
                       className="hidden"
                       onChange={(event) => {
-                        const file = event.target.files?.[0];
+                        const files = Array.from(event.target.files || []);
                         event.target.value = '';
-                        if (file) void uploadPhotoSlot(slot.id, file);
+                        if (files.length > 0) {
+                          void Promise.all(files.map((file) => uploadPhotoSlot(slot.id, file)));
+                        }
                       }}
+                      multiple={slot.id === 'facade' || slot.id === 'interior' || slot.id === 'exterior'}
                     />
                   </label>
                   );
