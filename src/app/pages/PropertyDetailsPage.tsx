@@ -1484,6 +1484,8 @@ export default function PropertyDetailsPage() {
     () => normalizeMapsUrl(selectedBienMapsUrl),
     [normalizeMapsUrl, selectedBienMapsUrl]
   );
+  const [expandedBienMapsUrl, setExpandedBienMapsUrl] = useState('');
+  const effectiveBienMapsUrl = expandedBienMapsUrl || selectedBienResolvedMapsUrl;
   const selectedZoneResolvedMapsUrl = useMemo(
     () => normalizeMapsUrl(selectedZoneMapsUrl),
     [normalizeMapsUrl, selectedZoneMapsUrl]
@@ -1532,6 +1534,31 @@ export default function PropertyDetailsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const resolveMapsUrl = async () => {
+      setExpandedBienMapsUrl('');
+      if (!selectedBienResolvedMapsUrl || parseGoogleMapsLatLng(selectedBienResolvedMapsUrl)) return;
+      if (!/^https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl|(?:www\.)?(?:maps\.)?google\.)/i.test(selectedBienResolvedMapsUrl)) return;
+      try {
+        const response = await fetch(buildApiUrl(`/maps/resolve-url?url=${encodeURIComponent(selectedBienResolvedMapsUrl)}`), {
+          cache: 'no-store',
+        });
+        const payload = await response.json().catch(() => null);
+        const resolvedUrl = String(payload?.url || '').trim();
+        if (!cancelled && response.ok && resolvedUrl && resolvedUrl !== selectedBienResolvedMapsUrl) {
+          setExpandedBienMapsUrl(resolvedUrl);
+        }
+      } catch {
+        if (!cancelled) setExpandedBienMapsUrl('');
+      }
+    };
+    void resolveMapsUrl();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBienResolvedMapsUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
 
     const geocodeFromQuery = async (): Promise<LatLng | null> => {
       if (!selectedGeocodeQuery) return null;
@@ -1550,7 +1577,7 @@ export default function PropertyDetailsPage() {
     };
 
     const loadMapCenter = async () => {
-      const bienMapsCenter = parseGoogleMapsLatLng(selectedBienResolvedMapsUrl);
+      const bienMapsCenter = parseGoogleMapsLatLng(effectiveBienMapsUrl);
       const geocodedCenter = bienMapsCenter ? null : await geocodeFromQuery();
       const zoneMapsCenter = bienMapsCenter || geocodedCenter ? null : parseGoogleMapsLatLng(selectedZoneResolvedMapsUrl);
       const resolved = bienMapsCenter || geocodedCenter || zoneMapsCenter;
@@ -1570,7 +1597,7 @@ export default function PropertyDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedBienResolvedMapsUrl, selectedGeocodeQuery, selectedZoneResolvedMapsUrl, selectedZone?.id, selectedZone?.nom, property?.id]);
+  }, [effectiveBienMapsUrl, selectedGeocodeQuery, selectedZoneResolvedMapsUrl, selectedZone?.id, selectedZone?.nom, property?.id]);
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     const raf1 = window.requestAnimationFrame(() => {

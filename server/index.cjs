@@ -19324,6 +19324,39 @@ app.get('/api/zones', async (req, res) => {
   }
 });
 
+app.get('/api/maps/resolve-url', async (req, res) => {
+  try {
+    const rawUrl = String(req.query.url || '').trim();
+    if (!/^https?:\/\//i.test(rawUrl)) {
+      return res.status(400).json({ error: 'URL Maps invalide' });
+    }
+    let parsed;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return res.status(400).json({ error: 'URL Maps invalide' });
+    }
+    const hostname = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    const allowedHosts = new Set(['maps.app.goo.gl', 'goo.gl', 'google.com', 'maps.google.com']);
+    if (!allowedHosts.has(hostname) && !hostname.endsWith('.google.com')) {
+      return res.status(400).json({ error: 'Domaine Maps non autorise' });
+    }
+    const response = await fetch(rawUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 DwiraImmobilier/1.0',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    });
+    const resolvedUrl = String(response?.url || rawUrl).trim();
+    res.json({ url: resolvedUrl || rawUrl });
+  } catch (error) {
+    console.error('Error resolving maps URL:', error);
+    res.status(500).json({ error: 'Resolution Maps impossible' });
+  }
+});
+
 // GET light biens payload (optimized for constrained mobile browsers)
 app.get('/api/biens-lite', async (req, res) => {
   try {
