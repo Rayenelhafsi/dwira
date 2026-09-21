@@ -10,6 +10,31 @@ import { buildPropertyDetailsPath } from "../../utils/propertyRouting";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
+const normalizeOwnerRequestTypeRue = (value: unknown) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  if (normalized === "goudronnee") return "route_goudronnee";
+  if (normalized === "double_voie" || normalized === "facade") return "rue_residentielle";
+  if (normalized === "piste" || normalized === "route_goudronnee" || normalized === "rue_residentielle") return normalized;
+  return null;
+};
+
+const normalizeOwnerRequestTypePapier = (value: unknown) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  if (normalized === "titre_bleu") return "titre_foncier_individuel";
+  if (normalized === "contrat") return "contrat_seulement";
+  if (normalized === "certificat_possession" || normalized === "papier_indivision") return "titre_foncier_collectif";
+  if (normalized === "autre") return "sans_papier";
+  if (
+    normalized === "titre_foncier_individuel"
+    || normalized === "titre_foncier_collectif"
+    || normalized === "contrat_seulement"
+    || normalized === "sans_papier"
+  ) return normalized;
+  return null;
+};
+
 type SalesStage =
   | "nouvelle_demande"
   | "a_rappeler"
@@ -517,6 +542,10 @@ export default function VentesAdminPage() {
   const publishOwnerListingRequest = async (request: OwnerSaleListingRequest) => {
     const payload = request.payload || {};
     const photos = Array.isArray(request.photos) ? request.photos.filter(Boolean) : [];
+    const price = Number(payload.prix_affiche_client || payload.prix_proprietaire || request.price_tnd || 0);
+    const normalizedTypeRue = normalizeOwnerRequestTypeRue(payload.type_rue);
+    const normalizedTypePapier = normalizeOwnerRequestTypePapier(payload.type_papier);
+    const bedrooms = Number(payload.nb_chambres || payload.bedrooms || 0);
     setOwnerRequestActionId(request.id);
     try {
       const createResponse = await fetch(`${API_URL}/biens`, {
@@ -528,29 +557,40 @@ export default function VentesAdminPage() {
           description: String(payload.description || ""),
           mode: "vente",
           type: request.property_type,
-          nb_chambres: Number(payload.nb_chambres || payload.bedrooms || 0),
-          nb_salle_bain: 0,
-          prix_nuitee: Number(payload.prix_affiche_client || request.price_tnd || 0),
-          prix_affiche_client: Number(payload.prix_affiche_client || request.price_tnd || 0),
-          tarification_methode: "prix_fixe",
+          nb_chambres: bedrooms,
+          nb_salle_bain: Number(payload.nb_salle_bain || payload.bathrooms || 0),
+          prix_nuitee: price,
+          prix_affiche_client: price,
+          prix_proprietaire: price,
+          tarification_methode: "avec_commission",
           modalite_paiement_vente: payload.modalite_paiement_vente || request.payment_mode || "comptant",
-          type_rue: payload.type_rue || "",
-          type_papier: payload.type_papier || "",
+          type_rue: normalizedTypeRue,
+          type_papier: normalizedTypePapier,
           superficie_m2: payload.superficie_m2 || null,
-          configuration: payload.configuration || (payload.bedrooms ? `S+${payload.bedrooms}` : null),
+          etage: payload.etage || null,
+          annee_construction: payload.annee_construction || null,
+          distance_plage_m: payload.distance_plage_m || null,
+          configuration: payload.configuration || (bedrooms ? `S+${bedrooms}` : null),
           surface_local_m2: payload.surface_local_m2 || null,
           facade_m: payload.facade_m || null,
           type_terrain: request.property_type === "lotissement" ? "lotissement" : "terrain",
           terrain_surface_m2: payload.terrain_surface_m2 || null,
           terrain_facade_m: payload.terrain_facade_m || null,
           terrain_type_sol: payload.terrain_type_sol || null,
-          terrain_prix_affiche_total: Number(payload.prix_affiche_client || request.price_tnd || 0),
+          terrain_prix_affiche_total: price,
+          location_saisonniere_config: payload.maps_url ? { google_maps_embed_url: String(payload.maps_url || "").trim() } : null,
+          ui_config: {
+            owner_sale_request_id: request.id,
+            owner_sale_request_maps_url: payload.maps_url || "",
+            owner_sale_request_type_rue: payload.type_rue || "",
+            owner_sale_request_type_papier: payload.type_papier || "",
+          },
           statut: "disponible",
           visible_sur_site: true,
         }),
       });
       const created = await createResponse.json().catch(() => null);
-      if (!createResponse.ok) throw new Error(String(created?.error || "Creation du bien impossible"));
+      if (!createResponse.ok) throw new Error(String(created?.detail ? `${created?.error || "Creation du bien impossible"}: ${created.detail}` : created?.error || "Creation du bien impossible"));
       const bienId = String(created?.id || "").trim();
       if (bienId) {
         for (const [index, photo] of photos.entries()) {
