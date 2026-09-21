@@ -186,6 +186,129 @@ const buildResidenceTemplateBienSnapshot = (
   };
 };
 
+type OwnerSaleListingRequestSeed = {
+  id: string;
+  owner_name?: string | null;
+  owner_email?: string | null;
+  owner_phone?: string | null;
+  property_type?: string | null;
+  title?: string | null;
+  region?: string | null;
+  zone?: string | null;
+  address?: string | null;
+  price_tnd?: number | null;
+  payment_mode?: string | null;
+  payload?: Record<string, any>;
+  photos?: string[];
+};
+
+const toNullableNumber = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+function buildBienSeedFromOwnerSaleRequest(request: OwnerSaleListingRequestSeed, fallbackZoneId?: string, fallbackOwnerId?: string): Bien {
+  const payload = request.payload || {};
+  const type = normalizeLegacyType(String(request.property_type || payload.propertyType || payload.type || 'appartement') as BienType);
+  const price = Number(payload.prix_proprietaire || payload.prix_affiche_client || request.price_tnd || 0);
+  const photoSlots = Array.isArray(payload.photo_slots) ? payload.photo_slots.filter((item) => item && item.url) : [];
+  const photos = photoSlots.length > 0
+    ? photoSlots.map((item) => String(item.url || '').trim()).filter(Boolean)
+    : (Array.isArray(request.photos) ? request.photos.filter(Boolean) : []);
+  const ownerLocation = [payload.maps_url || '', request.region, request.zone, request.address].map((item) => String(item || '').trim()).filter(Boolean).join(' - ');
+  return {
+    id: `owner-request-${request.id}`,
+    reference: '',
+    titre: String(request.title || payload.title || '').trim(),
+    nom_bien_mobile: String(request.title || payload.title || '').trim(),
+    description: String(payload.description || '').trim(),
+    mode: 'vente',
+    type,
+    residence_units: [],
+    nb_chambres: Number(payload.bedrooms || payload.nb_chambres || 0),
+    nb_salle_bain: Number(payload.nb_salle_bain || 0),
+    prix_nuitee: price,
+    prix_semaine: null,
+    tarification_methode: 'prix_fixe',
+    prix_affiche_client: price,
+    prix_fixe_proprietaire: price,
+    prix_proprietaire: null,
+    prix_final: price,
+    revenu_agence: null,
+    commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT,
+    commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT,
+    montant_max_reduction_negociation: 0,
+    prix_minimum_accepte: 0,
+    modalite_paiement_vente: (payload.modalite_paiement_vente || request.payment_mode || 'comptant') as ModalitePaiementVente,
+    avance: 0,
+    caution: 0,
+    type_rue: payload.type_rue || null,
+    type_papier: payload.type_papier || null,
+    superficie_m2: toNullableNumber(payload.superficie_m2),
+    etage: toNullableNumber(payload.etage),
+    configuration: payload.bedrooms ? `S+${payload.bedrooms}` : null,
+    annee_construction: toNullableNumber(payload.annee_construction),
+    distance_plage_m: toNullableNumber(payload.distance_plage_m),
+    surface_local_m2: toNullableNumber(payload.surface_local_m2),
+    facade_m: toNullableNumber(payload.facade_m),
+    type_terrain: type === 'lotissement' ? 'lotissement' : (type === 'terrain' ? 'terrain' : null),
+    terrain_surface_m2: toNullableNumber(payload.terrain_surface_m2),
+    terrain_facade_m: toNullableNumber(payload.terrain_facade_m),
+    terrain_type_sol: payload.terrain_type_sol || null,
+    terrain_prix_affiche_total: type === 'terrain' || type === 'lotissement' ? price : null,
+    terrain_mode_affichage_prix: 'total_et_m2',
+    lotissement_nb_terrains: type === 'lotissement' ? 1 : null,
+    lotissement_prix_total: type === 'lotissement' ? price : null,
+    lotissement_mode_prix_m2: 'm2_unique',
+    lotissement_terrains: [],
+    lotissement_paliers_prix_m2: [],
+    immeuble_appartements: [],
+    immeuble_garages: [],
+    immeuble_locaux_commerciaux: [],
+    statut: 'disponible',
+    visible_sur_site: true,
+    is_featured: false,
+    reservation_sur_demande: false,
+    ui_config: {
+      owner_sale_request_id: request.id,
+      owner_sale_request_location: ownerLocation,
+      owner_sale_request_contact: {
+        name: request.owner_name || payload.contactName || '',
+        email: request.owner_email || payload.contactEmail || '',
+        phone: request.owner_phone || payload.contactPhone || '',
+      },
+    } as any,
+    menage_en_cours: false,
+    zone_id: fallbackZoneId || '',
+    proprietaire_id: fallbackOwnerId || '',
+    date_ajout: new Date().toISOString().split('T')[0],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    media: photos.map((url, index) => {
+      const slot = photoSlots[index] || {};
+      const slotId = String(slot.id || '').trim();
+      const motif =
+        slotId === 'plan_2d' ? SALE_PLAN_2D_MOTIF
+        : slotId === 'plan_3d' ? SALE_PLAN_3D_MOTIF
+        : slotId === 'street_proof' ? 'preuve_type_rue'
+        : slotId === 'paper_proof' ? 'preuve_type_papier'
+        : slotId === 'facade' ? 'facade'
+        : slotId === 'interior' ? 'interieur'
+        : slotId === 'exterior' ? 'exterieur'
+        : index === 0 ? 'facade' : 'interieur';
+      return ({
+      id: `owner-request-${request.id}-photo-${index}`,
+      bien_id: '',
+      type: 'image',
+      url,
+      position: index,
+      motif_upload: motif,
+    });
+    }),
+  } as Bien;
+}
+
 const getResidenceSubtypeFallbackOptions = (mainType: 'appartement' | 'villa_maison'): string[] => (
   mainType === 'villa_maison'
     ? ['S+1', 'S+2', 'S+3', 'S+4', 'Villa', 'Maison']
@@ -1455,10 +1578,12 @@ export default function BiensPage() {
 
   useEffect(() => {
     if (isAddOpen) return;
+    let cancelled = false;
     const params = new URLSearchParams(location.search);
     const createBien = String(params.get('createBien') || '').trim();
     const requestedMode = String(params.get('mode') || '').trim() as BienMode;
     const requestedType = normalizeLegacyType(String(params.get('type') || '').trim() as BienType);
+    const ownerRequestId = String(params.get('ownerRequest') || '').trim();
     const requestedReturnTo = String(params.get('returnTo') || '').trim();
     if (!createBien) return;
     const nextMode = requestedMode === 'vente' || requestedMode === 'location_annuelle' || requestedMode === 'location_saisonniere'
@@ -1466,37 +1591,61 @@ export default function BiensPage() {
       : 'vente';
     const allowedTypes = BIEN_TYPES_BY_MODE[nextMode] || [];
     const nextType = allowedTypes.includes(requestedType) ? requestedType : (nextMode === 'vente' ? 'terrain' : 'appartement');
-    setEditorReturnTo(requestedReturnTo.startsWith('/admin/') ? requestedReturnTo : '');
-    setDuplicateSeedBien({
-      mode: nextMode,
-      type: nextType,
-      residence_units: [],
-      lotissement_terrains: [],
-      lotissement_paliers_prix_m2: [],
-      immeuble_appartements: [],
-      immeuble_garages: [],
-      immeuble_locaux_commerciaux: [],
-      statut: 'disponible',
-      visible_sur_site: true,
-    } as Bien);
-    setEditingBien(null);
-    setEditorInitialStep(nextMode === 'vente' ? 1 : 0);
-    setEditorInitialTab('general');
-    setModeFilter(nextMode);
-    setIsAddOpen(true);
-    params.delete('createBien');
-    params.delete('mode');
-    params.delete('type');
-    params.delete('returnTo');
-    const nextSearch = params.toString();
-    navigate(
-      {
-        pathname: location.pathname,
-        search: nextSearch ? `?${nextSearch}` : '',
-      },
-      { replace: true }
-    );
-  }, [isAddOpen, location.pathname, location.search, navigate]);
+    const openCreateEditor = async () => {
+      let seed: Bien = {
+        mode: nextMode,
+        type: nextType,
+        residence_units: [],
+        lotissement_terrains: [],
+        lotissement_paliers_prix_m2: [],
+        immeuble_appartements: [],
+        immeuble_garages: [],
+        immeuble_locaux_commerciaux: [],
+        statut: 'disponible',
+        visible_sur_site: true,
+      } as Bien;
+      if (ownerRequestId) {
+        try {
+          const response = await fetch(`${API_URL}/admin/owner-sale-listing-requests`, { credentials: 'include', cache: 'no-store' });
+          const rows = await response.json().catch(() => []);
+          if (!response.ok) throw new Error(String(rows?.error || 'Demande proprietaire introuvable'));
+          const request = Array.isArray(rows) ? rows.find((item) => String(item?.id || '') === ownerRequestId) : null;
+          if (request) {
+            seed = buildBienSeedFromOwnerSaleRequest(request, zones[0]?.id || '', proprietaires[0]?.id || '');
+          } else {
+            toast.error('Demande proprietaire introuvable');
+          }
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : 'Demande proprietaire introuvable');
+        }
+      }
+      if (cancelled) return;
+      setEditorReturnTo(requestedReturnTo.startsWith('/admin/') ? requestedReturnTo : '');
+      setDuplicateSeedBien(seed);
+      setEditingBien(null);
+      setEditorInitialStep(nextMode === 'vente' ? 1 : 0);
+      setEditorInitialTab('general');
+      setModeFilter(nextMode);
+      setIsAddOpen(true);
+      params.delete('createBien');
+      params.delete('mode');
+      params.delete('type');
+      params.delete('ownerRequest');
+      params.delete('returnTo');
+      const nextSearch = params.toString();
+      navigate(
+        {
+          pathname: location.pathname,
+          search: nextSearch ? `?${nextSearch}` : '',
+        },
+        { replace: true }
+      );
+    };
+    void openCreateEditor();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAddOpen, location.pathname, location.search, navigate, zones, proprietaires]);
   const closeEditor = useCallback(() => {
     setIsAddOpen(false);
     setEditorInitialStep(1);
@@ -6126,6 +6275,12 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   ));
   const locationZoneSection = (
     <div className="space-y-2">
+      {String((formData.ui_config as any)?.owner_sale_request_location || '').trim() ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Localisation saisie par le proprietaire</p>
+          <p className="mt-1 font-medium">{String((formData.ui_config as any)?.owner_sale_request_location || '').trim()}</p>
+        </div>
+      ) : null}
       <label className="block text-sm font-medium text-gray-700 mb-1">Localisation (Zone)</label>
       <select name="zone_id" value={formData.zone_id || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{zonesOptions.map(z => <option key={z.id} value={z.id}>{z.nom}</option>)}</select>
       {String(formData.zone_id || '').trim() && (

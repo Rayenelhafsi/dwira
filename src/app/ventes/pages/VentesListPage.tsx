@@ -89,6 +89,13 @@ type OwnerSaleRequestDraft = {
   terrain_facade_m: string;
   surface_local_m2: string;
   facade_m: string;
+  floor: string;
+  bathrooms: string;
+  constructionYear: string;
+  distance_plage_m: string;
+  mapsUrl: string;
+  visitDays: string[];
+  ownerPrice: string;
   prix_affiche_client: string;
   paymentMode: string;
   bedrooms: string;
@@ -113,6 +120,13 @@ const OWNER_REQUEST_INITIAL: OwnerSaleRequestDraft = {
   terrain_facade_m: '',
   surface_local_m2: '',
   facade_m: '',
+  floor: '',
+  bathrooms: '',
+  constructionYear: '',
+  distance_plage_m: '',
+  mapsUrl: '',
+  visitDays: [],
+  ownerPrice: '',
   prix_affiche_client: '',
   paymentMode: 'comptant',
   bedrooms: '',
@@ -127,10 +141,13 @@ const OWNER_REQUEST_INITIAL: OwnerSaleRequestDraft = {
 };
 
 const OWNER_PHOTO_SLOTS = [
-  { id: 'cover', label: 'Photo couverture' },
-  { id: 'facade', label: 'Facade / acces' },
-  { id: 'interior', label: 'Interieur ou terrain' },
-  { id: 'document', label: 'Document / plan utile' },
+  { id: 'plan_2d', label: 'Plan 2D', optional: true },
+  { id: 'plan_3d', label: 'Plan 3D', optional: true },
+  { id: 'facade', label: 'Facade', optional: false },
+  { id: 'interior', label: 'Interieur', optional: false },
+  { id: 'exterior', label: 'Exterieur', optional: false },
+  { id: 'street_proof', label: 'Preuve type de rue', optional: false },
+  { id: 'paper_proof', label: 'Preuve type de papier', optional: false },
 ] as const;
 
 type OwnerPhotoSlotId = (typeof OWNER_PHOTO_SLOTS)[number]['id'];
@@ -144,11 +161,24 @@ type OwnerPhotoUpload = {
 };
 
 const createEmptyPhotoUploads = (): Record<OwnerPhotoSlotId, OwnerPhotoUpload | null> => ({
-  cover: null,
+  plan_2d: null,
+  plan_3d: null,
   facade: null,
   interior: null,
-  document: null,
+  exterior: null,
+  street_proof: null,
+  paper_proof: null,
 });
+
+const VISIT_DAY_OPTIONS = [
+  { value: 'lundi', label: 'Lundi' },
+  { value: 'mardi', label: 'Mardi' },
+  { value: 'mercredi', label: 'Mercredi' },
+  { value: 'jeudi', label: 'Jeudi' },
+  { value: 'vendredi', label: 'Vendredi' },
+  { value: 'samedi', label: 'Samedi' },
+  { value: 'dimanche', label: 'Dimanche' },
+];
 
 const TYPE_RUE_OPTIONS = [
   { value: 'goudronnee', label: 'Rue goudronnee' },
@@ -451,37 +481,45 @@ export function OwnerSaleRequestBox({
   const updateDraft = (key: keyof OwnerSaleRequestDraft, value: string) => {
     setDraft((current) => ({ ...current, [key]: value }));
   };
+  const toggleVisitDay = (day: string) => {
+    setDraft((current) => {
+      const currentDays = Array.isArray(current.visitDays) ? current.visitDays : [];
+      const exists = currentDays.includes(day);
+      return {
+        ...current,
+        visitDays: exists ? currentDays.filter((item) => item !== day) : [...currentDays, day],
+        availability: exists ? currentDays.filter((item) => item !== day).join(', ') : [...currentDays, day].join(', '),
+      };
+    });
+  };
 
   const requiredFields: Array<keyof OwnerSaleRequestDraft> = [
     'title',
     'propertyType',
-    'region',
-    'zone',
-    'address',
-    'prix_affiche_client',
-    'paymentMode',
-    'type_rue',
-    'type_papier',
     'description',
     'contactName',
     'contactPhone',
-    'contactEmail',
-    'availability',
+    'superficie_m2',
+    'bedrooms',
+    'bathrooms',
+    'constructionYear',
+    'type_rue',
+    'type_papier',
+    'mapsUrl',
+    'ownerPrice',
+    'paymentMode',
   ];
-  if (isTerrain) {
-    requiredFields.push('terrain_surface_m2', 'terrain_facade_m', 'terrain_type_sol');
-  } else if (isLocalCommercial) {
-    requiredFields.push('surface_local_m2', 'facade_m');
-  } else {
-    requiredFields.push('superficie_m2', 'bedrooms');
-  }
 
   const missingFields = requiredFields.filter((key) => !String(draft[key] || '').trim());
   const uploadedPhotoUrls = OWNER_PHOTO_SLOTS
     .map((slot) => photoUploads[slot.id]?.uploadedUrl || '')
     .filter(Boolean);
+  const uploadedRequiredPhotoUrls = OWNER_PHOTO_SLOTS
+    .filter((slot) => !slot.optional)
+    .map((slot) => photoUploads[slot.id]?.uploadedUrl || '')
+    .filter(Boolean);
   const hasUploadingPhotos = OWNER_PHOTO_SLOTS.some((slot) => photoUploads[slot.id]?.status === 'uploading');
-  const canSubmit = isAuthenticatedOwner && missingFields.length === 0 && uploadedPhotoUrls.length > 0 && !hasUploadingPhotos && !submitting;
+  const canSubmit = isAuthenticatedOwner && missingFields.length === 0 && draft.visitDays.length > 0 && uploadedRequiredPhotoUrls.length === OWNER_PHOTO_SLOTS.filter((slot) => !slot.optional).length && !hasUploadingPhotos && !submitting;
 
   const uploadPhotoSlot = async (slotId: OwnerPhotoSlotId, file: File) => {
     const previewUrl = URL.createObjectURL(file);
@@ -530,8 +568,12 @@ export function OwnerSaleRequestBox({
       toast.error('Completez tous les champs obligatoires.');
       return;
     }
-    if (uploadedPhotoUrls.length === 0) {
-      toast.error('Ajoutez au moins une photo du bien.');
+    if (draft.visitDays.length === 0) {
+      toast.error('Choisissez au moins un jour de visite.');
+      return;
+    }
+    if (uploadedRequiredPhotoUrls.length < OWNER_PHOTO_SLOTS.filter((slot) => !slot.optional).length) {
+      toast.error('Ajoutez les photos et preuves obligatoires.');
       return;
     }
     if (hasUploadingPhotos) {
@@ -548,7 +590,16 @@ export function OwnerSaleRequestBox({
           ...draft,
           type: draft.propertyType,
           mode: 'vente',
+          prix_affiche_client: draft.ownerPrice,
+          prix_proprietaire: draft.ownerPrice,
+          paymentMode: draft.paymentMode,
           photos: uploadedPhotoUrls,
+          photoSlots: OWNER_PHOTO_SLOTS.map((slot) => ({
+            id: slot.id,
+            label: slot.label,
+            url: photoUploads[slot.id]?.uploadedUrl || '',
+            optional: slot.optional,
+          })).filter((item) => item.url),
           source: 'landing_ventes',
         }),
       });
@@ -635,7 +686,7 @@ export function OwnerSaleRequestBox({
     );
   }
 
-  const stepLabels = ['Compte', 'Bien', 'Emplacement', 'Vente', 'Photos'];
+  const stepLabels = ['Compte', 'Proprietaire', 'Type & visites', 'Details', 'Prix', 'Paiement & photos'];
   const goNextStep = () => {
     if (step === 0 && !isAuthenticatedOwner) {
       toast.error('Connectez-vous ou creez un compte pour continuer.');
@@ -709,48 +760,46 @@ export function OwnerSaleRequestBox({
           {step === 1 ? (
             <div className="grid gap-3 md:grid-cols-2">
               <input value={draft.title} onChange={(event) => updateDraft('title', event.target.value)} placeholder="Titre du bien *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm md:col-span-2" />
-              <select value={draft.propertyType} onChange={(event) => updateDraft('propertyType', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
-                {Object.entries(typeLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-              {isTerrain ? (
-                <>
-                  <input value={draft.terrain_surface_m2} onChange={(event) => updateDraft('terrain_surface_m2', event.target.value)} placeholder="Surface terrain en m2 *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-                  <input value={draft.terrain_facade_m} onChange={(event) => updateDraft('terrain_facade_m', event.target.value)} placeholder="Facade terrain en m *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-                  <select value={draft.terrain_type_sol} onChange={(event) => updateDraft('terrain_type_sol', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
-                    <option value="">Type de sol *</option>
-                    {TERRAIN_SOL_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                  </select>
-                </>
-              ) : isLocalCommercial ? (
-                <>
-                  <input value={draft.surface_local_m2} onChange={(event) => updateDraft('surface_local_m2', event.target.value)} placeholder="Surface local en m2 *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-                  <input value={draft.facade_m} onChange={(event) => updateDraft('facade_m', event.target.value)} placeholder="Facade en m *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-                </>
-              ) : (
-                <>
-                  <input value={draft.superficie_m2} onChange={(event) => updateDraft('superficie_m2', event.target.value)} placeholder="Superficie en m2 *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-                  <input value={draft.bedrooms} onChange={(event) => updateDraft('bedrooms', event.target.value)} placeholder="Nombre de chambres *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-                </>
-              )}
-              <textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Description detaillee *" rows={4} className="rounded-xl border border-slate-200 px-4 py-3 text-sm md:col-span-2" />
+              <input value={draft.contactName} onChange={(event) => updateDraft('contactName', event.target.value)} placeholder="Proprietaire *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.contactPhone} onChange={(event) => updateDraft('contactPhone', event.target.value)} placeholder="Numero proprietaire *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Description *" rows={5} className="rounded-xl border border-slate-200 px-4 py-3 text-sm md:col-span-2" />
             </div>
           ) : null}
 
           {step === 2 ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              <input value={draft.region} onChange={(event) => updateDraft('region', event.target.value)} placeholder="Region *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-              <input value={draft.zone} onChange={(event) => updateDraft('zone', event.target.value)} placeholder="Zone / quartier *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-              <input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Adresse ou repere *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm md:col-span-2" />
+            <div className="grid gap-4">
+              <select value={draft.propertyType} onChange={(event) => updateDraft('propertyType', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                {Object.entries(typeLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-bold text-slate-950">Regles de visite *</p>
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {VISIT_DAY_OPTIONS.map((day) => {
+                    const selected = draft.visitDays.includes(day.value);
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        onClick={() => toggleVisitDay(day.value)}
+                        className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${selected ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}
+                      >
+                        {day.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           ) : null}
 
           {step === 3 ? (
             <div className="grid gap-3 md:grid-cols-2">
-              <input value={draft.prix_affiche_client} onChange={(event) => updateDraft('prix_affiche_client', event.target.value)} placeholder="Prix affiche client en DT *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
-              <select value={draft.paymentMode} onChange={(event) => updateDraft('paymentMode', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
-                <option value="comptant">Comptant</option>
-                <option value="facilite">Facilite de paiement</option>
-              </select>
+              <input value={draft.superficie_m2} onChange={(event) => updateDraft('superficie_m2', event.target.value)} placeholder="Superficie (m2) *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.floor} onChange={(event) => updateDraft('floor', event.target.value)} placeholder="Etage" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.bedrooms} onChange={(event) => updateDraft('bedrooms', event.target.value)} placeholder="Nombre de chambres *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.bathrooms} onChange={(event) => updateDraft('bathrooms', event.target.value)} placeholder="Nombre de SDB *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.constructionYear} onChange={(event) => updateDraft('constructionYear', event.target.value)} placeholder="Annee de construction *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.distance_plage_m} onChange={(event) => updateDraft('distance_plage_m', event.target.value)} placeholder="Distance plage (m) optionnel" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
               <select value={draft.type_rue} onChange={(event) => updateDraft('type_rue', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
                 <option value="">Type de rue *</option>
                 {TYPE_RUE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
@@ -759,12 +808,22 @@ export function OwnerSaleRequestBox({
                 <option value="">Type de papier *</option>
                 {TYPE_PAPIER_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
               </select>
-              <input value={draft.availability} onChange={(event) => updateDraft('availability', event.target.value)} placeholder="Disponibilite pour visite *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+              <input value={draft.mapsUrl} onChange={(event) => updateDraft('mapsUrl', event.target.value)} placeholder="Lien maps du bien *" className="rounded-xl border border-slate-200 px-4 py-3 text-sm md:col-span-2" />
             </div>
           ) : null}
 
           {step === 4 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <input value={draft.ownerPrice} onChange={(event) => updateDraft('ownerPrice', event.target.value)} placeholder="Prix proprietaire en DT *" type="number" className="rounded-xl border border-slate-200 px-4 py-3 text-sm" />
+            </div>
+          ) : null}
+
+          {step === 5 ? (
             <div className="grid gap-4">
+              <select value={draft.paymentMode} onChange={(event) => updateDraft('paymentMode', event.target.value)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                <option value="comptant">Comptant</option>
+                <option value="facilite">Facilite de paiement</option>
+              </select>
               <div className="grid gap-3 md:grid-cols-2">
                 {OWNER_PHOTO_SLOTS.map((slot) => {
                   const upload = photoUploads[slot.id];
@@ -787,6 +846,7 @@ export function OwnerSaleRequestBox({
                     </div>
                     <div className="relative z-10 mt-8">
                       <span className="text-sm font-bold">{slot.label}</span>
+                      <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-current/55">{slot.optional ? 'Optionnel' : 'Obligatoire'}</p>
                       {uploaded ? <p className="mt-1 text-xs font-semibold text-emerald-700">Uploaded</p> : null}
                       {upload?.fileName ? <p className="mt-1 truncate text-xs text-current/70">{upload.fileName}</p> : null}
                       {upload?.error ? <p className="mt-1 text-xs font-semibold text-rose-700">{upload.error}</p> : null}

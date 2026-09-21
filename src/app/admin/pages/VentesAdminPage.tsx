@@ -172,6 +172,10 @@ function buildSalesCreateHref(type: string) {
   return `/admin/biens?createBien=1&mode=vente&type=${encodeURIComponent(type)}&returnTo=${encodeURIComponent("/admin/ventes")}`;
 }
 
+function buildOwnerRequestCreateHref(request: OwnerSaleListingRequest) {
+  return `/admin/biens?createBien=1&mode=vente&type=${encodeURIComponent(String(request.property_type || "appartement"))}&ownerRequest=${encodeURIComponent(request.id)}&returnTo=${encodeURIComponent("/admin/ventes")}`;
+}
+
 function buildSalesEditHref(id: string) {
   return `/admin/biens?editBien=${encodeURIComponent(id)}&returnTo=${encodeURIComponent("/admin/ventes")}`;
 }
@@ -251,6 +255,7 @@ export default function VentesAdminPage() {
   const [ownerRequestChatDrafts, setOwnerRequestChatDrafts] = useState<Record<string, string>>({});
   const [ownerRequestSendingId, setOwnerRequestSendingId] = useState<string | null>(null);
   const [ownerRequestActionId, setOwnerRequestActionId] = useState<string | null>(null);
+  const [previewPhoto, setPreviewPhoto] = useState<{ url: string; title: string } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DemandDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("demandes");
@@ -1021,7 +1026,11 @@ export default function VentesAdminPage() {
                       <div className="grid h-72 grid-cols-2 gap-1 bg-slate-100 p-2 lg:h-auto">
                         {(photos.length > 0 ? photos.slice(0, 4) : [null]).map((photo, index) => (
                           <div key={`${request.id}-photo-${index}`} className="overflow-hidden rounded-2xl bg-slate-200">
-                            {photo ? <img src={resolveMediaUrl(photo)} alt={request.title} className="h-full min-h-32 w-full object-cover" /> : <div className="flex h-full min-h-32 items-center justify-center text-xs text-slate-500">Photo</div>}
+                            {photo ? (
+                              <button type="button" onClick={() => setPreviewPhoto({ url: resolveMediaUrl(photo), title: `${request.title} - photo ${index + 1}` })} className="h-full w-full">
+                                <img src={resolveMediaUrl(photo)} alt={request.title} className="h-full min-h-32 w-full object-cover transition hover:scale-[1.02]" />
+                              </button>
+                            ) : <div className="flex h-full min-h-32 items-center justify-center text-xs text-slate-500">Photo</div>}
                           </div>
                         ))}
                       </div>
@@ -1112,7 +1121,7 @@ export default function VentesAdminPage() {
                             <XCircle className="h-4 w-4" />
                             Rejeter
                           </button>
-                          <Link to={buildSalesCreateHref(String(request.property_type || "appartement"))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+                          <Link to={buildOwnerRequestCreateHref(request)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
                             <Plus className="h-4 w-4" />
                             Creer/modifier avant mise en ligne
                           </Link>
@@ -1269,6 +1278,16 @@ export default function VentesAdminPage() {
           </div>
         </TabsContent>
       </Tabs>
+      {previewPhoto ? (
+        <button
+          type="button"
+          onClick={() => setPreviewPhoto(null)}
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-4"
+          aria-label="Fermer l'apercu photo"
+        >
+          <img src={previewPhoto.url} alt={previewPhoto.title} className="max-h-[92vh] max-w-[94vw] rounded-2xl object-contain shadow-2xl" />
+        </button>
+      ) : null}
     </div>
   );
 }

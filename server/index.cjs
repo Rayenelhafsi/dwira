@@ -14352,19 +14352,20 @@ app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, expres
     }
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const propertyType = String(body.propertyType || body.type || '').trim();
-    const baseRequired = ['title', 'region', 'zone', 'address', 'prix_affiche_client', 'paymentMode', 'type_rue', 'type_papier', 'description', 'contactName', 'contactPhone', 'contactEmail', 'availability'];
-    const typeRequired = propertyType === 'terrain' || propertyType === 'lotissement'
-      ? ['terrain_surface_m2', 'terrain_facade_m', 'terrain_type_sol']
-      : propertyType === 'local_commercial'
-        ? ['surface_local_m2', 'facade_m']
-        : ['superficie_m2', 'bedrooms'];
-    const required = [...baseRequired, ...typeRequired];
+    const baseRequired = ['title', 'propertyType', 'description', 'contactName', 'contactPhone', 'superficie_m2', 'bedrooms', 'bathrooms', 'constructionYear', 'type_rue', 'type_papier', 'mapsUrl', 'ownerPrice', 'paymentMode'];
+    const required = [...baseRequired];
     const missing = required.filter((key) => !String(body?.[key] || '').trim());
+    const visitDays = Array.isArray(body.visitDays) ? body.visitDays.map((item) => String(item || '').trim()).filter(Boolean) : [];
     const photos = Array.isArray(body.photos) ? body.photos.map((item) => String(item || '').trim()).filter(Boolean) : [];
+    const photoSlots = Array.isArray(body.photoSlots) ? body.photoSlots.filter((item) => item && typeof item === 'object') : [];
     if (missing.length > 0) return res.status(400).json({ error: `Champs obligatoires manquants: ${missing.join(', ')}` });
-    if (photos.length === 0) return res.status(400).json({ error: 'Au moins une photo est requise' });
-    const surface = Number(body.terrain_surface_m2 || body.surface_local_m2 || body.superficie_m2 || 0);
-    const price = Number(body.prix_affiche_client || 0);
+    if (visitDays.length === 0) return res.status(400).json({ error: 'Au moins un jour de visite est requis' });
+    const requiredPhotoSlots = new Set(['facade', 'interior', 'exterior', 'street_proof', 'paper_proof']);
+    const submittedPhotoSlots = new Set(photoSlots.map((item) => String(item.id || '').trim()).filter(Boolean));
+    const missingPhotoSlots = Array.from(requiredPhotoSlots).filter((slot) => !submittedPhotoSlots.has(slot));
+    if (missingPhotoSlots.length > 0) return res.status(400).json({ error: `Photos obligatoires manquantes: ${missingPhotoSlots.join(', ')}` });
+    const surface = Number(body.superficie_m2 || 0);
+    const price = Number(body.ownerPrice || body.prix_affiche_client || 0);
     if (!Number.isFinite(surface) || surface <= 0) return res.status(400).json({ error: 'Surface invalide' });
     if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Prix invalide' });
 
@@ -14378,19 +14379,27 @@ app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, expres
       region: String(body.region || '').trim(),
       zone: String(body.zone || '').trim(),
       address: String(body.address || '').trim(),
-      superficie_m2: body.superficie_m2 === '' ? null : Number(body.superficie_m2 || 0) || null,
+      superficie_m2: Number(body.superficie_m2 || 0) || null,
       nb_chambres: body.bedrooms === '' ? null : Number(body.bedrooms || 0) || null,
+      nb_salle_bain: body.bathrooms === '' ? null : Number(body.bathrooms || 0) || null,
+      etage: body.floor === '' ? null : Number(body.floor || 0) || null,
+      annee_construction: body.constructionYear === '' ? null : Number(body.constructionYear || 0) || null,
+      distance_plage_m: body.distance_plage_m === '' ? null : Number(body.distance_plage_m || 0) || null,
       surface_local_m2: body.surface_local_m2 === '' ? null : Number(body.surface_local_m2 || 0) || null,
       facade_m: body.facade_m === '' ? null : Number(body.facade_m || 0) || null,
       terrain_surface_m2: body.terrain_surface_m2 === '' ? null : Number(body.terrain_surface_m2 || 0) || null,
       terrain_facade_m: body.terrain_facade_m === '' ? null : Number(body.terrain_facade_m || 0) || null,
       terrain_type_sol: String(body.terrain_type_sol || '').trim() || null,
       prix_affiche_client: price,
+      prix_proprietaire: price,
       modalite_paiement_vente: String(body.paymentMode || 'comptant').trim(),
       type_rue: String(body.type_rue || '').trim(),
       type_papier: String(body.type_papier || '').trim(),
+      maps_url: String(body.mapsUrl || '').trim(),
       description: String(body.description || '').trim(),
-      availability: String(body.availability || '').trim(),
+      availability: visitDays.join(', '),
+      visit_days: visitDays,
+      photo_slots: photoSlots,
       source: String(body.source || 'public').trim(),
     };
 
@@ -14408,7 +14417,7 @@ app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, expres
         payload.title,
         payload.region,
         payload.zone,
-        payload.address,
+        payload.address || payload.maps_url,
         surface,
         price,
         payload.modalite_paiement_vente,
