@@ -1472,7 +1472,6 @@ export default function PropertyDetailsPage() {
     || (sourceBien as any)?.google_maps_url
     || ''
   ).trim();
-  const selectedBienMapsExternalUrl = selectedBienMapsUrl && /^https?:\/\//i.test(selectedBienMapsUrl) ? selectedBienMapsUrl : '';
   const selectedZoneMapsUrl = String(selectedZone?.google_maps_url || '').trim();
   const normalizeMapsUrl = useCallback((value: string) => {
     if (!value) return '';
@@ -1578,15 +1577,15 @@ export default function PropertyDetailsPage() {
 
     const loadMapCenter = async () => {
       const bienMapsCenter = parseGoogleMapsLatLng(effectiveBienMapsUrl);
-      const geocodedCenter = bienMapsCenter ? null : await geocodeFromQuery();
-      const zoneMapsCenter = bienMapsCenter || geocodedCenter ? null : parseGoogleMapsLatLng(selectedZoneResolvedMapsUrl);
+      const geocodedCenter = bienMapsCenter || isSaleProperty ? null : await geocodeFromQuery();
+      const zoneMapsCenter = bienMapsCenter || geocodedCenter || isSaleProperty ? null : parseGoogleMapsLatLng(selectedZoneResolvedMapsUrl);
       const resolved = bienMapsCenter || geocodedCenter || zoneMapsCenter;
       if (cancelled) return;
       if (resolved) {
         setMapCenter(obfuscateLocation(resolved, `${property?.id || ''}-${selectedZone?.id || ''}`));
         return;
       }
-      if (selectedZone) {
+      if (!isSaleProperty && selectedZone) {
         setMapCenter(fallbackApproxLocation(`${property?.id || ''}-${selectedZone.id}-${selectedZone.nom || ''}`));
         return;
       }
@@ -1597,7 +1596,7 @@ export default function PropertyDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveBienMapsUrl, selectedGeocodeQuery, selectedZoneResolvedMapsUrl, selectedZone?.id, selectedZone?.nom, property?.id]);
+  }, [effectiveBienMapsUrl, isSaleProperty, selectedGeocodeQuery, selectedZoneResolvedMapsUrl, selectedZone?.id, selectedZone?.nom, property?.id]);
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     const raf1 = window.requestAnimationFrame(() => {
@@ -5566,17 +5565,6 @@ out body 40;
                <p className="mt-4 text-gray-600 text-sm">
                  Position approximative affichee. L'adresse exacte sera communiquee le jour d'arrivee.
                </p>
-               {selectedBienMapsExternalUrl ? (
-                 <a
-                   href={selectedBienMapsExternalUrl}
-                   target="_blank"
-                   rel="noreferrer"
-                   className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                 >
-                   <MapPin size={16} />
-                   Ouvrir dans Google Maps
-                 </a>
-               ) : null}
                <div className="mt-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 via-white to-sky-50/80 p-4">
                  <div className="mb-3 flex items-center justify-between">
                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Commodités les plus proches</p>
