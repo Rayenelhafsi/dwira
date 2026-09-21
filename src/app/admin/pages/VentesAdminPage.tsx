@@ -250,6 +250,7 @@ export default function VentesAdminPage() {
   const [ownerRequestMessages, setOwnerRequestMessages] = useState<Record<string, OwnerRequestMessage[]>>({});
   const [ownerRequestChatDrafts, setOwnerRequestChatDrafts] = useState<Record<string, string>>({});
   const [ownerRequestSendingId, setOwnerRequestSendingId] = useState<string | null>(null);
+  const [ownerRequestActionId, setOwnerRequestActionId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DemandDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("demandes");
@@ -470,6 +471,7 @@ export default function VentesAdminPage() {
   };
 
   const updateOwnerListingRequest = async (id: string, patch: { status?: string; admin_note?: string }) => {
+    setOwnerRequestActionId(id);
     try {
       const response = await fetch(`${API_URL}/admin/owner-sale-listing-requests/${encodeURIComponent(id)}`, {
         method: "PATCH",
@@ -483,11 +485,14 @@ export default function VentesAdminPage() {
       await loadDemands("refresh");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Mise a jour impossible");
+    } finally {
+      setOwnerRequestActionId(null);
     }
   };
 
   const deleteOwnerListingRequest = async (id: string) => {
     if (!window.confirm("Supprimer cette demande proprietaire ?")) return;
+    setOwnerRequestActionId(id);
     try {
       const response = await fetch(`${API_URL}/admin/owner-sale-listing-requests/${encodeURIComponent(id)}`, {
         method: "DELETE",
@@ -499,12 +504,15 @@ export default function VentesAdminPage() {
       await loadDemands("refresh");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Suppression impossible");
+    } finally {
+      setOwnerRequestActionId(null);
     }
   };
 
   const publishOwnerListingRequest = async (request: OwnerSaleListingRequest) => {
     const payload = request.payload || {};
     const photos = Array.isArray(request.photos) ? request.photos.filter(Boolean) : [];
+    setOwnerRequestActionId(request.id);
     try {
       const createResponse = await fetch(`${API_URL}/biens`, {
         method: "POST",
@@ -559,12 +567,14 @@ export default function VentesAdminPage() {
       toast.success("Bien publie sur le site");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Publication impossible");
+    } finally {
+      setOwnerRequestActionId(null);
     }
   };
 
   const loadOwnerRequestMessages = async (requestId: string) => {
     try {
-      const response = await fetch(`${API_URL}/owner-sale-listing-requests/${encodeURIComponent(requestId)}/messages`, {
+      const response = await fetch(`${API_URL}/admin/owner-sale-listing-requests/${encodeURIComponent(requestId)}/messages`, {
         credentials: "include",
         cache: "no-store",
       });
@@ -581,7 +591,7 @@ export default function VentesAdminPage() {
     if (!message && !attachment?.url) return;
     setOwnerRequestSendingId(requestId);
     try {
-      const response = await fetch(`${API_URL}/owner-sale-listing-requests/${encodeURIComponent(requestId)}/messages`, {
+      const response = await fetch(`${API_URL}/admin/owner-sale-listing-requests/${encodeURIComponent(requestId)}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -625,6 +635,14 @@ export default function VentesAdminPage() {
       setOwnerRequestSendingId(null);
     }
   };
+
+  useEffect(() => {
+    ownerListingRequests.forEach((request) => {
+      if (!ownerRequestMessages[request.id]) {
+        void loadOwnerRequestMessages(request.id);
+      }
+    });
+  }, [ownerListingRequests]);
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -993,17 +1011,17 @@ export default function VentesAdminPage() {
           {ownerListingRequests.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">Aucune demande proprietaire pour le moment.</div>
           ) : (
-            <div className="grid gap-5 xl:grid-cols-2">
+            <div className="grid gap-5">
               {ownerListingRequests.map((request) => {
                 const payload = request.payload || {};
                 const photos = Array.isArray(request.photos) ? request.photos : [];
                 return (
-                  <article key={request.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="grid gap-0 md:grid-cols-[220px_minmax(0,1fr)]">
-                      <div className="grid min-h-56 grid-cols-2 gap-1 bg-slate-100 p-1">
+                  <article key={request.id} className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+                    <div className="grid gap-0 lg:grid-cols-[300px_minmax(0,1fr)_360px]">
+                      <div className="grid h-72 grid-cols-2 gap-1 bg-slate-100 p-2 lg:h-auto">
                         {(photos.length > 0 ? photos.slice(0, 4) : [null]).map((photo, index) => (
-                          <div key={`${request.id}-photo-${index}`} className="overflow-hidden rounded-xl bg-slate-200">
-                            {photo ? <img src={resolveMediaUrl(photo)} alt={request.title} className="h-full min-h-24 w-full object-cover" /> : <div className="flex h-full min-h-24 items-center justify-center text-xs text-slate-500">Photo</div>}
+                          <div key={`${request.id}-photo-${index}`} className="overflow-hidden rounded-2xl bg-slate-200">
+                            {photo ? <img src={resolveMediaUrl(photo)} alt={request.title} className="h-full min-h-32 w-full object-cover" /> : <div className="flex h-full min-h-32 items-center justify-center text-xs text-slate-500">Photo</div>}
                           </div>
                         ))}
                       </div>
@@ -1014,7 +1032,7 @@ export default function VentesAdminPage() {
                             <h3 className="mt-1 text-xl font-bold text-slate-950">{request.title}</h3>
                             <p className="mt-1 text-sm text-slate-600">{getSaleTypeLabel(request.property_type)} - {request.region}, {request.zone}</p>
                           </div>
-                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{statusLabel(request.status)}</span>
+                          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{statusLabel(request.status)}</span>
                         </div>
                         <div className="grid gap-3 text-sm md:grid-cols-3">
                           <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Prix</p><p className="font-bold text-slate-950">{formatCurrency(Number(payload.prix_affiche_client || request.price_tnd || 0))}</p></div>
@@ -1036,23 +1054,25 @@ export default function VentesAdminPage() {
                           <p><span className="font-semibold">Disponibilite:</span> {String(payload.availability || "-")}</p>
                           <p><span className="font-semibold">Photos:</span> {photos.length}</p>
                         </div>
+                      </div>
+                      <aside className="space-y-4 border-t border-slate-100 bg-slate-50/70 p-5 lg:border-l lg:border-t-0">
                         <textarea
                           defaultValue={String(request.admin_note || "")}
                           onBlur={(event) => void updateOwnerListingRequest(request.id, { admin_note: event.target.value })}
-                          rows={2}
+                          rows={3}
                           placeholder="Note admin avant validation..."
-                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
                         />
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                          <button type="button" onClick={() => void loadOwnerRequestMessages(request.id)} className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                          <div className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700">
                             <MessageCircle className="h-4 w-4" />
-                            Charger le chat proprietaire
-                          </button>
+                            Chat proprietaire
+                          </div>
                           <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
                             {(ownerRequestMessages[request.id] || []).length === 0 ? (
-                              <p className="rounded-xl bg-white p-3 text-sm text-slate-500">Aucun message charge.</p>
+                              <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">Aucun message.</p>
                             ) : (ownerRequestMessages[request.id] || []).map((message) => (
-                              <div key={message.id} className={`rounded-xl p-3 text-sm ${message.sender_role === "admin" ? "bg-emerald-50 text-emerald-950" : "bg-white text-slate-800"}`}>
+                              <div key={message.id} className={`rounded-xl p-3 text-sm ${message.sender_role === "admin" ? "bg-emerald-50 text-emerald-950" : "bg-slate-100 text-slate-800"}`}>
                                 <p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">{message.sender_role === "admin" ? "Admin" : "Proprietaire"}</p>
                                 {message.message_text ? <p className="mt-1">{message.message_text}</p> : null}
                                 {message.attachment_url ? <a href={resolveMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-2 font-semibold underline"><Paperclip className="h-4 w-4" />{message.attachment_name || "Piece jointe"}</a> : null}
@@ -1079,16 +1099,16 @@ export default function VentesAdminPage() {
                             </button>
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" onClick={() => void updateOwnerListingRequest(request.id, { status: "validee" })} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700">
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                          <button type="button" disabled={ownerRequestActionId === request.id} onClick={() => void updateOwnerListingRequest(request.id, { status: "validee" })} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60">
                             <CheckCircle2 className="h-4 w-4" />
                             Valider
                           </button>
-                          <button type="button" onClick={() => void publishOwnerListingRequest(request)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+                          <button type="button" disabled={ownerRequestActionId === request.id} onClick={() => void publishOwnerListingRequest(request)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60">
                             <Eye className="h-4 w-4" />
                             Mettre en ligne
                           </button>
-                          <button type="button" onClick={() => void updateOwnerListingRequest(request.id, { status: "rejetee" })} className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-100">
+                          <button type="button" disabled={ownerRequestActionId === request.id} onClick={() => void updateOwnerListingRequest(request.id, { status: "rejetee" })} className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-60">
                             <XCircle className="h-4 w-4" />
                             Rejeter
                           </button>
@@ -1096,12 +1116,12 @@ export default function VentesAdminPage() {
                             <Plus className="h-4 w-4" />
                             Creer/modifier avant mise en ligne
                           </Link>
-                          <button type="button" onClick={() => void deleteOwnerListingRequest(request.id)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100">
+                          <button type="button" disabled={ownerRequestActionId === request.id} onClick={() => void deleteOwnerListingRequest(request.id)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60">
                             <XCircle className="h-4 w-4" />
                             Supprimer
                           </button>
                         </div>
-                      </div>
+                      </aside>
                     </div>
                   </article>
                 );

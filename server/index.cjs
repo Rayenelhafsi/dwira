@@ -14529,6 +14529,53 @@ app.post('/api/owner-sale-listing-requests/:id/messages', requireAuthenticatedSe
   }
 });
 
+app.get('/api/admin/owner-sale-listing-requests/:id/messages', requireAdminSession, async (req, res) => {
+  try {
+    await ensureOwnerSaleListingRequestsSchema();
+    const id = String(req.params?.id || '').trim();
+    const [requestRows] = await pool.query('SELECT id FROM owner_sale_listing_requests WHERE id = ? LIMIT 1', [id]);
+    if (!requestRows?.[0]) return res.status(404).json({ error: 'Demande introuvable' });
+    const [rows] = await pool.query(
+      `SELECT *,
+        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM owner_sale_listing_request_messages
+       WHERE request_id = ?
+       ORDER BY created_at ASC`,
+      [id]
+    );
+    res.json(rows || []);
+  } catch (error) {
+    console.error('Error fetching admin owner sale request messages:', error);
+    res.status(500).json({ error: 'Impossible de charger le chat' });
+  }
+});
+
+app.post('/api/admin/owner-sale-listing-requests/:id/messages', requireAdminSession, express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    await ensureOwnerSaleListingRequestsSchema();
+    const id = String(req.params?.id || '').trim();
+    const [requestRows] = await pool.query('SELECT * FROM owner_sale_listing_requests WHERE id = ? LIMIT 1', [id]);
+    const request = requestRows?.[0] || null;
+    if (!request) return res.status(404).json({ error: 'Demande introuvable' });
+    const message = String(req.body?.message || '').trim();
+    const attachmentUrl = String(req.body?.attachment_url || '').trim();
+    const attachmentName = String(req.body?.attachment_name || '').trim();
+    if (!message && !attachmentUrl) return res.status(400).json({ error: 'Message ou piece jointe requis' });
+    const now = getAgencySqlDateTime();
+    const messageId = `oslm_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    await pool.query(
+      `INSERT INTO owner_sale_listing_request_messages
+       (id, request_id, sender_user_id, sender_role, message_text, attachment_url, attachment_name, created_at)
+       VALUES (?, ?, ?, 'admin', ?, ?, ?, ?)`,
+      [messageId, id, String(req.authUser?.id || '').trim() || null, message || null, attachmentUrl || null, attachmentName || null, now]
+    );
+    res.status(201).json({ id: messageId, request_id: id, sender_role: 'admin', message_text: message || null, attachment_url: attachmentUrl || null, attachment_name: attachmentName || null, created_at: now });
+  } catch (error) {
+    console.error('Error creating admin owner sale request message:', error);
+    res.status(500).json({ error: 'Impossible d envoyer le message' });
+  }
+});
+
 app.get('/api/admin/owner-sale-listing-requests', requireAdminSession, async (req, res) => {
   try {
     await ensureOwnerSaleListingRequestsSchema();
