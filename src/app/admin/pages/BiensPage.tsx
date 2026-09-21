@@ -358,7 +358,14 @@ function buildBienSeedFromOwnerSaleRequest(request: OwnerSaleListingRequestSeed,
       owner_sale_request_type_papier: payload.type_papier || normalizedTypePapier || null,
       owner_sale_request_visit_days: Array.isArray(payload.visit_days) ? payload.visit_days : [],
     } as any,
-    location_saisonniere_config: mapsUrl ? { google_maps_embed_url: mapsUrl } as any : null,
+    location_saisonniere_config: (mapsUrl || (Array.isArray(payload.visit_days) && payload.visit_days.length > 0))
+      ? {
+          ...(mapsUrl ? { google_maps_embed_url: mapsUrl } : {}),
+          ...(Array.isArray(payload.visit_days) && payload.visit_days.length > 0
+            ? { visite_jours_autorises: payload.visit_days, visit_days: payload.visit_days }
+            : {}),
+        } as any
+      : null,
     menage_en_cours: false,
     zone_id: fallbackZoneId || '',
     proprietaire_id: fallbackOwnerId || '',
@@ -1632,32 +1639,48 @@ export default function BiensPage() {
   }, []);
 
   useEffect(() => {
-    if (biens.length === 0 || isAddOpen) return;
+    if (isAddOpen) return;
+    let cancelled = false;
     const params = new URLSearchParams(location.search);
     const editBienId = String(params.get('editBien') || '').trim();
     const requestedTab = String(params.get('tab') || '').trim().toLowerCase();
     const requestedReturnTo = String(params.get('returnTo') || '').trim();
     if (!editBienId) return;
-    const targetBien = biens.find((item) => String(item.id || '').trim() === editBienId);
-    if (!targetBien) return;
-    setEditorReturnTo(requestedReturnTo.startsWith('/admin/') ? requestedReturnTo : '');
-    setDuplicateSeedBien(null);
-    setEditingBien(normalizeBienForEditor(targetBien, biens) as Bien);
-    setEditorInitialStep(isResidenceParentBien(targetBien) ? 0 : 1);
-    setEditorInitialTab(requestedTab === 'calendar' ? 'calendar' : 'general');
-    setIsAddOpen(true);
-    params.delete('editBien');
-    params.delete('tab');
-    params.delete('returnTo');
-    const nextSearch = params.toString();
-    navigate(
-      {
-        pathname: location.pathname,
-        search: nextSearch ? `?${nextSearch}` : '',
-      },
-      { replace: true }
-    );
-  }, [biens, isAddOpen, location.pathname, location.search, navigate]);
+    const openRequestedBien = async () => {
+      let targetBien = biens.find((item) => String(item.id || '').trim() === editBienId) as Bien | undefined;
+      if (!targetBien) {
+        if (isLoading && biens.length === 0) return;
+        const response = await fetch(`${API_URL}/biens/${encodeURIComponent(editBienId)}`, { credentials: 'include', cache: 'no-store' });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload) throw new Error(String(payload?.error || 'Bien introuvable'));
+        targetBien = payload as Bien;
+      }
+      if (cancelled || !targetBien) return;
+      setEditorReturnTo(requestedReturnTo.startsWith('/admin/') ? requestedReturnTo : '');
+      setDuplicateSeedBien(null);
+      setEditingBien(normalizeBienForEditor(targetBien, biens) as Bien);
+      setEditorInitialStep(isResidenceParentBien(targetBien) ? 0 : 1);
+      setEditorInitialTab(requestedTab === 'calendar' ? 'calendar' : 'general');
+      setIsAddOpen(true);
+      params.delete('editBien');
+      params.delete('tab');
+      params.delete('returnTo');
+      const nextSearch = params.toString();
+      navigate(
+        {
+          pathname: location.pathname,
+          search: nextSearch ? `?${nextSearch}` : '',
+        },
+        { replace: true }
+      );
+    };
+    openRequestedBien().catch((error) => {
+      if (!cancelled) toast.error(error instanceof Error ? error.message : 'Chargement du bien impossible');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [biens, isAddOpen, isLoading, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     if (isAddOpen) return;
@@ -5890,6 +5913,9 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     const orderedMediaForSave = [...clientVisibleImages, ...clientVisibleVideos, ...images.filter((img) => isProofImage(img))];
     const imagesWithPositions = orderedMediaForSave.map((img, idx) => ({ ...img, position: idx }));
     const ventePaiement = computeVentePaiement(formData, venteTarification.prixFinal);
+    const ownerSaleRequestVisitDays = Array.isArray((formData.ui_config as any)?.owner_sale_request_visit_days)
+      ? (formData.ui_config as any).owner_sale_request_visit_days.map((day: unknown) => String(day || '').trim()).filter(Boolean)
+      : [];
     const selectedFeatureEntries = availableFeatures
       .filter((feature) => selectedFeatureIds.includes(String(feature.id || '')))
       .map((feature) => {
@@ -6329,8 +6355,15 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
             proche_plage: !!formData.proche_plage || derivedSeasonSignals.prochePlage,
             distance_plage_m: (formData.distance_plage_m ?? derivedSeasonSignals.distancePlageM) ?? null,
           }
-        : selectedMode === 'vente' && String(saisonConfig.google_maps_embed_url || '').trim()
-          ? { google_maps_embed_url: normalizeMapsInput(saisonConfig.google_maps_embed_url) } as any
+        : selectedMode === 'vente' && (String(saisonConfig.google_maps_embed_url || '').trim() || ownerSaleRequestVisitDays.length > 0)
+          ? {
+              ...(String(saisonConfig.google_maps_embed_url || '').trim()
+                ? { google_maps_embed_url: normalizeMapsInput(saisonConfig.google_maps_embed_url) }
+                : {}),
+              ...(ownerSaleRequestVisitDays.length > 0
+                ? { visite_jours_autorises: ownerSaleRequestVisitDays, visit_days: ownerSaleRequestVisitDays }
+                : {}),
+            } as any
           : null,
       description: selectedType === 'residence'
         ? String(formData.description || '').trim()

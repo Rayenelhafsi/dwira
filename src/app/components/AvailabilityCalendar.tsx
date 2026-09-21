@@ -34,6 +34,7 @@ interface AvailabilityCalendarProps {
   selectionMode?: "range" | "single";
   allowedRange?: { start: string; end: string } | null;
   allowedRanges?: Array<{ start: string; end: string }>;
+  allowedWeekdays?: number[];
   highlightedRanges?: Array<{ start: string; end: string }>;
   showAdminBlockedStatus?: boolean;
 }
@@ -46,6 +47,7 @@ export default function AvailabilityCalendar({
   selectionMode = "range",
   allowedRange = null,
   allowedRanges = [],
+  allowedWeekdays = [],
   highlightedRanges = [],
   showAdminBlockedStatus = false,
 }: AvailabilityCalendarProps) {
@@ -67,12 +69,19 @@ export default function AvailabilityCalendar({
     ...allowedRanges.filter((range) => isValidDateOnly(range.start) && isValidDateOnly(range.end)),
   ];
   const normalizedHighlightedRanges = highlightedRanges.filter((range) => isValidDateOnly(range.start) && isValidDateOnly(range.end));
+  const normalizedAllowedWeekdays = Array.from(new Set(
+    allowedWeekdays.map((day) => Number(day)).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+  ));
 
   const isOutsideAllowedRange = (date: Date) => {
     if (normalizedAllowedRanges.length === 0) return false;
     const key = toDayKey(date);
     return !normalizedAllowedRanges.some((range) => key >= range.start && key <= range.end);
   };
+
+  const isOutsideAllowedWeekday = (date: Date) => (
+    normalizedAllowedWeekdays.length > 0 && !normalizedAllowedWeekdays.includes(date.getDay())
+  );
 
   const flashLocked = normalizedAllowedRanges.length > 0;
   const blockedDayClass = showAdminBlockedStatus ? "bg-gray-900" : "bg-red-500";
@@ -119,6 +128,7 @@ export default function AvailabilityCalendar({
   };
 
   const getDateStatus = (date: Date): "available" | "blocked" | "pending" | "booked" | "past" => {
+    if (isOutsideAllowedWeekday(date)) return "blocked";
     if (isOutsideAllowedRange(date)) return "blocked";
     if (isBefore(date, today)) return "past";
 
@@ -131,6 +141,7 @@ export default function AvailabilityCalendar({
   };
 
   const isDateUnavailable = (date: Date) => {
+    if (isOutsideAllowedWeekday(date)) return true;
     if (isOutsideAllowedRange(date)) return true;
     if (isBefore(date, today)) return true;
     const blockingStatus = getRangeStatusForDay(date);
@@ -171,6 +182,7 @@ export default function AvailabilityCalendar({
   };
 
   const handleDateClick = (date: Date) => {
+    if (isOutsideAllowedWeekday(date)) return;
     if (isOutsideAllowedRange(date)) return;
 
     if (selectionMode === "single") {
@@ -260,7 +272,7 @@ export default function AvailabilityCalendar({
     if (selectionMode === "single") {
       return { enabled: false, leftClass: "", rightClass: "" };
     }
-    if (!isSameMonth(date, currentMonth) || isOutsideAllowedRange(date) || isBefore(date, today)) {
+    if (!isSameMonth(date, currentMonth) || isOutsideAllowedWeekday(date) || isOutsideAllowedRange(date) || isBefore(date, today)) {
       return { enabled: false, leftClass: "", rightClass: "" };
     }
 
@@ -345,7 +357,7 @@ export default function AvailabilityCalendar({
   const isHatchedUnavailableDay = (date: Date) => isBookedDay(date) || (!showAdminBlockedStatus && isBlockedDay(date));
 
   const getDayLabel = (date: Date): string | null => {
-    if (!isSameMonth(date, currentMonth) || isOutsideAllowedRange(date) || isBefore(date, today)) {
+    if (!isSameMonth(date, currentMonth) || isOutsideAllowedWeekday(date) || isOutsideAllowedRange(date) || isBefore(date, today)) {
       return null;
     }
     if (selectionMode === "single") {
@@ -471,6 +483,12 @@ export default function AvailabilityCalendar({
           <div className="w-4 h-4 bg-green-100 rounded border border-green-200"></div>
           <span className="text-gray-600">Disponible</span>
         </div>
+        {normalizedAllowedWeekdays.length > 0 ? (
+          <div className="flex items-center gap-2">
+            <div className={`w-4 h-4 bg-red-500 rounded ${bookedHatchClass}`}></div>
+            <span className="text-gray-600">Jour non autorise</span>
+          </div>
+        ) : null}
         {showAdminBlockedStatus ? (
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-gray-900 rounded"></div>

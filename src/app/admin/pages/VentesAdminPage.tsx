@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { BadgeDollarSign, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, Eye, Filter, FolderOpen, Hash, Home, ImageIcon, LandPlot, Layers3, Mail, MapPin, MessageCircle, Paperclip, PencilLine, Phone, Plus, RefreshCw, Ruler, Save, Send, UploadCloud, UserCheck, XCircle } from "lucide-react";
+import { BadgeDollarSign, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, Eye, Filter, FolderOpen, Hash, Home, ImageIcon, LandPlot, Layers3, Mail, MapPin, MessageCircle, Paperclip, PencilLine, Phone, Plus, RefreshCw, Ruler, Save, Send, Trash2, UploadCloud, UserCheck, XCircle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { useAuth } from "../../context/AuthContext";
 import { useProperties } from "../../context/PropertiesContext";
@@ -271,7 +271,7 @@ function getSaleTypeIcon(type?: string | null) {
 
 export default function VentesAdminPage() {
   const { user } = useAuth();
-  const { biens, isLoading: propertiesLoading } = useProperties();
+  const { biens, deleteBien, refreshData, isLoading: propertiesLoading } = useProperties();
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
   const [demands, setDemands] = useState<SalesDemand[]>([]);
@@ -545,9 +545,16 @@ export default function VentesAdminPage() {
     const price = Number(payload.prix_affiche_client || payload.prix_proprietaire || request.price_tnd || 0);
     const normalizedTypeRue = normalizeOwnerRequestTypeRue(payload.type_rue);
     const normalizedTypePapier = normalizeOwnerRequestTypePapier(payload.type_papier);
+    const visitDays = Array.isArray(payload.visit_days) ? payload.visit_days.map((day) => String(day || "").trim()).filter(Boolean) : [];
     const bedrooms = Number(payload.nb_chambres || payload.bedrooms || 0);
     setOwnerRequestActionId(request.id);
     try {
+      const existingBien = biens.find((bien) => String((bien.ui_config as any)?.owner_sale_request_id || "").trim() === String(request.id));
+      if (existingBien) {
+        await updateOwnerListingRequest(request.id, { status: "mise_en_ligne", admin_note: request.admin_note || "" });
+        toast.info(`Reference deja existante: ${existingBien.reference || existingBien.id}`);
+        return;
+      }
       const createResponse = await fetch(`${API_URL}/biens`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -578,12 +585,18 @@ export default function VentesAdminPage() {
           terrain_facade_m: payload.terrain_facade_m || null,
           terrain_type_sol: payload.terrain_type_sol || null,
           terrain_prix_affiche_total: price,
-          location_saisonniere_config: payload.maps_url ? { google_maps_embed_url: String(payload.maps_url || "").trim() } : null,
+          location_saisonniere_config: (payload.maps_url || visitDays.length > 0)
+            ? {
+                ...(payload.maps_url ? { google_maps_embed_url: String(payload.maps_url || "").trim() } : {}),
+                ...(visitDays.length > 0 ? { visite_jours_autorises: visitDays, visit_days: visitDays } : {}),
+              }
+            : null,
           ui_config: {
             owner_sale_request_id: request.id,
             owner_sale_request_maps_url: payload.maps_url || "",
             owner_sale_request_type_rue: payload.type_rue || "",
             owner_sale_request_type_papier: payload.type_papier || "",
+            owner_sale_request_visit_days: visitDays,
           },
           statut: "disponible",
           visible_sur_site: true,
@@ -609,9 +622,24 @@ export default function VentesAdminPage() {
         }
       }
       await updateOwnerListingRequest(request.id, { status: "mise_en_ligne", admin_note: request.admin_note || "" });
+      await refreshData();
       toast.success("Bien publie sur le site");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Publication impossible");
+    } finally {
+      setOwnerRequestActionId(null);
+    }
+  };
+
+  const deleteSaleReference = async (bienId: string) => {
+    if (!window.confirm("Supprimer cette reference de vente ?")) return;
+    setOwnerRequestActionId(bienId);
+    try {
+      await deleteBien(bienId);
+      toast.success("Reference supprimee");
+      await Promise.all([refreshData(), loadDemands("refresh")]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Suppression impossible");
     } finally {
       setOwnerRequestActionId(null);
     }
@@ -1308,6 +1336,15 @@ export default function VentesAdminPage() {
                             <PencilLine className="h-4 w-4" />
                             Gerer le bien
                           </Link>
+                          <button
+                            type="button"
+                            disabled={ownerRequestActionId === String(bien.id || "")}
+                            onClick={() => void deleteSaleReference(String(bien.id || ""))}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:opacity-60"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Supprimer reference
+                          </button>
                         </div>
                       </div>
                     </article>

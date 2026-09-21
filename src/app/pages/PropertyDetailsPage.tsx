@@ -1803,6 +1803,35 @@ out body 40;
     ?? (hasResidenceSubtypeAggregation
       ? aggregatedResidenceUnavailableDates
       : (Array.isArray(property?.unavailableDates) ? property.unavailableDates : []));
+  const saleVisitAllowedWeekdays = useMemo(() => {
+    const rawDays = [
+      ...((Array.isArray((sourceBien?.location_saisonniere_config as any)?.visite_jours_autorises)
+        ? (sourceBien?.location_saisonniere_config as any).visite_jours_autorises
+        : []) as unknown[]),
+      ...((Array.isArray((sourceBien?.location_saisonniere_config as any)?.visit_days)
+        ? (sourceBien?.location_saisonniere_config as any).visit_days
+        : []) as unknown[]),
+      ...((Array.isArray((sourceBien?.ui_config as any)?.owner_sale_request_visit_days)
+        ? (sourceBien?.ui_config as any).owner_sale_request_visit_days
+        : []) as unknown[]),
+    ];
+    const map: Record<string, number> = {
+      dimanche: 0,
+      lundi: 1,
+      mardi: 2,
+      mercredi: 3,
+      jeudi: 4,
+      vendredi: 5,
+      samedi: 6,
+    };
+    return Array.from(new Set(rawDays
+      .map((item) => {
+        const value = String(item || "").trim().toLowerCase();
+        if (/^[0-6]$/.test(value)) return Number(value);
+        return map[value];
+      })
+      .filter((item): item is number => Number.isInteger(item) && item >= 0 && item <= 6)));
+  }, [sourceBien?.location_saisonniere_config, sourceBien?.ui_config]);
   const selectedRangeRuleRelaxation = useMemo(() => {
     if (!selectedStart || !selectedEnd || activeLockedFlashOffer || selectedPreviewFlashRange) return { active: false, gap: null };
     const start = selectedStart < selectedEnd ? selectedStart : selectedEnd;
@@ -1845,6 +1874,12 @@ out body 40;
     if (isSaleProperty) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(visitPreferredDate || "").trim())) {
         return { valid: false, message: "Date de visite souhaitee obligatoire." };
+      }
+      if (saleVisitAllowedWeekdays.length > 0) {
+        const selectedVisitDate = new Date(`${String(visitPreferredDate).trim()}T00:00:00`);
+        if (!saleVisitAllowedWeekdays.includes(selectedVisitDate.getDay())) {
+          return { valid: false, message: "Ce jour n'est pas autorise pour les visites de ce bien." };
+        }
       }
       if (!String(visitTimeSlot || "").trim()) {
         return { valid: false, message: "Creneau de visite obligatoire." };
@@ -1926,7 +1961,7 @@ out body 40;
     }
 
     return { valid: true, message: "" };
-  }, [activeLockedFlashOffer, activePreviewFlashOffer, amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRanges, effectivePricingPeriods, effectiveUnavailableDates, findMatchingLockedFlashRange, findMatchingPreviewFlashRange, flashOfferEnabled, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, selectedEnd, selectedStart, user?.telephone, visitContactPhone, visitPreferredDate, visitTimeSlot]);
+  }, [activeLockedFlashOffer, activePreviewFlashOffer, amicaleCode, amicaleFullName, amicaleMatricule, amicalePhone, amicaleSelectionId, effectiveLockedFlashRanges, effectivePricingPeriods, effectiveUnavailableDates, findMatchingLockedFlashRange, findMatchingPreviewFlashRange, flashOfferEnabled, isSaleProperty, maxStay, minStay, paymentMode, pricingAmicaleId, saleVisitAllowedWeekdays, selectedEnd, selectedStart, user?.telephone, visitContactPhone, visitPreferredDate, visitTimeSlot]);
   const extraMattressPrice = Math.max(0, seasonalConfig?.matelasSupplementairePrix || 0);
   const extraMattressMax = Math.max(0, seasonalConfig?.matelasSupplementairesMax || 0);
   const advancePercent = Math.min(100, Math.max(1, seasonalConfig?.avancePourcentage || 30));
@@ -5560,6 +5595,7 @@ out body 40;
                       selectedStart={saleVisitSelectedDate}
                       selectedEnd={saleVisitSelectedDate}
                       selectionMode="single"
+                      allowedWeekdays={saleVisitAllowedWeekdays}
                     />
                 </div>
               )}
