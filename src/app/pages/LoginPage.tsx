@@ -35,6 +35,7 @@ function normalizeReturnToPath(value: string | null | undefined) {
   if (
     !next.startsWith('/reservation/confirmation/')
     && !next.startsWith('/reservation/packs/confirmation/')
+    && !next.startsWith('/ventes/soumettre-bien')
   ) return null;
   return next;
 }

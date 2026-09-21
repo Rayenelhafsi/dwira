@@ -64,6 +64,7 @@ type FilterDropdownOption = {
 };
 
 const DEFAULT_CONTACT_PHONE = '+21652080695';
+const OWNER_SUBMISSION_RETURN_PATH = '/ventes/soumettre-bien?step=2';
 const HERO_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop stop-color='%230f172a'/%3E%3Cstop offset='1' stop-color='%23134e4a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1600' height='900' fill='url(%23g)'/%3E%3Cpath d='M180 620l250-210 180 155 150-120 270 175H180z' fill='rgba(255,255,255,0.14)'/%3E%3Ccircle cx='1180' cy='220' r='88' fill='rgba(255,255,255,0.08)'/%3E%3C/svg%3E";
 const CARD_FALLBACK =
@@ -521,6 +522,32 @@ export function OwnerSaleRequestBox({
   const hasUploadingPhotos = OWNER_PHOTO_SLOTS.some((slot) => photoUploads[slot.id]?.status === 'uploading');
   const canSubmit = isAuthenticatedOwner && missingFields.length === 0 && draft.visitDays.length > 0 && uploadedRequiredPhotoUrls.length === OWNER_PHOTO_SLOTS.filter((slot) => !slot.optional).length && !hasUploadingPhotos && !submitting;
 
+  const isStepComplete = (index: number) => {
+    if (index === 0) return isAuthenticatedOwner;
+    if (index === 1) {
+      return ['title', 'contactName', 'contactPhone', 'description'].every((key) => String(draft[key as keyof OwnerSaleRequestDraft] || '').trim());
+    }
+    if (index === 2) return Boolean(String(draft.propertyType || '').trim()) && draft.visitDays.length > 0;
+    if (index === 3) {
+      return [
+        'superficie_m2',
+        'bedrooms',
+        'bathrooms',
+        'constructionYear',
+        'type_rue',
+        'type_papier',
+        'mapsUrl',
+      ].every((key) => String(draft[key as keyof OwnerSaleRequestDraft] || '').trim());
+    }
+    if (index === 4) return Boolean(String(draft.ownerPrice || '').trim());
+    if (index === 5) {
+      return Boolean(String(draft.paymentMode || '').trim())
+        && uploadedRequiredPhotoUrls.length === OWNER_PHOTO_SLOTS.filter((slot) => !slot.optional).length
+        && !hasUploadingPhotos;
+    }
+    return false;
+  };
+
   const uploadPhotoSlot = async (slotId: OwnerPhotoSlotId, file: File) => {
     const previewUrl = URL.createObjectURL(file);
     setPhotoUploads((current) => ({
@@ -618,8 +645,8 @@ export function OwnerSaleRequestBox({
   };
 
   const redirectToAccountCreation = () => {
-    saveAuthReturnTo('/ventes/soumettre-bien');
-    navigate(`/login?returnTo=${encodeURIComponent('/ventes/soumettre-bien')}`);
+    saveAuthReturnTo(OWNER_SUBMISSION_RETURN_PATH);
+    navigate(`/login?returnTo=${encodeURIComponent(OWNER_SUBMISSION_RETURN_PATH)}`);
   };
 
   const handleSocialLogin = (provider: 'google' | 'facebook' | 'apple') => {
@@ -627,8 +654,8 @@ export function OwnerSaleRequestBox({
       toast.error('Methode de connexion indisponible pour le moment.');
       return;
     }
-    saveAuthReturnTo('/ventes/soumettre-bien');
-    startSocialLogin(provider, '/ventes/soumettre-bien');
+    saveAuthReturnTo(OWNER_SUBMISSION_RETURN_PATH);
+    startSocialLogin(provider, OWNER_SUBMISSION_RETURN_PATH);
   };
 
   const handlePasskeyLogin = async () => {
@@ -670,6 +697,18 @@ export function OwnerSaleRequestBox({
     }
   };
 
+  const stepLabels = ['Compte', 'Proprietaire', 'Type & visites', 'Details', 'Prix', 'Paiement & photos'];
+
+  useEffect(() => {
+    if (!open || typeof window === 'undefined') return;
+    const queryStep = Number(new URLSearchParams(window.location.search).get('step') || 0);
+    if (isAuthenticatedOwner && queryStep >= 2) {
+      setStep((current) => (current === 0 ? 1 : current));
+      const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  }, [isAuthenticatedOwner, open]);
+
   if (!open) {
     return (
       <div className="landing-owner-sale-callout">
@@ -686,7 +725,6 @@ export function OwnerSaleRequestBox({
     );
   }
 
-  const stepLabels = ['Compte', 'Proprietaire', 'Type & visites', 'Details', 'Prix', 'Paiement & photos'];
   const goNextStep = () => {
     if (step === 0 && !isAuthenticatedOwner) {
       toast.error('Connectez-vous ou creez un compte pour continuer.');
@@ -709,14 +747,29 @@ export function OwnerSaleRequestBox({
 
         <div className="flex gap-2 overflow-x-auto border-b border-slate-100 px-5 py-3">
           {stepLabels.map((label, index) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => setStep(index)}
-              className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold ${step === index ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-600'}`}
-            >
-              {index + 1}. {label}
-            </button>
+            (() => {
+              const complete = isStepComplete(index);
+              const active = step === index;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setStep(index)}
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition ${
+                    active && complete
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : active
+                        ? 'bg-slate-950 text-white shadow-sm'
+                      : complete
+                        ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200'
+                        : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {complete ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                  <span>{index + 1}. {label}</span>
+                </button>
+              );
+            })()
           ))}
         </div>
 
