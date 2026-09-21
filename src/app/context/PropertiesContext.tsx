@@ -45,6 +45,8 @@ async function getApiErrorMessage(response: Response, fallback: string) {
   if (contentType.includes('application/json')) {
     const data = await response.json().catch(() => null);
     const message = String(data?.error || data?.message || '').trim();
+    const detail = String(data?.detail || '').trim();
+    if (message && detail) return `${message}: ${detail}`;
     if (message) return message;
   } else {
     const text = await response.text().catch(() => '');

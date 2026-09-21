@@ -209,14 +209,21 @@ async function ensureOwnerFromSaleRequest(request: OwnerSaleListingRequestSeed, 
   const ownerPhone = String(request.owner_phone || payload.contactPhone || '').trim();
   const normalizedEmail = ownerEmail.toLowerCase();
   const normalizedPhone = ownerPhone.replace(/\D+/g, '');
-  const existing = existingOwners.find((owner) => {
+  const findMatchingOwner = (owners: Proprietaire[] = []) => owners.find((owner) => {
     const emailMatches = normalizedEmail && String(owner.email || '').trim().toLowerCase() === normalizedEmail;
     const phoneMatches = normalizedPhone && String(owner.telephone || '').replace(/\D+/g, '') === normalizedPhone;
     const nameMatches = ownerName && String(owner.nom || '').replace(/\s+/g, ' ').trim().toLowerCase() === ownerName.toLowerCase();
     return emailMatches || phoneMatches || (nameMatches && (emailMatches || phoneMatches));
   });
+  const existing = findMatchingOwner(existingOwners);
   if (existing?.id) return existing.id;
   if (!ownerName && !ownerPhone && !ownerEmail) return '';
+  const refreshedResponse = await fetch(`${API_URL}/proprietaires`, { credentials: 'include', cache: 'no-store' }).catch(() => null);
+  if (refreshedResponse?.ok) {
+    const refreshedOwners = await refreshedResponse.json().catch(() => []);
+    const refreshedMatch = Array.isArray(refreshedOwners) ? findMatchingOwner(refreshedOwners) : null;
+    if (refreshedMatch?.id) return refreshedMatch.id;
+  }
   const response = await fetch(`${API_URL}/proprietaires`, {
     method: 'POST',
     credentials: 'include',
@@ -229,6 +236,14 @@ async function ensureOwnerFromSaleRequest(request: OwnerSaleListingRequestSeed, 
     }),
   });
   const created = await response.json().catch(() => null);
+  if (!response.ok && (response.status === 409 || response.status === 500)) {
+    const retryResponse = await fetch(`${API_URL}/proprietaires`, { credentials: 'include', cache: 'no-store' }).catch(() => null);
+    if (retryResponse?.ok) {
+      const retryOwners = await retryResponse.json().catch(() => []);
+      const retryMatch = Array.isArray(retryOwners) ? findMatchingOwner(retryOwners) : null;
+      if (retryMatch?.id) return retryMatch.id;
+    }
+  }
   if (!response.ok) throw new Error(String(created?.error || 'Creation proprietaire impossible'));
   return String(created?.id || '').trim();
 }

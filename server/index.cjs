@@ -18667,7 +18667,11 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
     if (String(error?.message || '').includes('Invalid caracteristique_ids')) {
       return res.status(400).json({ error: error.message });
     }
-    res.status(500).json({ error: 'Failed to create bien' });
+    res.status(500).json({
+      error: 'Failed to create bien',
+      detail: String(error?.sqlMessage || error?.message || '').slice(0, 300),
+      code: error?.code || null,
+    });
   }
 });
 
@@ -19457,7 +19461,7 @@ app.post('/api/proprietaires', requireAdminSession, async (req, res) => {
   try {
     const { id, nom, telephone, email, cin } = req.body;
     await ensureProprietairesSchema();
-    const newId = id || 'p' + Date.now();
+    const newId = id || `p${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
     const normalizedNom = String(nom || '').trim();
     const normalizedTelephone = String(telephone || '').trim();
     const normalizedEmail = String(email || '').trim().toLowerCase() || null;
@@ -19468,12 +19472,46 @@ app.post('/api/proprietaires', requireAdminSession, async (req, res) => {
     if (!normalizedTelephone) {
       return res.status(400).json({ error: 'Telephone proprietaire requis' });
     }
+    const normalizedPhoneDigits = normalizedTelephone.replace(/\D+/g, '');
+    if (normalizedEmail || normalizedPhoneDigits || normalizedNom) {
+      const [existingRows] = await pool.query(
+        `SELECT * FROM proprietaires
+         WHERE (? IS NOT NULL AND LOWER(COALESCE(email, '')) = ?)
+            OR (? <> '' AND LOWER(COALESCE(nom, '')) = ?)
+            OR (? <> '' AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(telephone, ''), ' ', ''), '+', ''), '-', ''), '.', ''), '/', '') = ?)
+         ORDER BY nom
+         LIMIT 1`,
+        [normalizedEmail, normalizedEmail || '', normalizedNom.toLowerCase(), normalizedNom.toLowerCase(), normalizedPhoneDigits, normalizedPhoneDigits]
+      );
+      if (existingRows?.[0]) {
+        return res.status(200).json(existingRows[0]);
+      }
+    }
     await pool.query('INSERT INTO proprietaires (id, nom, telephone, email, cin) VALUES (?, ?, ?, ?, ?)', 
       [newId, normalizedNom, normalizedTelephone, normalizedEmail, normalizedCin]);
     const [newProp] = await pool.query('SELECT * FROM proprietaires WHERE id = ?', [newId]);
     res.status(201).json(newProp[0]);
   } catch (error) {
     console.error('Error creating proprietaire:', error);
+    if (error?.code === 'ER_DUP_ENTRY') {
+      try {
+        const normalizedNom = String(req.body?.nom || '').trim();
+        const normalizedEmail = String(req.body?.email || '').trim().toLowerCase() || null;
+        const normalizedPhoneDigits = String(req.body?.telephone || '').replace(/\D+/g, '');
+        const [existingRows] = await pool.query(
+          `SELECT * FROM proprietaires
+           WHERE (? IS NOT NULL AND LOWER(COALESCE(email, '')) = ?)
+              OR (? <> '' AND LOWER(COALESCE(nom, '')) = ?)
+              OR (? <> '' AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(telephone, ''), ' ', ''), '+', ''), '-', ''), '.', ''), '/', '') = ?)
+           ORDER BY nom
+           LIMIT 1`,
+          [normalizedEmail, normalizedEmail || '', normalizedNom.toLowerCase(), normalizedNom.toLowerCase(), normalizedPhoneDigits, normalizedPhoneDigits]
+        );
+        if (existingRows?.[0]) return res.status(200).json(existingRows[0]);
+      } catch (lookupError) {
+        console.error('Error resolving duplicate proprietaire:', lookupError);
+      }
+    }
     res.status(500).json({ error: 'Failed to create proprietaire' });
   }
 });
