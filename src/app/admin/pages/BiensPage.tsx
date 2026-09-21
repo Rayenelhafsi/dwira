@@ -506,6 +506,15 @@ const BIEN_TYPES_BY_MODE: Record<BienMode, BienType[]> = {
   location_saisonniere: ['appartement', 'residence', 'villa_maison', 'bungalow', 'studio'],
   location_annuelle: ['appartement', 'local_commercial', 'villa_maison'],
 };
+const VISIT_DAY_OPTIONS = [
+  { value: 'lundi', label: 'Lundi' },
+  { value: 'mardi', label: 'Mardi' },
+  { value: 'mercredi', label: 'Mercredi' },
+  { value: 'jeudi', label: 'Jeudi' },
+  { value: 'vendredi', label: 'Vendredi' },
+  { value: 'samedi', label: 'Samedi' },
+  { value: 'dimanche', label: 'Dimanche' },
+] as const;
 const TERRAIN_PRIX_MODE_LABELS: Record<ModeAffichagePrixTerrain, string> = {
   total_uniquement: 'Total uniquement',
   m2_uniquement: 'Prix / m2 uniquement',
@@ -3151,6 +3160,20 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
     ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
   };
+  const saleVisitDays = useMemo(() => {
+    const fromConfig = Array.isArray((formData.location_saisonniere_config as any)?.visite_jours_autorises)
+      ? (formData.location_saisonniere_config as any).visite_jours_autorises
+      : Array.isArray((formData.location_saisonniere_config as any)?.visit_days)
+        ? (formData.location_saisonniere_config as any).visit_days
+        : [];
+    const fromUi = Array.isArray((formData.ui_config as any)?.owner_sale_request_visit_days)
+      ? (formData.ui_config as any).owner_sale_request_visit_days
+      : [];
+    const allowed = new Set(VISIT_DAY_OPTIONS.map((item) => item.value));
+    return Array.from(new Set([...fromConfig, ...fromUi]
+      .map((day) => String(day || '').trim().toLowerCase())
+      .filter((day) => allowed.has(day as any))));
+  }, [formData.location_saisonniere_config, formData.ui_config]);
   const saisonFlashOffers = useMemo(
     () => normalizeFlashOffers(saisonConfig),
     [saisonConfig]
@@ -3184,6 +3207,30 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
         ...patch,
       },
     }));
+  };
+  const updateSaleVisitDays = (nextDays: string[]) => {
+    const normalizedDays = VISIT_DAY_OPTIONS
+      .map((item) => item.value)
+      .filter((day) => nextDays.includes(day));
+    setFormData((prev) => ({
+      ...prev,
+      location_saisonniere_config: {
+        ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
+        ...((prev.location_saisonniere_config || {}) as LocationSaisonniereConfig),
+        visite_jours_autorises: normalizedDays,
+        visit_days: normalizedDays,
+      } as any,
+      ui_config: {
+        ...(((prev.ui_config || {}) as any)),
+        owner_sale_request_visit_days: normalizedDays,
+      } as any,
+    }));
+  };
+  const toggleSaleVisitDay = (day: string) => {
+    const current = new Set(saleVisitDays);
+    if (current.has(day)) current.delete(day);
+    else current.add(day);
+    updateSaleVisitDays(Array.from(current));
   };
   const updateFlashOffers = (offers: VenteFlashConfig[]) => {
     updateSaisonConfig({
@@ -8343,6 +8390,36 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Type *</label><select name="type" value={formData.type || 'appartement'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">{(BIEN_TYPES_BY_MODE[(formData.mode || 'location_saisonniere') as BienMode] || []).map((typeValue) => <option key={typeValue} value={typeValue}>{typeLabels[typeValue]}</option>)}</select></div>
                 )}
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Statut</label><select name="statut" value={formData.statut || 'disponible'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="loue">Loué</option><option value="reserve">Réservé</option><option value="maintenance">Maintenance</option><option value="bloque">Bloqué</option></select></div>
+                {formData.mode === 'vente' && (
+                  <div className="md:col-span-2 xl:col-span-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-900">Regle de visite</label>
+                        <p className="text-xs text-gray-600">Ces jours viennent de la soumission proprietaire. Le calendrier client bloque les autres jours.</p>
+                      </div>
+                      <span className="text-xs font-semibold text-emerald-700">{saleVisitDays.length} jour(s) actif(s)</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+                      {VISIT_DAY_OPTIONS.map((day) => {
+                        const checked = saleVisitDays.includes(day.value);
+                        return (
+                          <button
+                            key={`visit-day-${day.value}`}
+                            type="button"
+                            onClick={() => toggleSaleVisitDay(day.value)}
+                            className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                              checked
+                                ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm'
+                                : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-200 hover:bg-emerald-50'
+                            }`}
+                          >
+                            {day.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {isLocationAppartement && (
                   <div data-field="configuration">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Sous-type *</label>

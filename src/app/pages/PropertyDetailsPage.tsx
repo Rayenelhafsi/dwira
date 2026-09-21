@@ -1472,6 +1472,7 @@ export default function PropertyDetailsPage() {
     || (sourceBien as any)?.google_maps_url
     || ''
   ).trim();
+  const selectedBienMapsExternalUrl = selectedBienMapsUrl && /^https?:\/\//i.test(selectedBienMapsUrl) ? selectedBienMapsUrl : '';
   const selectedZoneMapsUrl = String(selectedZone?.google_maps_url || '').trim();
   const normalizeMapsUrl = useCallback((value: string) => {
     if (!value) return '';
@@ -1489,6 +1490,8 @@ export default function PropertyDetailsPage() {
   );
   const selectedGeocodeQuery = useMemo(() => buildLocationGeocodeQuery([
     extractLocationHintFromDescription(sourceBien?.description || property?.description || ''),
+    String((sourceBien?.ui_config as any)?.owner_sale_request_location || '').replace(/https?:\/\/\S+/g, ' '),
+    String((sourceBien?.ui_config as any)?.owner_sale_request_maps_url || '').replace(/https?:\/\/\S+/g, ' '),
     (sourceBien as any)?.terrain_zone,
     selectedZone?.quartier,
     selectedZone?.region,
@@ -1505,6 +1508,7 @@ export default function PropertyDetailsPage() {
     selectedZone?.quartier,
     selectedZone?.region,
     sourceBien?.description,
+    sourceBien?.ui_config,
     (sourceBien as any)?.terrain_zone,
   ]);
   const [mapCenter, setMapCenter] = useState<LatLng | null>(null);
@@ -5535,6 +5539,17 @@ out body 40;
                <p className="mt-4 text-gray-600 text-sm">
                  Position approximative affichee. L'adresse exacte sera communiquee le jour d'arrivee.
                </p>
+               {selectedBienMapsExternalUrl ? (
+                 <a
+                   href={selectedBienMapsExternalUrl}
+                   target="_blank"
+                   rel="noreferrer"
+                   className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                 >
+                   <MapPin size={16} />
+                   Ouvrir dans Google Maps
+                 </a>
+               ) : null}
                <div className="mt-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 via-white to-sky-50/80 p-4">
                  <div className="mb-3 flex items-center justify-between">
                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Commodités les plus proches</p>

@@ -271,7 +271,7 @@ function getSaleTypeIcon(type?: string | null) {
 
 export default function VentesAdminPage() {
   const { user } = useAuth();
-  const { biens, deleteBien, refreshData, isLoading: propertiesLoading } = useProperties();
+  const { biens, updateBien, deleteBien, refreshData, isLoading: propertiesLoading } = useProperties();
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
   const [demands, setDemands] = useState<SalesDemand[]>([]);
@@ -551,8 +551,29 @@ export default function VentesAdminPage() {
     try {
       const existingBien = biens.find((bien) => String((bien.ui_config as any)?.owner_sale_request_id || "").trim() === String(request.id));
       if (existingBien) {
+        const existingConfig = ((existingBien.location_saisonniere_config || {}) as any);
+        const existingUiConfig = ((existingBien.ui_config || {}) as any);
+        await updateBien({
+          ...(existingBien as any),
+          statut: "disponible",
+          visible_sur_site: true,
+          location_saisonniere_config: {
+            ...existingConfig,
+            ...(payload.maps_url ? { google_maps_embed_url: String(payload.maps_url || "").trim() } : {}),
+            ...(visitDays.length > 0 ? { visite_jours_autorises: visitDays, visit_days: visitDays } : {}),
+          },
+          ui_config: {
+            ...existingUiConfig,
+            owner_sale_request_id: request.id,
+            owner_sale_request_maps_url: payload.maps_url || existingUiConfig.owner_sale_request_maps_url || "",
+            owner_sale_request_type_rue: payload.type_rue || existingUiConfig.owner_sale_request_type_rue || "",
+            owner_sale_request_type_papier: payload.type_papier || existingUiConfig.owner_sale_request_type_papier || "",
+            owner_sale_request_visit_days: visitDays.length > 0 ? visitDays : (existingUiConfig.owner_sale_request_visit_days || []),
+          },
+        } as any);
         await updateOwnerListingRequest(request.id, { status: "mise_en_ligne", admin_note: request.admin_note || "" });
-        toast.info(`Reference deja existante: ${existingBien.reference || existingBien.id}`);
+        await refreshData();
+        toast.success(`Reference mise en ligne: ${existingBien.reference || existingBien.id}`);
         return;
       }
       const createResponse = await fetch(`${API_URL}/biens`, {
