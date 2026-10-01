@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { BadgeDollarSign, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, Eye, Filter, FolderOpen, Hash, Home, ImageIcon, LandPlot, Layers3, Mail, MapPin, MessageCircle, Paperclip, PencilLine, Phone, Plus, RefreshCw, Ruler, Save, Send, Trash2, UploadCloud, UserCheck, XCircle } from "lucide-react";
+import { BadgeDollarSign, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, Eye, Filter, FolderOpen, Hash, Home, ImageIcon, LandPlot, Layers3, Mail, MapPin, MessageCircle, Paperclip, PencilLine, Phone, Plus, RefreshCw, Ruler, Save, Send, Target, Trash2, UploadCloud, UserCheck, Users, XCircle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { useAuth } from "../../context/AuthContext";
 import { useProperties } from "../../context/PropertiesContext";
@@ -104,6 +104,107 @@ type DemandDraft = {
   visit_assigned_admin_id: string;
   sales_last_note: string;
 };
+
+type MatchImportance = "obligatoire" | "important" | "souhaite" | "ignore";
+type NumericRule = "exact" | "min" | "max" | "tolerance";
+
+type MatchCriterion = {
+  importance: MatchImportance;
+  value: string;
+  rule?: NumericRule;
+  tolerance?: string;
+};
+
+type BuyerMatchRequest = {
+  id: string;
+  clientName: string;
+  phone: string;
+  email: string;
+  status: string;
+  criteria: Record<string, MatchCriterion>;
+};
+
+type MatchResult = {
+  bien: any;
+  score: number;
+  label: string;
+  passedRequired: boolean;
+  matched: string[];
+  missed: string[];
+  blockedBy: string[];
+};
+
+const MATCH_IMPORTANCE_LABELS: Record<MatchImportance, string> = {
+  obligatoire: "Obligatoire",
+  important: "Important",
+  souhaite: "Souhaite",
+  ignore: "Sans importance",
+};
+
+const MATCH_IMPORTANCE_STYLES: Record<MatchImportance, string> = {
+  obligatoire: "bg-rose-50 text-rose-700 border-rose-200",
+  important: "bg-amber-50 text-amber-800 border-amber-200",
+  souhaite: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  ignore: "bg-slate-50 text-slate-500 border-slate-200",
+};
+
+const MATCH_NUMERIC_RULE_LABELS: Record<NumericRule, string> = {
+  exact: "Exact",
+  min: "Minimum a",
+  max: "Maximum",
+  tolerance: "+/- Tolerance",
+};
+
+const YES_NO_OPTIONS = [
+  { value: "oui", label: "Oui" },
+  { value: "non", label: "Non" },
+];
+
+const BEDROOM_OPTIONS = ["0", "1", "2", "3", "4", "5", "6"];
+const FLOOR_OPTIONS = ["RDC", "1", "2", "3", "4", "5+"];
+
+const DEFAULT_MATCH_REQUESTS: BuyerMatchRequest[] = [
+  {
+    id: "REQ-001",
+    clientName: "Ahmed Ben Ali",
+    phone: "29 123 456",
+    email: "ahmed@example.com",
+    status: "A contacter",
+    criteria: {
+      operation: { importance: "obligatoire", value: "Achat" },
+      propertyType: { importance: "obligatoire", value: "villa_maison" },
+      location: { importance: "important", value: "Kelibia" },
+      surface: { importance: "obligatoire", value: "200", rule: "min", tolerance: "10" },
+      facade: { importance: "obligatoire", value: "20", rule: "min", tolerance: "2" },
+      budget: { importance: "obligatoire", value: "400000", rule: "tolerance", tolerance: "20000" },
+      bedrooms: { importance: "important", value: "3", rule: "min" },
+      floor: { importance: "obligatoire", value: "RDC" },
+      independent: { importance: "obligatoire", value: "oui" },
+      garage: { importance: "souhaite", value: "oui" },
+      pool: { importance: "souhaite", value: "oui" },
+      beach: { importance: "important", value: "oui" },
+      other: { importance: "souhaite", value: "Quartier calme, titre foncier, bon standing" },
+    },
+  },
+  {
+    id: "REQ-002",
+    clientName: "Sabrine Mekki",
+    phone: "52 488 921",
+    email: "sabrine@example.com",
+    status: "Contacte",
+    criteria: {
+      operation: { importance: "obligatoire", value: "Achat" },
+      propertyType: { importance: "important", value: "appartement" },
+      location: { importance: "souhaite", value: "Kelibia" },
+      surface: { importance: "important", value: "90", rule: "min", tolerance: "10" },
+      budget: { importance: "obligatoire", value: "250000", rule: "max" },
+      bedrooms: { importance: "important", value: "2", rule: "min" },
+      floor: { importance: "ignore", value: "" },
+      garage: { importance: "souhaite", value: "oui" },
+      beach: { importance: "important", value: "oui" },
+    },
+  },
+];
 
 const SALES_STAGE_OPTIONS: Array<{ value: SalesStage; label: string }> = [
   { value: "nouvelle_demande", label: "Nouvelle demande" },
@@ -208,6 +309,107 @@ function buildSalesEditHref(id: string) {
 const CARD_FALLBACK =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Crect width='1200' height='800' fill='%23e2e8f0'/%3E%3Cpath d='M180 560l210-180 120 108 120-120 210 192H180z' fill='%23cbd5e1'/%3E%3Ccircle cx='360' cy='230' r='48' fill='%23cbd5e1'/%3E%3C/svg%3E";
 
+const DEMO_SALE_BIENS: any[] = [
+  {
+    id: "demo-v425",
+    reference: "DEMO-425",
+    titre: "Villa S+3 - Kelibia La Blanche",
+    mode: "vente",
+    type: "villa_maison",
+    zone: "Kelibia - La Blanche",
+    statut: "disponible",
+    visible_sur_site: true,
+    prix_affiche_client: 380000,
+    superficie_m2: 240,
+    facade_m: 22,
+    nb_chambres: 3,
+    etage: 0,
+    independant: true,
+    place_parking: true,
+    proche_plage: true,
+    type_papier: "titre_foncier_individuel",
+    description: "Maison independante avec piscine, garage, quartier calme, proche plage et bon standing.",
+    media: [{ url: "https://images.unsplash.com/photo-1613977257363-707ba9348227?auto=format&fit=crop&w=900&q=80" }],
+  },
+  {
+    id: "demo-v381",
+    reference: "DEMO-381",
+    titre: "Maison S+2 - Mansoura",
+    mode: "vente",
+    type: "villa_maison",
+    zone: "Kelibia - Mansoura",
+    statut: "disponible",
+    visible_sur_site: true,
+    prix_affiche_client: 365000,
+    superficie_m2: 210,
+    facade_m: 20,
+    nb_chambres: 2,
+    etage: 0,
+    independant: true,
+    place_parking: true,
+    proche_plage: false,
+    type_papier: "titre_foncier_individuel",
+    description: "Maison independante avec garage, titre foncier, quartier calme.",
+    media: [{ url: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=900&q=80" }],
+  },
+  {
+    id: "demo-a401",
+    reference: "DEMO-401",
+    titre: "Appartement Azure front mer",
+    mode: "vente",
+    type: "appartement",
+    zone: "Kelibia - Centre",
+    statut: "disponible",
+    visible_sur_site: true,
+    prix_affiche_client: 235000,
+    superficie_m2: 118,
+    nb_chambres: 2,
+    etage: 2,
+    place_parking: true,
+    proche_plage: true,
+    ascenseur: true,
+    description: "Appartement front mer, ascenseur, parking et cuisine equipee.",
+    media: [{ url: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=80" }],
+  },
+  {
+    id: "demo-t201",
+    reference: "DEMO-201",
+    titre: "Terrain d'angle vue degagee",
+    mode: "vente",
+    type: "terrain",
+    zone: "Kelibia - Dar Allouche",
+    statut: "disponible",
+    visible_sur_site: true,
+    terrain_prix_affiche_total: 190000,
+    terrain_surface_m2: 320,
+    terrain_facade_m: 18,
+    terrain_angle: true,
+    terrain_constructible: true,
+    proche_plage: true,
+    description: "Terrain constructible, angle, proche plage, titre foncier.",
+    media: [{ url: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=900&q=80" }],
+  },
+  {
+    id: "demo-c701",
+    reference: "DEMO-701",
+    titre: "Local Commercial Signature",
+    mode: "vente",
+    type: "local_commercial",
+    zone: "Kelibia - Avenue principale",
+    statut: "disponible",
+    visible_sur_site: true,
+    prix_affiche_client: 420000,
+    surface_local_m2: 118,
+    facade_m: 14,
+    nb_chambres: 0,
+    etage: 0,
+    vitrine: true,
+    toilette: true,
+    description: "Local commercial avec vitrine, grande facade, usage commercial.",
+    media: [{ url: "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=900&q=80" }],
+  },
+];
+
 function formatCurrency(value?: number | null) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount) || amount <= 0) return "Prix sur demande";
@@ -269,6 +471,120 @@ function getSaleTypeIcon(type?: string | null) {
   return Home;
 }
 
+function normalizeText(value?: unknown) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function toMatchNumber(value?: unknown) {
+  const number = Number(String(value ?? "").replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(number) ? number : null;
+}
+
+function getSaleNumericValue(bien: any, key: string) {
+  if (key === "budget") {
+    return Number(bien?.prix_affiche_client || bien?.prix_final || bien?.terrain_prix_affiche_total || bien?.lotissement_prix_total || bien?.prix_nuitee || 0);
+  }
+  if (key === "surface") {
+    return Number(bien?.superficie_m2 || bien?.terrain_surface_m2 || bien?.immeuble_surface_batie_m2 || bien?.surface_local_m2 || 0);
+  }
+  if (key === "facade") return Number(bien?.facade_m || bien?.terrain_facade_m || 0);
+  if (key === "bedrooms") return Number(bien?.nb_chambres || 0);
+  return 0;
+}
+
+function getSaleBooleanValue(bien: any, key: string) {
+  if (key === "garage") return Boolean(bien?.place_parking || bien?.immeuble_parking_exterieur || bien?.immeuble_parking_sous_sol || Number(bien?.immeuble_nb_garages || 0) > 0);
+  if (key === "pool") return normalizeText([bien?.description, bien?.caracteristiques?.join?.(" ")].join(" ")).includes("piscine");
+  if (key === "beach") return Boolean(bien?.proche_plage || bien?.immeuble_proche_plage || Number(bien?.distance_plage_m || bien?.terrain_distance_plage_m || bien?.immeuble_distance_plage_m || 999999) <= 800);
+  if (key === "independent") return Boolean(bien?.independant || bien?.type === "villa_maison" || bien?.type === "terrain");
+  return false;
+}
+
+function getSaleTextValue(bien: any, key: string) {
+  if (key === "operation") return "Achat";
+  if (key === "propertyType") return String(bien?.type || "");
+  if (key === "location") return [bien?.zone, bien?.titre, bien?.description, bien?.terrain_zone].filter(Boolean).join(" ");
+  if (key === "floor") return String(bien?.etage === 0 ? "RDC" : bien?.etage || "");
+  if (key === "other") return [bien?.description, bien?.type_papier, bien?.terrain_documents_disponibles?.join?.(" "), bien?.caracteristiques?.join?.(" ")].filter(Boolean).join(" ");
+  return "";
+}
+
+function numericCriterionMatches(actual: number, criterion: MatchCriterion) {
+  const expected = toMatchNumber(criterion.value);
+  if (expected === null || actual <= 0) return false;
+  const tolerance = Math.max(0, toMatchNumber(criterion.tolerance) || 0);
+  if (criterion.rule === "min") return actual + tolerance >= expected;
+  if (criterion.rule === "max") return actual - tolerance <= expected;
+  if (criterion.rule === "tolerance") return Math.abs(actual - expected) <= tolerance;
+  return Math.abs(actual - expected) <= tolerance;
+}
+
+function criterionMatches(bien: any, key: string, criterion: MatchCriterion) {
+  if (criterion.importance === "ignore") return true;
+  if (["budget", "surface", "facade", "bedrooms"].includes(key)) {
+    return numericCriterionMatches(getSaleNumericValue(bien, key), criterion);
+  }
+  if (["garage", "pool", "beach", "independent"].includes(key)) {
+    const wantsYes = normalizeText(criterion.value) !== "non";
+    return getSaleBooleanValue(bien, key) === wantsYes;
+  }
+  const expected = normalizeText(criterion.value);
+  if (!expected) return true;
+  const actual = normalizeText(getSaleTextValue(bien, key));
+  if (key === "propertyType" && expected === "maison") return actual === "villa_maison";
+  return actual.includes(expected) || expected.includes(actual);
+}
+
+function criterionLabel(key: string) {
+  const labels: Record<string, string> = {
+    operation: "Type d'operation",
+    propertyType: "Type de bien",
+    location: "Localisation",
+    surface: "Surface terrain",
+    facade: "Facade",
+    budget: "Budget",
+    bedrooms: "Nombre de chambres",
+    floor: "Etage",
+    independent: "Maison independante",
+    garage: "Garage / Parking",
+    pool: "Piscine",
+    beach: "Proche plage",
+    other: "Autres criteres",
+  };
+  return labels[key] || key;
+}
+
+function computeMatchResults(request: BuyerMatchRequest, biens: any[]): MatchResult[] {
+  const activeCriteria = Object.entries(request.criteria).filter(([, criterion]) => criterion.importance !== "ignore" && String(criterion.value || "").trim());
+  return biens.map((bien) => {
+    const blockedBy: string[] = [];
+    const matched: string[] = [];
+    const missed: string[] = [];
+    let earned = 0;
+    let possible = 0;
+    activeCriteria.forEach(([key, criterion]) => {
+      const ok = criterionMatches(bien, key, criterion);
+      const label = criterionLabel(key);
+      if (criterion.importance === "obligatoire" && !ok) blockedBy.push(label);
+      if (criterion.importance !== "obligatoire") {
+        const weight = criterion.importance === "important" ? 2 : 1;
+        possible += weight;
+        if (ok) earned += weight;
+      }
+      (ok ? matched : missed).push(label);
+    });
+    const optionalScore = possible > 0 ? Math.round((earned / possible) * 100) : 100;
+    const requiredPenalty = blockedBy.length > 0 ? Math.max(0, 55 - blockedBy.length * 12) : 100;
+    const score = blockedBy.length > 0 ? Math.min(optionalScore, requiredPenalty) : optionalScore;
+    const label = score >= 90 ? "Excellente correspondance" : score >= 80 ? "Tres bonne correspondance" : score >= 70 ? "Bonne correspondance" : score >= 55 ? "Correspondance moyenne" : "Hors obligations";
+    return { bien, score, label, passedRequired: blockedBy.length === 0, matched, missed, blockedBy };
+  }).sort((a, b) => Number(b.passedRequired) - Number(a.passedRequired) || b.score - a.score);
+}
+
 export default function VentesAdminPage() {
   const { user } = useAuth();
   const { biens, updateBien, deleteBien, refreshData, isLoading: propertiesLoading } = useProperties();
@@ -284,6 +600,9 @@ export default function VentesAdminPage() {
   const [drafts, setDrafts] = useState<Record<string, DemandDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("demandes");
+  const [matchRequests, setMatchRequests] = useState<BuyerMatchRequest[]>(DEFAULT_MATCH_REQUESTS);
+  const [selectedMatchRequestId, setSelectedMatchRequestId] = useState(DEFAULT_MATCH_REQUESTS[0]?.id || "");
+  const [selectedReverseBienId, setSelectedReverseBienId] = useState("");
   const [search, setSearch] = useState("");
   const [salesStageFilter, setSalesStageFilter] = useState("");
   const [bienFilter, setBienFilter] = useState("");
@@ -297,6 +616,21 @@ export default function VentesAdminPage() {
     () => biens.filter((bien) => bien.mode === "vente").sort((a, b) => String(a.reference || "").localeCompare(String(b.reference || ""))),
     [biens]
   );
+
+  const matchingBiens = useMemo(() => {
+    const realSaleBiens = venteBiens.filter((bien) => bien.statut !== "vendu");
+    return realSaleBiens.length > 0 ? realSaleBiens : DEMO_SALE_BIENS;
+  }, [venteBiens]);
+
+  const matchPropertyTypeOptions = useMemo(() => {
+    const types = Array.from(new Set(matchingBiens.map((bien) => String(bien.type || "").trim()).filter(Boolean)));
+    return types.map((type) => ({ value: type, label: getSaleTypeLabel(type) }));
+  }, [matchingBiens]);
+
+  const matchLocationOptions = useMemo(() => {
+    const zones = Array.from(new Set(matchingBiens.map((bien) => String(bien.zone || bien.terrain_zone || "").trim()).filter(Boolean)));
+    return zones.map((zone) => ({ value: zone, label: zone }));
+  }, [matchingBiens]);
 
   const loadDemands = async (mode: "initial" | "refresh" = "initial") => {
     if (mode === "refresh") setReloading(true);
@@ -411,6 +745,112 @@ export default function VentesAdminPage() {
     terrains: venteBiens.filter((bien) => bien.type === "terrain").length,
     lotissements: venteBiens.filter((bien) => bien.type === "lotissement").length,
   }), [venteBiens]);
+
+  const selectedMatchRequest = useMemo(
+    () => matchRequests.find((request) => request.id === selectedMatchRequestId) || matchRequests[0],
+    [matchRequests, selectedMatchRequestId]
+  );
+
+  const matchResults = useMemo(
+    () => selectedMatchRequest ? computeMatchResults(selectedMatchRequest, matchingBiens) : [],
+    [selectedMatchRequest, matchingBiens]
+  );
+
+  const selectedReverseBien = useMemo(
+    () => matchingBiens.find((bien) => String(bien.id) === String(selectedReverseBienId)) || matchingBiens[0],
+    [matchingBiens, selectedReverseBienId]
+  );
+
+  const reverseMatches = useMemo(() => {
+    if (!selectedReverseBien) return [];
+    return matchRequests
+      .map((request) => ({ request, result: computeMatchResults(request, [selectedReverseBien])[0] }))
+      .filter((item) => item.result)
+      .sort((a, b) => Number(b.result.passedRequired) - Number(a.result.passedRequired) || b.result.score - a.result.score);
+  }, [matchRequests, selectedReverseBien]);
+
+  const updateMatchCriterion = (requestId: string, key: string, patch: Partial<MatchCriterion>) => {
+    setMatchRequests((current) => current.map((request) => (
+      request.id === requestId
+        ? { ...request, criteria: { ...request.criteria, [key]: { ...(request.criteria[key] || { importance: "ignore", value: "" }), ...patch } } }
+        : request
+    )));
+  };
+
+  const createMatchRequest = () => {
+    const id = `REQ-${String(matchRequests.length + 1).padStart(3, "0")}`;
+    const next: BuyerMatchRequest = {
+      id,
+      clientName: "Nouveau client",
+      phone: "",
+      email: "",
+      status: "Nouveau",
+      criteria: {
+        operation: { importance: "obligatoire", value: "Achat" },
+        propertyType: { importance: "important", value: "" },
+        location: { importance: "important", value: "" },
+        budget: { importance: "important", value: "", rule: "max" },
+        surface: { importance: "souhaite", value: "", rule: "min" },
+      },
+    };
+    setMatchRequests((current) => [...current, next]);
+    setSelectedMatchRequestId(id);
+    setActiveTab("matching");
+  };
+
+  const renderMatchValueControl = (key: string, criterion: MatchCriterion) => {
+    const baseClass = "h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+    const updateValue = (value: string) => updateMatchCriterion(selectedMatchRequest?.id || "", key, { value });
+    if (key === "propertyType") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Tous les types</option>
+          {matchPropertyTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      );
+    }
+    if (key === "location") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Toutes les zones</option>
+          {matchLocationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      );
+    }
+    if (["garage", "pool", "beach", "independent"].includes(key)) {
+      return (
+        <select value={criterion.value || "oui"} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          {YES_NO_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      );
+    }
+    if (key === "bedrooms") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          {BEDROOM_OPTIONS.map((value) => <option key={value} value={value}>{value === "0" ? "Studio / 0" : `${value} chambre${value === "1" ? "" : "s"}`}</option>)}
+        </select>
+      );
+    }
+    if (key === "floor") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Indifferent</option>
+          {FLOOR_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+        </select>
+      );
+    }
+    if (key === "operation") {
+      return (
+        <select value={criterion.value || "Achat"} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="Achat">Achat</option>
+        </select>
+      );
+    }
+    if (["budget", "surface", "facade"].includes(key)) {
+      return <input type="number" min="0" value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass} />;
+    }
+    return <input value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass} />;
+  };
 
   const updateDraft = (id: string, patch: Partial<DemandDraft>) => {
     setDrafts((current) => ({
@@ -739,7 +1179,7 @@ export default function VentesAdminPage() {
   }, [ownerListingRequests]);
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="min-w-0 space-y-6 p-3 sm:p-4 md:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Module ventes</p>
@@ -757,6 +1197,14 @@ export default function VentesAdminPage() {
             <Layers3 className="h-4 w-4" />
             Nouveau terrain
           </Link>
+          <button
+            type="button"
+            onClick={createMatchRequest}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:border-emerald-300"
+          >
+            <Target className="h-4 w-4" />
+            Nouvelle demande matching
+          </button>
           <button
             type="button"
             onClick={() => void loadDemands("refresh")}
@@ -868,10 +1316,11 @@ export default function VentesAdminPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid h-auto grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-4">
+        <TabsList className="grid h-auto grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-3 xl:grid-cols-6">
           <TabsTrigger value="demandes" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Demandes</TabsTrigger>
           <TabsTrigger value="calendrier" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Calendrier / RDV</TabsTrigger>
           <TabsTrigger value="pipeline" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Pipeline</TabsTrigger>
+          <TabsTrigger value="matching" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Matching</TabsTrigger>
           <TabsTrigger value="proprietaires" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Demandes proprietaires ({ownerListingRequests.length})</TabsTrigger>
           <TabsTrigger value="references" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">References</TabsTrigger>
         </TabsList>
@@ -1226,6 +1675,225 @@ export default function VentesAdminPage() {
               })}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="matching" className="mt-6 space-y-5">
+          {venteBiens.filter((bien) => bien.statut !== "vendu").length === 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+              Apercu avec biens de demonstration. Ajoutez un bien en mode vente pour lancer le matching sur le catalogue reel.
+            </div>
+          ) : null}
+          <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(560px,0.88fr)_minmax(0,1.12fr)]">
+            <section className="min-w-0 overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-emerald-100 bg-emerald-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-700 text-white">
+                    <UserCheck className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-800">Informations du client</p>
+                    <h2 className="text-lg font-bold text-slate-950">Demande client</h2>
+                  </div>
+                </div>
+                <select value={selectedMatchRequest?.id || ""} onChange={(event) => setSelectedMatchRequestId(event.target.value)} className="min-w-0 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold">
+                  {matchRequests.map((request) => <option key={request.id} value={request.id}>{request.clientName} - {request.id}</option>)}
+                </select>
+              </div>
+
+              {selectedMatchRequest ? (
+                <div className="space-y-4 p-4">
+                  <div className="grid min-w-0 gap-3 md:grid-cols-3">
+                    <label className="grid min-w-0 gap-1 text-sm text-slate-700">
+                      <span className="text-xs font-semibold text-slate-700">Nom du client</span>
+                      <input value={selectedMatchRequest.clientName} onChange={(event) => setMatchRequests((current) => current.map((request) => request.id === selectedMatchRequest.id ? { ...request, clientName: event.target.value } : request))} className="min-w-0 rounded-md border border-slate-200 px-3 py-2" />
+                    </label>
+                    <label className="grid min-w-0 gap-1 text-sm text-slate-700">
+                      <span className="text-xs font-semibold text-slate-700">Telephone</span>
+                      <input value={selectedMatchRequest.phone} onChange={(event) => setMatchRequests((current) => current.map((request) => request.id === selectedMatchRequest.id ? { ...request, phone: event.target.value } : request))} className="min-w-0 rounded-md border border-slate-200 px-3 py-2" />
+                    </label>
+                    <label className="grid min-w-0 gap-1 text-sm text-slate-700">
+                      <span className="text-xs font-semibold text-slate-700">Email</span>
+                      <input value={selectedMatchRequest.email} onChange={(event) => setMatchRequests((current) => current.map((request) => request.id === selectedMatchRequest.id ? { ...request, email: event.target.value } : request))} className="min-w-0 rounded-md border border-slate-200 px-3 py-2" />
+                    </label>
+                  </div>
+
+                  <div className="overflow-hidden rounded-lg border border-emerald-100">
+                    <div className="flex items-center gap-2 bg-emerald-50 px-4 py-2 text-base font-bold text-emerald-950">
+                      <Filter className="h-4 w-4" />
+                      Criteres de recherche
+                    </div>
+                    <div className="overflow-x-auto">
+                    <table className="min-w-[700px] w-full table-fixed text-left text-sm">
+                      <colgroup>
+                        <col className="w-[22%]" />
+                        <col className="w-[25%]" />
+                        <col className="w-[31%]" />
+                        <col className="w-[22%]" />
+                      </colgroup>
+                      <thead className="bg-white text-xs text-slate-500">
+                        <tr>
+                          <th className="px-3 py-3">Critere</th>
+                          <th className="px-3 py-3">Valeur</th>
+                          <th className="px-3 py-3">Condition</th>
+                          <th className="px-3 py-3">Importance</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {Object.entries(selectedMatchRequest.criteria).map(([key, criterion]) => {
+                          const isNumeric = ["budget", "surface", "facade", "bedrooms"].includes(key);
+                          return (
+                            <tr key={key} className="align-top">
+                              <td className="px-3 py-2.5 font-semibold text-slate-800">{criterionLabel(key)}</td>
+                              <td className="px-3 py-2.5">
+                                {renderMatchValueControl(key, criterion)}
+                              </td>
+                              <td className="px-3 py-2.5">
+                                {isNumeric ? (
+                                  <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-2">
+                                    <select value={criterion.rule || "exact"} onChange={(event) => updateMatchCriterion(selectedMatchRequest.id, key, { rule: event.target.value as NumericRule })} className="min-w-0 rounded-lg border border-slate-200 px-2 py-2">
+                                      {Object.entries(MATCH_NUMERIC_RULE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                    </select>
+                                    <input type="number" min="0" value={criterion.tolerance || ""} onChange={(event) => updateMatchCriterion(selectedMatchRequest.id, key, { tolerance: event.target.value })} placeholder="+/-" className="min-w-0 rounded-lg border border-slate-200 px-2 py-2" />
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex rounded-md bg-slate-50 px-3 py-2 text-slate-500">-</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <select value={criterion.importance} onChange={(event) => updateMatchCriterion(selectedMatchRequest.id, key, { importance: event.target.value as MatchImportance })} className={`w-full min-w-0 rounded-lg border px-2 py-2 font-semibold ${MATCH_IMPORTANCE_STYLES[criterion.importance]}`}>
+                                  {Object.entries(MATCH_IMPORTANCE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                </select>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="min-w-0 overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-700 text-white">
+                    <Target className="h-4 w-4" />
+                  </span>
+                  <h2 className="text-lg font-bold text-slate-950">Resultats du matching</h2>
+                </div>
+                <span className="text-sm font-semibold text-slate-700">{matchResults.filter((result) => result.passedRequired).length} biens correspondants trouves</span>
+              </div>
+              <div className="space-y-2 p-4">
+                {matchResults.slice(0, 8).map((result) => (
+                  <article key={result.bien.id} className={`grid gap-3 rounded-lg border bg-white p-2.5 shadow-[0_6px_18px_rgba(15,23,42,0.04)] md:grid-cols-[132px_minmax(0,1fr)_138px] ${result.passedRequired ? "border-emerald-100" : "border-slate-200"}`}>
+                    <img src={getSaleAdminImage(result.bien)} alt={String(result.bien.titre || result.bien.reference || "Bien")} className="h-28 w-full rounded-md object-cover md:h-full" />
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded bg-emerald-700 px-2 py-0.5 text-xs font-bold text-white">{result.bien.reference || result.bien.id}</span>
+                        {!result.passedRequired ? <span className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700">Ecarte obligations</span> : null}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-start justify-between gap-2">
+                        <h3 className="min-w-0 truncate text-base font-bold text-slate-950">{result.bien.titre || "Bien vente"}</h3>
+                        <span className="shrink-0 text-sm font-black text-emerald-700">{getSaleAdminPrice(result.bien)}</span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-3 text-xs font-medium text-slate-600">
+                        <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{result.bien.zone || "Zone a definir"}</span>
+                        <span className="inline-flex items-center gap-1"><Ruler className="h-3.5 w-3.5" />{getSaleAdminSurface(result.bien)}</span>
+                        <span>{getSaleAdminMeta(result.bien)}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {result.matched.slice(0, 5).map((item) => <span key={item} className="rounded bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">{item}</span>)}
+                        {result.blockedBy.slice(0, 2).map((item) => <span key={item} className="rounded bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">{item}</span>)}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-stretch justify-between gap-2">
+                      <div className={`rounded-md px-3 py-3 text-center ${result.score >= 80 ? "bg-emerald-50 text-emerald-800" : result.score >= 70 ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-700"}`}>
+                        <p className="text-3xl font-black">{result.score}%</p>
+                        <p className="text-xs font-semibold">{result.label}</p>
+                      </div>
+                      <Link to={buildSalesEditHref(String(result.bien.id || ""))} className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-800 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-900">
+                        Voir le bien
+                        <ExternalLink className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(360px,0.85fr)_minmax(0,1.15fr)]">
+            <section className="overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-sm">
+              <div className="flex items-center gap-3 border-b border-emerald-100 bg-emerald-50 px-4 py-3">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-700 text-white">
+                  <Users className="h-4 w-4" />
+                </span>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-950">Correspondance inverse</h2>
+                  <p className="text-xs text-slate-600">Pour un bien selectionne, voir les clients interesses</p>
+                </div>
+              </div>
+              <div className="space-y-3 p-4">
+                <select value={String(selectedReverseBien?.id || "")} onChange={(event) => setSelectedReverseBienId(event.target.value)} className="w-full min-w-0 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold">
+                  {matchingBiens.map((bien) => <option key={bien.id} value={bien.id}>{bien.reference || bien.id} - {bien.titre}</option>)}
+                </select>
+                {selectedReverseBien ? (
+                  <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3 sm:grid-cols-[120px_minmax(0,1fr)]">
+                    <img src={getSaleAdminImage(selectedReverseBien)} alt={String(selectedReverseBien.titre || "Bien")} className="h-24 w-full rounded-md object-cover" />
+                    <div className="min-w-0">
+                      <span className="rounded bg-emerald-700 px-2 py-0.5 text-xs font-bold text-white">{selectedReverseBien.reference || selectedReverseBien.id}</span>
+                      <h3 className="mt-1 truncate text-base font-bold text-slate-950">{selectedReverseBien.titre}</h3>
+                      <p className="mt-1 text-lg font-black text-emerald-700">{getSaleAdminPrice(selectedReverseBien)}</p>
+                      <button type="button" className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md bg-emerald-800 px-3 py-2 text-sm font-semibold text-white">
+                        Voir les clients correspondants
+                        <ExternalLink className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-700 text-white">
+                    <MessageCircle className="h-4 w-4" />
+                  </span>
+                  <h2 className="text-lg font-bold text-slate-950">Clients interesses par ce bien</h2>
+                </div>
+                <span className="text-sm font-semibold text-slate-600">{reverseMatches.length} clients correspondants</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-[760px] w-full text-left text-sm">
+                  <thead className="bg-white text-xs text-slate-500">
+                    <tr>
+                      <th className="px-4 py-2.5">Nom du client</th>
+                      <th className="px-4 py-2.5">Budget</th>
+                      <th className="px-4 py-2.5">Recherche</th>
+                      <th className="px-4 py-2.5">Score</th>
+                      <th className="px-4 py-2.5">Statut</th>
+                      <th className="px-4 py-2.5">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {reverseMatches.map(({ request, result }) => (
+                      <tr key={request.id}>
+                        <td className="px-4 py-2.5 font-semibold text-slate-900">{request.clientName}</td>
+                        <td className="px-4 py-2.5 text-slate-700">{formatCurrency(toMatchNumber(request.criteria.budget?.value) || 0)}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{[request.criteria.propertyType?.value ? getSaleTypeLabel(request.criteria.propertyType.value) : "", request.criteria.location?.value, request.criteria.surface?.value ? `${request.criteria.surface.value} m2` : ""].filter(Boolean).join(", ")}</td>
+                        <td className="px-4 py-2.5"><span className={`rounded px-2.5 py-1 text-xs font-bold ${result.passedRequired ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{result.score}%</span></td>
+                        <td className="px-4 py-2.5"><span className="rounded bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700">{request.status}</span></td>
+                        <td className="px-4 py-2.5"><button type="button" className="inline-flex items-center gap-2 rounded-md border border-emerald-200 px-3 py-1.5 font-semibold text-emerald-800"><Phone className="h-4 w-4" />Contacter</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
         </TabsContent>
 
         <TabsContent value="references" className="mt-6">

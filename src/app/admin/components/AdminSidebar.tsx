@@ -22,6 +22,8 @@ import {
   ShieldCheck,
   Handshake,
   Hotel,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import logo from '../../../../logo dwira.jpg';
 import { preloadAdminRoute } from '../utils/routePreload';
@@ -29,6 +31,8 @@ import type { AuthUser } from '../../services/auth';
 
 interface AdminSidebarProps {
   onClose?: () => void;
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
 }
 
 type AdminNavItem = {
@@ -97,7 +101,7 @@ export function buildAdminNavItems(user: AuthUser | null | undefined, notificati
   ];
 }
 
-export function AdminSidebar({ onClose }: AdminSidebarProps) {
+export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange }: AdminSidebarProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -208,22 +212,35 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
   }, [fetchNotificationAlerts]);
 
   const navItems = buildAdminNavItems(user, notificationAlertCount);
+  const expandedClass = collapsed ? '' : 'xl:not-sr-only xl:block';
+  const railOnly = collapsed ? 'xl:justify-center xl:px-3' : 'xl:justify-start';
 
   return (
-    <aside className="flex h-screen w-[min(22rem,86vw)] max-w-64 flex-col overflow-y-auto bg-emerald-950 pb-[env(safe-area-inset-bottom)] text-white lg:w-64">
-      <div className="hidden border-b border-emerald-900 p-6 lg:block">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <img src={logo} alt="Dwira" className="h-8 w-auto" />
-            <div>
+    <aside className={`group/admin-sidebar flex h-screen w-[min(22rem,86vw)] max-w-64 flex-col overflow-y-auto overflow-x-hidden bg-emerald-950 pb-[env(safe-area-inset-bottom)] text-white transition-[width] duration-300 lg:w-20 ${collapsed ? 'xl:w-20' : 'xl:w-64'}`}>
+      <div className={`hidden border-b border-emerald-900 p-4 lg:block ${collapsed ? 'xl:p-3' : 'xl:p-6'}`}>
+        <div className={`flex items-start gap-3 ${collapsed ? 'justify-center' : 'justify-between'}`}>
+          <div className={`flex min-w-0 items-center gap-3 ${collapsed ? 'xl:hidden' : ''}`}>
+            <img src={logo} alt="Dwira" className="h-8 w-auto shrink-0" />
+            <div className={`hidden min-w-0 ${expandedClass}`}>
               <h2 className="text-lg font-bold leading-tight">Dwira Admin</h2>
               <p className="text-xs text-emerald-400">Gestion immobiliere</p>
             </div>
           </div>
+          {onCollapsedChange ? (
+            <button
+              type="button"
+              onClick={() => onCollapsedChange(!collapsed)}
+              className="relative hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-800 bg-emerald-900/70 text-emerald-100 transition-colors hover:border-emerald-300 hover:bg-emerald-800 hover:text-white lg:inline-flex"
+              aria-label={collapsed ? 'Developper la barre laterale' : 'Reduire la barre laterale'}
+              title={collapsed ? 'Developper la barre laterale' : 'Reduire la barre laterale'}
+            >
+              {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={openUrgentAlerts}
-            className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-800 bg-emerald-900/70 text-emerald-100 transition-colors hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-100"
+            className={`relative hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-800 bg-emerald-900/70 text-emerald-100 transition-colors hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-100 ${collapsed ? '' : 'xl:inline-flex'}`}
             aria-label="Voir les notifications urgentes"
           >
             <BellRing size={18} />
@@ -245,16 +262,17 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
             onMouseEnter={() => handleNavIntent(item.path)}
             onFocus={() => handleNavIntent(item.path)}
             onTouchStart={() => handleNavIntent(item.path)}
-            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+            className={`relative flex items-center justify-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${railOnly} ${
               isActive(item.path)
                 ? 'bg-emerald-800 text-white shadow-sm'
                 : 'text-emerald-100/70 hover:bg-emerald-900 hover:text-white'
             } w-full text-left`}
+            title={item.name}
           >
-            <item.icon size={18} />
-            <span className="min-w-0 flex-1 truncate">{item.name}</span>
+            <item.icon size={18} className="shrink-0" />
+            <span className={`hidden min-w-0 flex-1 truncate ${expandedClass}`}>{item.name}</span>
             {item.path === '/admin/notifications' && hasLoadedAlertsRef.current && (item.badgeCount || 0) > 0 && (
-              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+              <span className={`inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white absolute right-2 ${collapsed ? '' : 'xl:static'}`}>
                 {item.badgeCount! > 99 ? '99+' : item.badgeCount}
               </span>
             )}
@@ -262,14 +280,14 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
         ))}
       </nav>
 
-      <div className="border-t border-emerald-900 bg-emerald-950 p-4">
-        <div className="mb-4 flex items-center gap-3">
+      <div className={`border-t border-emerald-900 bg-emerald-950 p-3 ${collapsed ? 'xl:p-3' : 'xl:p-4'}`}>
+        <div className={`mb-4 flex items-center justify-center gap-3 ${collapsed ? '' : 'xl:justify-start'}`}>
           <img
             src={user?.avatar || `https://ui-avatars.com/api/?name=${user?.name || 'Admin'}`}
             alt={user?.name}
             className="h-9 w-9 rounded-full border border-emerald-700 bg-white"
           />
-          <div className="overflow-hidden">
+          <div className={`hidden overflow-hidden ${expandedClass}`}>
             <p className="truncate text-sm font-medium">{user?.name}</p>
             <p className="truncate text-xs capitalize text-emerald-400">
               {user?.role === 'admin' ? (user?.adminType === 'superadmin' ? 'Superadmin' : 'Sous-admin') : (user?.role || 'Admin')}
@@ -281,10 +299,11 @@ export function AdminSidebar({ onClose }: AdminSidebarProps) {
             await logout();
             window.location.href = '/';
           }}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-600 hover:text-white"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-600 hover:text-white xl:px-4"
+          title="Deconnexion"
         >
           <LogOut size={16} />
-          Deconnexion
+          <span className={`hidden ${collapsed ? '' : 'xl:inline'}`}>Deconnexion</span>
         </button>
       </div>
     </aside>

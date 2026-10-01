@@ -12,6 +12,10 @@ export function AdminLayout() {
   const location = useLocation();
   const navigation = useNavigation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('dwira-admin-sidebar-collapsed') === '1';
+  });
 
   useEffect(() => {
     if (!isLoading) {
@@ -39,6 +43,10 @@ export function AdminLayout() {
     setSidebarOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    window.localStorage.setItem('dwira-admin-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
+  }, [sidebarCollapsed]);
+
 
   if (isLoading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center text-emerald-600 font-medium">
@@ -50,6 +58,7 @@ export function AdminLayout() {
 
   const navItems = buildAdminNavItems(user, 0);
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(`${path}/`);
+  const isWideWorkspace = location.pathname.startsWith('/admin/ventes');
 
   return (
     <div className="flex min-h-screen bg-gray-50 font-sans text-gray-900">
@@ -105,7 +114,11 @@ export function AdminLayout() {
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
         lg:translate-x-0
       `}>
-        <AdminSidebar onClose={() => setSidebarOpen(false)} />
+        <AdminSidebar
+          onClose={() => setSidebarOpen(false)}
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
+        />
       </div>
 
       <main 
@@ -113,10 +126,10 @@ export function AdminLayout() {
           dwira-admin-main flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 sm:p-6 md:p-8
           pt-32 sm:pt-24 lg:pt-6
           transition-all duration-300 ease-in-out
-          lg:ml-64
+          lg:ml-20 ${sidebarCollapsed ? 'xl:ml-20' : 'xl:ml-64'}
         `}
       >
-        <div className="dwira-admin-page mx-auto max-w-7xl min-w-0">
+        <div className={`dwira-admin-page mx-auto min-w-0 ${isWideWorkspace ? 'w-full max-w-none' : 'max-w-7xl'}`}>
           <Outlet />
         </div>
       </main>
