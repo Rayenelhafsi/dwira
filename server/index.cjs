@@ -17831,6 +17831,144 @@ async function createAdminNotification(type, message, createdAt = getAgencySqlDa
   return notificationId;
 }
 
+function salesMatchNumber(value) {
+  const number = Number(String(value ?? '').replace(/\s/g, '').replace(',', '.'));
+  return Number.isFinite(number) ? number : null;
+}
+
+function salesMatchBoolean(value) {
+  return value === true || Number(value) === 1 || ['oui', 'yes', 'true', '1'].includes(normalizeText(value));
+}
+
+function salesBienNumericValue(bien, key) {
+  if (key === 'budget') return Number(bien?.prix_affiche_client || bien?.prix_final || bien?.terrain_prix_affiche_total || bien?.lotissement_prix_total || bien?.prix_nuitee || 0);
+  if (key === 'surface') return Number(bien?.superficie_m2 || bien?.terrain_surface_m2 || bien?.immeuble_surface_batie_m2 || bien?.surface_local_m2 || 0);
+  if (key === 'facade') return Number(bien?.facade_m || bien?.terrain_facade_m || bien?.immeuble_largeur_facade_m || 0);
+  if (key === 'distanceBeach') return Number(bien?.distance_plage_m || bien?.terrain_distance_plage_m || bien?.immeuble_distance_plage_m || bien?.lotissement_distance_plage_m || 0);
+  if (key === 'bedrooms') return Number(bien?.nb_chambres || 0);
+  if (key === 'bathrooms') return Number(bien?.nb_salle_bain || 0);
+  if (key === 'roadWidth') return Number(bien?.terrain_route_acces_largeur_m || bien?.lotissement_largeur_voies_m || 0);
+  if (key === 'apartments') return Number(bien?.immeuble_nb_appartements || 0);
+  if (key === 'commercialUnits') return Number(bien?.immeuble_nb_locaux_commerciaux || 0);
+  if (key === 'rentalYield') return Number(bien?.immeuble_rendement_brut_pct || 0);
+  if (key === 'storefrontWidth') return Number(bien?.local_largeur_vitrine_m || 0);
+  if (key === 'mainFacadeWidth') return Number(bien?.facade_m || bien?.terrain_facade_m || bien?.immeuble_largeur_facade_m || 0);
+  if (key === 'roomsOffices') return Number(bien?.local_nb_pieces_bureaux || 0);
+  if (key === 'sanitaryCount') return Number(bien?.local_nb_sanitaires || 0);
+  return 0;
+}
+
+function salesBienBooleanValue(bien, key) {
+  if (key === 'garage') return salesMatchBoolean(bien?.place_parking) || salesMatchBoolean(bien?.immeuble_parking_exterieur) || salesMatchBoolean(bien?.immeuble_parking_sous_sol) || Number(bien?.immeuble_nb_garages || 0) > 0;
+  if (key === 'beach') return salesMatchBoolean(bien?.proche_plage) || salesMatchBoolean(bien?.immeuble_proche_plage) || Number(bien?.distance_plage_m || bien?.terrain_distance_plage_m || bien?.immeuble_distance_plage_m || 999999) <= 800;
+  if (key === 'independent') return salesMatchBoolean(bien?.independant) || String(bien?.type || '') === 'villa_maison' || String(bien?.type || '') === 'terrain';
+  if (key === 'constructible') return salesMatchBoolean(bien?.terrain_constructible) || salesMatchBoolean(bien?.lotissement_constructible);
+  if (key === 'title') return String(bien?.type_papier || '').includes('titre_foncier_individuel') || salesMatchBoolean(bien?.lotissement_titre_foncier_global) || normalizeText([bien?.description, bien?.terrain_documents_disponibles].join(' ')).includes('titre');
+  if (key === 'blueTitle') return salesMatchBoolean(bien?.immeuble_titre_bleu) || salesMatchBoolean(bien?.local_titre_bleu) || salesMatchBoolean(bien?.lotissement_titre_bleu) || normalizeText([bien?.description, bien?.terrain_documents_disponibles].join(' ')).includes('titre bleu');
+  if (key === 'corner') return salesMatchBoolean(bien?.terrain_angle) || salesMatchBoolean(bien?.coin_angle);
+  if (key === 'elevator') return salesMatchBoolean(bien?.ascenseur) || salesMatchBoolean(bien?.immeuble_ascenseur) || salesMatchBoolean(bien?.local_ascenseur);
+  if (key === 'balcony') return salesMatchBoolean(bien?.balcon);
+  if (key === 'terrace') return salesMatchBoolean(bien?.terrasse);
+  if (key === 'airConditioning') return salesMatchBoolean(bien?.climatisation) || salesMatchBoolean(bien?.immeuble_climatisation);
+  if (key === 'centralHeating') return salesMatchBoolean(bien?.chauffage_central) || salesMatchBoolean(bien?.immeuble_chauffage_central) || salesMatchBoolean(bien?.local_chauffage);
+  if (key === 'equippedKitchen') return salesMatchBoolean(bien?.cuisine_equipee);
+  if (key === 'furnished') return salesMatchBoolean(bien?.meuble);
+  if (key === 'directAccess') return salesMatchBoolean(bien?.local_acces_direct_rue) || salesMatchBoolean(bien?.local_entree_independante);
+  if (key === 'mainStreet') return salesMatchBoolean(bien?.local_sur_rue_principale);
+  if (key === 'activityAllowed') return salesMatchBoolean(bien?.local_activite_commerciale_autorisee);
+  if (key === 'fiberInternet') return salesMatchBoolean(bien?.local_fibre_internet) || salesMatchBoolean(bien?.terrain_viabilisation_fibre_optique);
+  return false;
+}
+
+function salesBienTextValue(bien, key) {
+  if (key === 'operation') return 'Achat';
+  if (key === 'propertyType') return String(bien?.type || '');
+  if (key === 'location') return [bien?.zone_nom, bien?.zone, bien?.terrain_zone, bien?.titre, bien?.description].filter(Boolean).join(' ');
+  if (key === 'floor') return String(Number(bien?.etage) === 0 ? 'RDC' : bien?.etage || '');
+  if (key === 'landUse') return [bien?.type_terrain, bien?.lotissement_vocation, bien?.terrain_zone, bien?.description].filter(Boolean).join(' ');
+  if (key === 'access') return [bien?.type_rue, bien?.description].filter(Boolean).join(' ');
+  if (key === 'other') return [bien?.description, bien?.type_papier, bien?.terrain_documents_disponibles].filter(Boolean).join(' ');
+  return '';
+}
+
+function salesCriterionMatches(bien, criterion) {
+  const key = String(criterion?.key || '').trim();
+  const expectedRaw = String(criterion?.value || '').trim();
+  const importance = String(criterion?.importance || '').trim();
+  if (!key || importance === 'ignore' || !expectedRaw) return true;
+  const condition = String(criterion?.condition || criterion?.rule || 'exact').trim();
+  const numericKeys = new Set(['budget', 'surface', 'facade', 'distanceBeach', 'bedrooms', 'bathrooms', 'roadWidth', 'apartments', 'commercialUnits', 'rentalYield', 'storefrontWidth', 'mainFacadeWidth', 'roomsOffices', 'sanitaryCount']);
+  const booleanKeys = new Set(['garage', 'pool', 'beach', 'independent', 'constructible', 'title', 'blueTitle', 'corner', 'elevator', 'balcony', 'terrace', 'airConditioning', 'centralHeating', 'equippedKitchen', 'furnished', 'residence', 'securedResidence', 'directAccess', 'mainStreet', 'activityAllowed', 'openSpace', 'reception', 'kitchenette', 'extraction', 'fiberInternet']);
+  if (numericKeys.has(key)) {
+    const actual = salesBienNumericValue(bien, key);
+    const expected = salesMatchNumber(expectedRaw);
+    const tolerance = salesMatchNumber(criterion?.tolerance);
+    if (expected === null || !Number.isFinite(actual) || actual <= 0) return false;
+    if (condition === 'min') return actual + (tolerance || 0) >= expected;
+    if (condition === 'max') return actual <= expected + (tolerance || 0);
+    if (condition === 'between') return tolerance !== null ? actual >= expected && actual <= tolerance : actual >= expected;
+    if (condition === 'tolerance') return Math.abs(actual - expected) <= (tolerance || 0);
+    return actual === expected;
+  }
+  if (booleanKeys.has(key)) {
+    const expectedYes = !['non', 'false', '0'].includes(normalizeText(expectedRaw));
+    return salesBienBooleanValue(bien, key) === expectedYes;
+  }
+  const actual = normalizeText(salesBienTextValue(bien, key));
+  const expected = normalizeText(expectedRaw);
+  if (key === 'propertyType' && expected === 'maison') return String(bien?.type || '') === 'villa_maison';
+  if (key === 'propertyType') return !expected || String(bien?.type || '') === expectedRaw;
+  return actual.includes(expected);
+}
+
+function scoreSalesClientOpportunity(bien, criteria = []) {
+  const activeCriteria = (Array.isArray(criteria) ? criteria : []).filter((item) => item?.key && item.importance !== 'ignore' && String(item.value || '').trim());
+  if (activeCriteria.length === 0) return null;
+  const required = activeCriteria.filter((item) => item.importance === 'obligatoire');
+  const requiredMisses = required.filter((item) => !salesCriterionMatches(bien, item));
+  if (requiredMisses.length > 0) return null;
+  let earned = 0;
+  let possible = 0;
+  activeCriteria.forEach((item) => {
+    const weight = item.importance === 'obligatoire' ? 3 : item.importance === 'important' ? 2 : 1;
+    possible += weight;
+    if (salesCriterionMatches(bien, item)) earned += weight;
+  });
+  return possible > 0 ? Math.round((earned / possible) * 100) : null;
+}
+
+async function notifySalesMatchingOpportunitiesForBien(bien) {
+  try {
+    if (!bien || String(bien.mode || '') !== 'vente') return;
+    await ensureSalesClientFilesSchema();
+    await ensureAdminNotificationsSchema();
+    const [zoneRows] = bien.zone_id
+      ? await pool.query('SELECT nom, region, quartier FROM zones WHERE id = ? LIMIT 1', [bien.zone_id])
+      : [[]];
+    const enrichedBien = { ...bien, zone_nom: zoneRows?.[0]?.nom || null };
+    const [clientRows] = await pool.query(
+      `SELECT id, client_name, client_phone, status, criteria_json
+       FROM sales_client_files
+       WHERE status NOT IN ('success', 'echec')
+       ORDER BY updated_at DESC
+       LIMIT 500`
+    );
+    for (const row of (Array.isArray(clientRows) ? clientRows : [])) {
+      const criteria = parseOwnerSaleRequestJson(row.criteria_json, []).map(normalizeSalesClientCriterion).filter((item) => item.key);
+      const score = scoreSalesClientOpportunity(enrichedBien, criteria);
+      if (score === null || score < 70) continue;
+      const ref = String(bien.reference || bien.id || '').trim();
+      const clientName = String(row.client_name || row.client_phone || row.id || '').trim();
+      await createAdminNotification(
+        'sales_matching_opportunity',
+        `Opportunite matching ${score}%: le bien ${ref} correspond au dossier client ${clientName}. Ouvrez Ventes > Notifications ou le dossier client pour proposer ce nouveau bien.`
+      );
+    }
+  } catch (error) {
+    console.warn('Sales matching opportunity notification failed:', error?.message || error);
+  }
+}
+
 async function syncClienteleTasks(sourceTable, sourceId) {
   const profile = await fetchClienteleProfileBySource(sourceTable, sourceId);
   const now = new Date();
@@ -19286,6 +19424,9 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
     }
 
     const [newBien] = await pool.query('SELECT * FROM biens WHERE id = ?', [bienId]);
+    if (resolvedMode === 'vente') {
+      await notifySalesMatchingOpportunitiesForBien(newBien?.[0]);
+    }
     res.status(201).json({
       ...newBien[0],
       nom_bien_mobile: normalizedNomBienMobile || null,

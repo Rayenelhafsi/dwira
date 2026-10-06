@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
-import { BadgeDollarSign, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, Eye, Filter, FolderOpen, Hash, Home, ImageIcon, LandPlot, Layers3, Mail, MapPin, MessageCircle, Paperclip, PencilLine, Phone, Plus, RefreshCw, Ruler, Save, Send, Target, Trash2, UploadCloud, UserCheck, Users, XCircle } from "lucide-react";
+import { BadgeDollarSign, Bell, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, Eye, Filter, FolderOpen, Hash, Home, ImageIcon, LandPlot, Layers3, Mail, MapPin, MessageCircle, Paperclip, PencilLine, Phone, Plus, RefreshCw, Ruler, Save, Send, Target, Trash2, UploadCloud, UserCheck, Users, XCircle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { useAuth } from "../../context/AuthContext";
 import { useProperties } from "../../context/PropertiesContext";
@@ -122,6 +122,14 @@ type BuyerMatchRequest = {
   email: string;
   status: string;
   criteria: Record<string, MatchCriterion>;
+};
+
+type AdminNotification = {
+  id: string;
+  type: string;
+  message: string;
+  lu?: boolean | number;
+  created_at?: string | null;
 };
 
 type SalesClientCriterion = {
@@ -943,7 +951,7 @@ function computeMatchResults(request: BuyerMatchRequest, biens: any[]): MatchRes
 
 export default function VentesAdminPage() {
   const { user } = useAuth();
-  const { biens, updateBien, deleteBien, refreshData, isLoading: propertiesLoading } = useProperties();
+  const { biens, zones, updateBien, deleteBien, refreshData, isLoading: propertiesLoading } = useProperties();
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
   const [demands, setDemands] = useState<SalesDemand[]>([]);
@@ -957,6 +965,8 @@ export default function VentesAdminPage() {
   const [ownerRequestChatDrafts, setOwnerRequestChatDrafts] = useState<Record<string, string>>({});
   const [ownerRequestSendingId, setOwnerRequestSendingId] = useState<string | null>(null);
   const [ownerRequestActionId, setOwnerRequestActionId] = useState<string | null>(null);
+  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<{ url: string; title: string } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DemandDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -984,14 +994,34 @@ export default function VentesAdminPage() {
   }, [venteBiens]);
 
   const matchPropertyTypeOptions = useMemo(() => {
-    const types = Array.from(new Set(matchingBiens.map((bien) => String(bien.type || "").trim()).filter(Boolean)));
+    const types = Array.from(new Set([
+      ...ALL_SALE_TYPES,
+      ...matchingBiens.map((bien) => String(bien.type || "").trim()).filter(Boolean),
+    ]));
     return types.map((type) => ({ value: type, label: getSaleTypeLabel(type) }));
   }, [matchingBiens]);
 
   const matchLocationOptions = useMemo(() => {
-    const zones = Array.from(new Set(matchingBiens.map((bien) => String(bien.zone || bien.terrain_zone || "").trim()).filter(Boolean)));
-    return zones.map((zone) => ({ value: zone, label: zone }));
-  }, [matchingBiens]);
+    const linkedZoneNames = (Array.isArray(zones) ? zones : [])
+      .flatMap((zone: any) => [zone?.nom, zone?.quartier, zone?.region])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const bienLocations = matchingBiens.flatMap((bien: any) => {
+      const linkedZone = (Array.isArray(zones) ? zones : []).find((zone: any) => String(zone?.id || "") === String(bien?.zone_id || ""));
+      return [
+        linkedZone?.nom,
+        linkedZone?.quartier,
+        linkedZone?.region,
+        bien.zone,
+        bien.terrain_zone,
+        bien.region,
+        bien.gouvernerat,
+      ];
+    }).map((value) => String(value || "").trim()).filter(Boolean);
+    return Array.from(new Set([...linkedZoneNames, ...bienLocations]))
+      .sort((a, b) => a.localeCompare(b, "fr"))
+      .map((zone) => ({ value: zone, label: zone }));
+  }, [matchingBiens, zones]);
 
   const loadDemands = async (mode: "initial" | "refresh" = "initial") => {
     if (mode === "refresh") setReloading(true);
@@ -1054,8 +1084,26 @@ export default function VentesAdminPage() {
     }
   };
 
+  const loadAdminNotifications = async () => {
+    setNotificationsLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/notifications`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Notifications indisponibles");
+      const payload = await response.json().catch(() => []);
+      setAdminNotifications(Array.isArray(payload) ? payload : []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Chargement notifications impossible");
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadDemands("initial");
+    void loadAdminNotifications();
   }, []);
 
   const assignedAdminOptions = useMemo(() => {
@@ -1078,6 +1126,11 @@ export default function VentesAdminPage() {
   const scheduledDemands = useMemo(
     () => demands.filter((row) => String(row.sales_stage || "") === "visite_planifiee").sort((a, b) => String(a.visit_preferred_date || "").localeCompare(String(b.visit_preferred_date || ""))),
     [demands]
+  );
+
+  const salesOpportunityNotifications = useMemo(
+    () => adminNotifications.filter((item) => String(item.type || "") === "sales_matching_opportunity"),
+    [adminNotifications]
   );
 
   const scheduledByDate = useMemo(() => {
@@ -1818,7 +1871,10 @@ export default function VentesAdminPage() {
           </button>
           <button
             type="button"
-            onClick={() => void loadDemands("refresh")}
+            onClick={() => {
+              void loadDemands("refresh");
+              void loadAdminNotifications();
+            }}
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-emerald-300 hover:text-emerald-700"
           >
             <RefreshCw className={`h-4 w-4 ${reloading ? "animate-spin" : ""}`} />
@@ -1828,11 +1884,12 @@ export default function VentesAdminPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid h-auto grid-cols-2 gap-2 rounded-2xl border border-gray-200 bg-white p-2 shadow-sm xl:grid-cols-5">
+        <TabsList className="grid h-auto grid-cols-2 gap-2 rounded-2xl border border-gray-200 bg-white p-2 shadow-sm md:grid-cols-3 xl:grid-cols-6">
           <TabsTrigger value="clients" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Clients ventes</TabsTrigger>
           <TabsTrigger value="biens" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Biens</TabsTrigger>
           <TabsTrigger value="matching" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Matchings</TabsTrigger>
           <TabsTrigger value="calendrier" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Calendriers</TabsTrigger>
+          <TabsTrigger value="notifications" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Notifications</TabsTrigger>
           <TabsTrigger value="stats" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Stats</TabsTrigger>
         </TabsList>
 
@@ -2755,6 +2812,80 @@ export default function VentesAdminPage() {
               </div>
             )}
           </div>
+        </TabsContent>
+        <TabsContent value="notifications" className="mt-6 space-y-4">
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Opportunites matching</p>
+                <h2 className="text-xl font-bold text-slate-950">Notifications admin ventes</h2>
+                <p className="mt-1 text-sm text-slate-600">Quand un nouveau bien vente correspond a un dossier client, une alerte apparait ici.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadAdminNotifications()}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:border-emerald-300 hover:text-emerald-700"
+              >
+                <RefreshCw className={`h-4 w-4 ${notificationsLoading ? "animate-spin" : ""}`} />
+                Actualiser
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl bg-emerald-50 p-4">
+                <p className="text-xs font-semibold text-emerald-700">Opportunites detectees</p>
+                <p className="mt-1 text-2xl font-black text-emerald-900">{salesOpportunityNotifications.length}</p>
+              </div>
+              <div className="rounded-xl bg-amber-50 p-4">
+                <p className="text-xs font-semibold text-amber-700">Non lues</p>
+                <p className="mt-1 text-2xl font-black text-amber-900">{salesOpportunityNotifications.filter((item) => !item.lu).length}</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-xs font-semibold text-slate-600">Dossiers clients</p>
+                <p className="mt-1 text-2xl font-black text-slate-950">{clientFiles.length}</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            {notificationsLoading ? (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-sm text-gray-500">Chargement des notifications...</div>
+            ) : salesOpportunityNotifications.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-sm text-gray-500">Aucune opportunite matching detectee pour le moment.</div>
+            ) : (
+              <div className="space-y-3">
+                {salesOpportunityNotifications.map((notification) => (
+                  <article key={notification.id} className={`rounded-xl border p-4 ${notification.lu ? "border-gray-200 bg-white" : "border-emerald-200 bg-emerald-50/70"}`}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="inline-flex items-center gap-2 text-sm font-bold text-slate-950">
+                          <Bell className="h-4 w-4 text-emerald-700" />
+                          Nouvelle opportunite client
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{notification.message}</p>
+                        <p className="mt-2 text-xs font-medium text-slate-500">{dateLabel(notification.created_at)}</p>
+                      </div>
+                      {!notification.lu ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const response = await fetch(`${API_URL}/notifications/${encodeURIComponent(notification.id)}/lu`, { method: "PUT", credentials: "include" });
+                            if (!response.ok) {
+                              toast.error("Impossible de marquer la notification comme lue");
+                              return;
+                            }
+                            setAdminNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, lu: true } : item));
+                          }}
+                          className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50"
+                        >
+                          Marquer lu
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         </TabsContent>
         <TabsContent value="stats" className="mt-6 space-y-5">
           <div className="grid gap-4 md:grid-cols-4">
