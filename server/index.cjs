@@ -14808,13 +14808,29 @@ app.post('/api/admin/sales-client-files/:id/reminder/send-now', requireAdminSess
     await ensureSalesClientFilesSchema();
     const id = String(req.params.id || '').trim();
     if (!id) return res.status(400).json({ error: 'id requis' });
+    const [fileRows] = await pool.query(
+      `SELECT id, reminder_task, reminder_emails_json
+       FROM sales_client_files
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const fileRow = fileRows?.[0];
+    if (!fileRow) return res.status(404).json({ error: 'Dossier client introuvable', reason: 'missing_file' });
+    if (!String(fileRow.reminder_task || '').trim()) {
+      return res.status(400).json({ error: 'Tache de rappel obligatoire', reason: 'missing_task' });
+    }
+    if (normalizeReminderEmails(parseOwnerSaleRequestJson(fileRow.reminder_emails_json, [])).length === 0) {
+      return res.status(400).json({ error: 'Au moins un email admin est obligatoire', reason: 'missing_recipient' });
+    }
     const timer = salesClientReminderTimers.get(id);
     if (timer) clearTimeout(timer);
     salesClientReminderTimers.delete(id);
     await pool.query('UPDATE sales_client_files SET reminder_sent_at = NULL WHERE id = ?', [id]);
     const result = await sendSalesClientReminderEmail(id);
     if (!result?.delivered) {
-      return res.status(400).json({ error: `Rappel non envoye: ${result?.reason || 'erreur inconnue'}` });
+      const message = salesClientReminderErrorMessage(result?.reason);
+      return res.status(400).json({ error: `Rappel non envoye: ${message}`, reason: result?.reason || 'unknown' });
     }
     const [rows] = await pool.query('SELECT * FROM sales_client_files WHERE id = ? LIMIT 1', [id]);
     res.json({ delivered: true, file: formatSalesClientFileRow(rows?.[0] || null) });
@@ -14822,6 +14838,49 @@ app.post('/api/admin/sales-client-files/:id/reminder/send-now', requireAdminSess
     console.error('Error sending sales client reminder now:', error);
     res.status(500).json({ error: `Impossible d'envoyer le rappel: ${error?.message || 'erreur SMTP'}` });
   }
+});
+
+app.get('/api/admin/system-readiness', requireAdminSession, async (_req, res) => {
+  const checks = {
+    database: { ok: false },
+    smtp: { ok: false, configured: false },
+    salesClientFiles: { ok: false },
+  };
+  try {
+    await pool.query('SELECT 1');
+    checks.database.ok = true;
+  } catch (error) {
+    checks.database.error = error?.code || error?.message || 'db_error';
+  }
+  try {
+    await ensureSalesClientFilesSchema();
+    const requiredColumns = ['reminder_task', 'reminder_at', 'reminder_emails_json', 'reminder_sent_at', 'criteria_json'];
+    const columnStates = {};
+    for (const column of requiredColumns) {
+      columnStates[column] = await columnExists('sales_client_files', column);
+    }
+    checks.salesClientFiles = {
+      ok: Object.values(columnStates).every(Boolean),
+      columns: columnStates,
+    };
+  } catch (error) {
+    checks.salesClientFiles.error = error?.code || error?.message || 'schema_error';
+  }
+  try {
+    const transporter = createSmtpTransporter();
+    const fromAddress = String(process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+    checks.smtp.configured = Boolean(transporter && fromAddress);
+    if (transporter && fromAddress) {
+      await transporter.verify();
+      checks.smtp.ok = true;
+    } else {
+      checks.smtp.error = 'smtp_missing';
+    }
+  } catch (error) {
+    checks.smtp.error = error?.code || error?.message || 'smtp_error';
+  }
+  const ok = checks.database.ok && checks.smtp.ok && checks.salesClientFiles.ok;
+  res.status(ok ? 200 : 503).json({ ok, checks });
 });
 
 app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, express.json({ limit: '2mb' }), async (req, res) => {
@@ -30662,7 +30721,8 @@ function normalizeReminderEmails(value) {
 async function sendSalesClientReminderEmail(clientFileId) {
   const [rows] = await pool.query('SELECT * FROM sales_client_files WHERE id = ? LIMIT 1', [clientFileId]);
   const row = rows?.[0];
-  if (!row || row.reminder_sent_at) return { delivered: false, reason: 'already_sent_or_missing' };
+  if (!row) return { delivered: false, reason: 'missing_file' };
+  if (row.reminder_sent_at) return { delivered: false, reason: 'already_sent', reminder_sent_at: row.reminder_sent_at };
   const emails = normalizeReminderEmails(parseOwnerSaleRequestJson(row.reminder_emails_json, []));
   const task = String(row.reminder_task || '').trim();
   if (!task) return { delivered: false, reason: 'missing_task' };
@@ -30681,6 +30741,17 @@ async function sendSalesClientReminderEmail(clientFileId) {
   if (!result?.delivered) return result;
   await pool.query('UPDATE sales_client_files SET reminder_sent_at = ? WHERE id = ?', [getAgencySqlDateTime(), clientFileId]);
   return result;
+}
+
+function salesClientReminderErrorMessage(reason) {
+  const messages = {
+    missing_file: 'Dossier client introuvable',
+    already_sent: 'Rappel deja envoye',
+    missing_task: 'Tache de rappel obligatoire',
+    missing_recipient: 'Au moins un email admin est obligatoire',
+    smtp_missing: 'SMTP non configure sur le serveur',
+  };
+  return messages[String(reason || '').trim()] || String(reason || 'erreur inconnue');
 }
 
 function scheduleSalesClientReminder(clientFileId, reminderAt) {
