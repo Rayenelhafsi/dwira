@@ -10203,6 +10203,45 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('biens', 'lotissement_details_json'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN lotissement_details_json LONGTEXT NULL AFTER lotissement_paliers_prix_m2_json');
   }
+  if (!(await columnExists('biens', 'immeuble_surface_terrain_m2'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_surface_terrain_m2 DECIMAL(10,2) NULL DEFAULT NULL AFTER lotissement_details_json');
+  }
+  if (!(await columnExists('biens', 'immeuble_surface_batie_m2'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_surface_batie_m2 DECIMAL(10,2) NULL DEFAULT NULL AFTER immeuble_surface_terrain_m2');
+  }
+  if (!(await columnExists('biens', 'immeuble_nb_niveaux'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_nb_niveaux INT NULL DEFAULT NULL AFTER immeuble_surface_batie_m2');
+  }
+  if (!(await columnExists('biens', 'immeuble_nb_garages'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_nb_garages INT NULL DEFAULT NULL AFTER immeuble_nb_niveaux');
+  }
+  if (!(await columnExists('biens', 'immeuble_nb_appartements'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_nb_appartements INT NULL DEFAULT NULL AFTER immeuble_nb_garages');
+  }
+  if (!(await columnExists('biens', 'immeuble_nb_locaux_commerciaux'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_nb_locaux_commerciaux INT NULL DEFAULT NULL AFTER immeuble_nb_appartements');
+  }
+  if (!(await columnExists('biens', 'immeuble_distance_plage_m'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_distance_plage_m INT NULL DEFAULT NULL AFTER immeuble_nb_locaux_commerciaux');
+  }
+  if (!(await columnExists('biens', 'immeuble_proche_plage'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_proche_plage TINYINT(1) NOT NULL DEFAULT 0 AFTER immeuble_distance_plage_m');
+  }
+  if (!(await columnExists('biens', 'immeuble_ascenseur'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_ascenseur TINYINT(1) NOT NULL DEFAULT 0 AFTER immeuble_proche_plage');
+  }
+  if (!(await columnExists('biens', 'immeuble_parking_sous_sol'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_parking_sous_sol TINYINT(1) NOT NULL DEFAULT 0 AFTER immeuble_ascenseur');
+  }
+  if (!(await columnExists('biens', 'immeuble_parking_exterieur'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_parking_exterieur TINYINT(1) NOT NULL DEFAULT 0 AFTER immeuble_parking_sous_sol');
+  }
+  if (!(await columnExists('biens', 'immeuble_syndic'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_syndic TINYINT(1) NOT NULL DEFAULT 0 AFTER immeuble_parking_exterieur');
+  }
+  if (!(await columnExists('biens', 'immeuble_vue_mer'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN immeuble_vue_mer TINYINT(1) NOT NULL DEFAULT 0 AFTER immeuble_syndic');
+  }
   if (!(await columnExists('biens', 'immeuble_details_json'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN immeuble_details_json LONGTEXT NULL AFTER terrain_angle');
   }
@@ -10229,7 +10268,7 @@ async function ensureBiensWorkflowSchema() {
   }
 
   await pool.query(
-    "ALTER TABLE biens MODIFY COLUMN type ENUM('appartement','residence','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
+    "ALTER TABLE biens MODIFY COLUMN type ENUM('appartement','residence','villa_maison','studio','immeuble','terrain','lotissement','local_commercial','bureau','bungalow','S1','S2','S3','S4','villa','local') NOT NULL"
   );
 
   if (!(await indexExists('biens', 'idx_biens_mode_type'))) {
