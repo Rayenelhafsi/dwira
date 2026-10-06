@@ -337,8 +337,10 @@ function buildBienSeedFromOwnerSaleRequest(request: OwnerSaleListingRequestSeed,
     lotissement_prix_total: type === 'lotissement' ? price : null,
     lotissement_mode_prix_m2: 'm2_unique',
     lotissement_terrains: [],
+    lotissement_lot_models: [],
     lotissement_paliers_prix_m2: [],
     immeuble_appartements: [],
+    immeuble_unit_models: [],
     immeuble_garages: [],
     immeuble_locaux_commerciaux: [],
     statut: 'disponible',
@@ -1062,6 +1064,107 @@ const APPARTEMENT_VENTE_BOOLEAN_LABELS: Record<(typeof APPARTEMENT_VENTE_BOOLEAN
   eau_sonede: 'Eau Sonede',
   electricite_steg: 'Électricité STEG',
 };
+const APPARTEMENT_VENTE_DETAIL_DEFAULTS = {
+  proximite_plage: false,
+  proximite_centre: false,
+  proximite_ecoles: false,
+  proximite_commerces: false,
+  residence: false,
+  residence_gardee: false,
+  copropriete: true,
+  titre_foncier_individuel: false,
+  etat_bien: null,
+  standing: null,
+  orientation: null,
+  vue: null,
+  garage: false,
+  abri_voiture: false,
+  suite_parentale: false,
+  jardin_rdc: false,
+  piscine_individuelle: false,
+  piscine_commune: false,
+  frais_syndic_tnd: null,
+  disponibilite_immediate: false,
+};
+const MAISON_VENTE_DETAIL_DEFAULTS = {
+  surface_terrain_m2: null,
+  surface_batie_m2: null,
+  facade_m: null,
+  nb_niveaux: null,
+  rdc: false,
+  independant: false,
+  titre_foncier_individuel: false,
+  etat_bien: null,
+  standing: null,
+  orientation: null,
+  vue: null,
+  garage: false,
+  abri_voiture: false,
+  jardin: false,
+  piscine_individuelle: false,
+  piscine_commune: false,
+  suite_parentale: false,
+  disponibilite_immediate: false,
+};
+const APPARTEMENT_VENTE_SELECT_OPTIONS = {
+  etat_bien: [
+    { value: 'neuf', label: 'Neuf' },
+    { value: 'recent', label: 'Recent' },
+    { value: 'a_renover', label: 'A renover' },
+  ],
+  standing: [
+    { value: 'standard', label: 'Standard' },
+    { value: 'bon_standing', label: 'Bon standing' },
+    { value: 'haut_standing', label: 'Haut standing' },
+  ],
+  orientation: [
+    { value: 'nord', label: 'Nord' },
+    { value: 'sud', label: 'Sud' },
+    { value: 'est', label: 'Est' },
+    { value: 'ouest', label: 'Ouest' },
+    { value: 'nord_est', label: 'Nord-est' },
+    { value: 'nord_ouest', label: 'Nord-ouest' },
+    { value: 'sud_est', label: 'Sud-est' },
+    { value: 'sud_ouest', label: 'Sud-ouest' },
+  ],
+  vue: [
+    { value: 'mer', label: 'Mer' },
+    { value: 'degagee', label: 'Degagee' },
+    { value: 'jardin', label: 'Jardin' },
+    { value: 'piscine', label: 'Piscine' },
+    { value: 'ville', label: 'Ville' },
+    { value: 'sans_vue', label: 'Sans vue particuliere' },
+  ],
+} as const;
+const APPARTEMENT_VENTE_EXTENDED_BOOLEAN_FIELDS = [
+  ['proximite_plage', 'Proximite plage'],
+  ['proximite_centre', 'Proximite centre'],
+  ['proximite_ecoles', 'Proximite ecoles'],
+  ['proximite_commerces', 'Proximite commerces'],
+  ['residence', 'Dans une residence'],
+  ['residence_gardee', 'Residence gardee / securisee'],
+  ['copropriete', 'Appartement en copropriete'],
+  ['titre_foncier_individuel', 'Titre foncier individuel'],
+  ['garage', 'Garage'],
+  ['abri_voiture', 'Abri voiture'],
+  ['suite_parentale', 'Suite parentale'],
+  ['jardin_rdc', 'Jardin si RDC'],
+  ['piscine_individuelle', 'Piscine individuelle'],
+  ['piscine_commune', 'Piscine commune'],
+  ['disponibilite_immediate', 'Disponibilite immediate'],
+] as const;
+const MAISON_VENTE_EXTENDED_BOOLEAN_FIELDS = [
+  ['rdc', 'RDC'],
+  ['independant', 'Maison independante'],
+  ['titre_foncier_individuel', 'Titre foncier individuel'],
+  ['garage', 'Garage'],
+  ['abri_voiture', 'Abri voiture'],
+  ['jardin', 'Jardin'],
+  ['piscine_individuelle', 'Piscine individuelle'],
+  ['piscine_commune', 'Piscine commune'],
+  ['suite_parentale', 'Suite parentale'],
+  ['disponibilite_immediate', 'Disponibilite immediate'],
+] as const;
 const normalizeFeatureName = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
 const isLegacyNightLimitFeature = (featureName: string) => {
   const normalized = normalizeFeatureName(String(featureName || ''));
@@ -1236,6 +1339,34 @@ const DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE = 30;
 const PROOF_MOTIF_TYPE_RUE = 'preuve_type_rue';
 const PROOF_MOTIF_TYPE_PAPIER = 'preuve_type_papier';
 const GALLERY_UNIT_MOTIF = 'gallery_unite';
+const HIERARCHICAL_MEDIA_MOTIF = 'hierarchy';
+const SALE_MEDIA_CATEGORIES = [
+  { value: 'couverture', label: 'Couverture' },
+  { value: 'facade', label: 'Facade' },
+  { value: 'salon', label: 'Salon' },
+  { value: 'cuisine', label: 'Cuisine' },
+  { value: 'chambre', label: 'Chambre' },
+  { value: 'sdb', label: 'SDB' },
+  { value: 'terrasse', label: 'Terrasse' },
+  { value: 'vue', label: 'Vue' },
+  { value: 'plan', label: 'Plan' },
+  { value: 'parking', label: 'Parking' },
+  { value: 'autre', label: 'Autre' },
+] as const;
+type HierarchicalMediaScope = 'parent' | 'model' | 'unit';
+const normalizeMediaKey = (value?: string | number | null) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+const buildHierarchicalMediaMotif = (
+  scope: HierarchicalMediaScope,
+  targetKey?: string | null,
+  category?: string | null
+) => `${HIERARCHICAL_MEDIA_MOTIF}|${scope}|${scope === 'parent' ? 'general' : normalizeMediaKey(targetKey) || 'general'}|${normalizeMediaKey(category) || 'autre'}`;
 const buildProofMotif = (
   proofType: typeof PROOF_MOTIF_TYPE_RUE | typeof PROOF_MOTIF_TYPE_PAPIER,
   mode?: BienMode,
@@ -1712,8 +1843,10 @@ export default function BiensPage() {
         type: nextType,
         residence_units: [],
         lotissement_terrains: [],
+        lotissement_lot_models: [],
         lotissement_paliers_prix_m2: [],
         immeuble_appartements: [],
+        immeuble_unit_models: [],
         immeuble_garages: [],
         immeuble_locaux_commerciaux: [],
         statut: 'disponible',
@@ -3155,7 +3288,15 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   const initialIsResidenceParent = isResidenceParentBien(initialEditorData);
   const [activeTab, setActiveTab] = useState<'general' | 'images' | 'calendar'>(initialTab);
   const [generalStep, setGeneralStep] = useState<0 | 1 | 2 | 3 | 4 | 5>(initialIsResidenceParent ? 0 : initialGeneralStep);
-  const [formData, setFormData] = useState<Partial<Bien>>(initialEditorData || { reference: '', titre: '', nom_bien_mobile: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, residence_units: [], nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, prix_semaine: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, reservation_sur_demande: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const [formData, setFormData] = useState<Partial<Bien>>(initialEditorData || { reference: '', titre: '', nom_bien_mobile: '', description: '', mode: 'location_saisonniere' as BienMode, type: 'appartement' as BienType, residence_units: [], nb_chambres: 0, nb_salle_bain: 0, prix_nuitee: 0, prix_semaine: 0, tarification_methode: 'avec_commission' as TarificationMethodeVente, prix_affiche_client: 0, prix_fixe_proprietaire: 0, prix_proprietaire: 0, prix_final: 0, revenu_agence: 0, commission_pourcentage_proprietaire: DEFAULT_COMMISSION_PROPRIETAIRE_PERCENT, commission_pourcentage_client: DEFAULT_COMMISSION_CLIENT_PERCENT, montant_max_reduction_negociation: 0, prix_minimum_accepte: 0, modalite_paiement_vente: 'comptant' as ModalitePaiementVente, pourcentage_premiere_partie_promesse: DEFAULT_POURCENTAGE_PREMIERE_PARTIE_PROMESSE, montant_premiere_partie_promesse: 0, montant_deuxieme_partie: 0, nombre_tranches: 6, periode_tranches_mois: 6, montant_par_tranche: 0, avance: 0, caution: 0, type_rue: null, type_papier: null, superficie_m2: null, etage: null, configuration: null, annee_construction: null, distance_plage_m: null, proche_plage: false, chauffage_central: false, climatisation: false, balcon: false, terrasse: false, ascenseur: false, vue_mer: false, gaz_ville: false, cuisine_equipee: false, place_parking: false, syndic: false, meuble: false, independant: false, vente_appartement_details: { ...APPARTEMENT_VENTE_DETAIL_DEFAULTS }, vente_maison_details: { ...MAISON_VENTE_DETAIL_DEFAULTS }, eau_puits: false, eau_sonede: false, electricite_steg: false, surface_local_m2: null, facade_m: null, hauteur_plafond_m: null, activite_recommandee: null, toilette: false, reserve_local: false, vitrine: false, coin_angle: false, electricite_3_phases: false, alarme: false, type_terrain: null, terrain_facade_m: null, terrain_surface_m2: null, terrain_distance_plage_m: null, terrain_zone: null, terrain_constructible: false, terrain_angle: false, terrain_prix_affiche_total: null, terrain_prix_affiche_par_m2: null, terrain_mode_affichage_prix: 'total_et_m2' as ModeAffichagePrixTerrain, terrain_disponibilite_reseaux: [], terrain_hauteur_construction_autorisee: null, terrain_route_acces_largeur_m: null, terrain_forme: null, terrain_topographie: null, terrain_bornage: false, terrain_travaux_municipalite_autorises: false, terrain_limites_cadastrales: false, terrain_visualisation_limites_cadastrales: false, terrain_voisinage: null, terrain_proximites_commodites: [], terrain_proximites_commodites_autres: null, terrain_viabilisation_eau_sources: [], terrain_viabilisation_onas: null, terrain_viabilisation_steg: null, terrain_viabilisation_gaz_ville: false, terrain_viabilisation_fibre_optique: false, terrain_viabilisation_telephone_fixe: false, terrain_type_sol: null, terrain_vegetation: null, terrain_niveau_sonore: null, terrain_risque_inondation: false, terrain_exposition_vent: null, terrain_ideal_utilisations: [], terrain_documents_disponibles: [], lotissement_nb_terrains: 1, lotissement_prix_total: null, lotissement_mode_prix_m2: 'm2_unique' as ModePrixLotissement, lotissement_prix_m2_unique: null, lotissement_terrains: [], lotissement_paliers_prix_m2: [], immeuble_surface_terrain_m2: null, immeuble_surface_batie_m2: null, immeuble_nb_niveaux: null, immeuble_nb_garages: null, immeuble_nb_appartements: null, immeuble_nb_locaux_commerciaux: null, immeuble_distance_plage_m: null, immeuble_proche_plage: false, immeuble_ascenseur: false, immeuble_parking_sous_sol: false, immeuble_parking_exterieur: false, immeuble_syndic: false, immeuble_vue_mer: false, immeuble_appartements: [], immeuble_garages: [], immeuble_locaux_commerciaux: [], statut: 'disponible' as BienStatut, visible_sur_site: true, is_featured: false, reservation_sur_demande: false, ui_config: null, menage_en_cours: false, zone_id: zones[0]?.id || '', proprietaire_id: proprietaires[0]?.id || '' });
+  const appartementVenteDetails = {
+    ...APPARTEMENT_VENTE_DETAIL_DEFAULTS,
+    ...((formData.vente_appartement_details || {}) as Record<string, any>),
+  };
+  const maisonVenteDetails = {
+    ...MAISON_VENTE_DETAIL_DEFAULTS,
+    ...((formData.vente_maison_details || {}) as Record<string, any>),
+  };
   const saisonConfig: LocationSaisonniereConfig = {
     ...DEFAULT_LOCATION_SAISONNIERE_CONFIG,
     ...((formData.location_saisonniere_config || {}) as LocationSaisonniereConfig),
@@ -3368,6 +3509,9 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
   const [removedUiBlocks, setRemovedUiBlocks] = useState<Record<string, boolean>>({});
   const [newImageMotif, setNewImageMotif] = useState('');
   const [saleMotifUrlDrafts, setSaleMotifUrlDrafts] = useState<Record<string, string>>({});
+  const [hierarchicalMediaScope, setHierarchicalMediaScope] = useState<HierarchicalMediaScope>('parent');
+  const [hierarchicalMediaTarget, setHierarchicalMediaTarget] = useState('');
+  const [hierarchicalMediaCategory, setHierarchicalMediaCategory] = useState('couverture');
   const [uploading, setUploading] = useState(false);
   const [showFeaturePanel, setShowFeaturePanel] = useState(false);
   const [newFeature, setNewFeature] = useState('');
@@ -3713,11 +3857,18 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     );
     return clientVisibleImages.filter((img) => img.motif_upload === motif);
   };
+  const getHierarchicalMediaImages = (scope: HierarchicalMediaScope, targetKey?: string | null) => {
+    const prefix = `${HIERARCHICAL_MEDIA_MOTIF}|${scope}|${scope === 'parent' ? 'general' : normalizeMediaKey(targetKey) || 'general'}|`;
+    return clientVisibleImages.filter((img) => String(img.motif_upload || '').startsWith(prefix));
+  };
   const getSaleMotifImages = (motif: string) =>
     clientVisibleImages.filter((img) => String(img.motif_upload || '').trim().toLowerCase() === String(motif || '').trim().toLowerCase());
   const saleGenericImages = clientVisibleImages.filter((img) => {
     const motif = String(img.motif_upload || '').trim().toLowerCase();
-    return !SALE_MEDIA_MOTIF_PRESETS.some((preset) => preset.value === motif);
+    return !SALE_MEDIA_MOTIF_PRESETS.some((preset) => preset.value === motif)
+      && !motif.startsWith(`${HIERARCHICAL_MEDIA_MOTIF}|model|`)
+      && !motif.startsWith(`${HIERARCHICAL_MEDIA_MOTIF}|unit|`)
+      && !motif.startsWith(`${GALLERY_UNIT_MOTIF}|`);
   });
 
   useEffect(() => {
@@ -4074,10 +4225,28 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       nextRows.push({
         index: i + 1,
         reference: existing?.reference || generateChildReference('APT', i + 1),
+        modele: (existing as any)?.modele || null,
+        type_unite: (existing as any)?.type_unite || 'appartement',
+        etage: (existing as any)?.etage ?? null,
         chambres: Number(existing?.chambres || 0),
         salle_bain: Number(existing?.salle_bain || 0),
         superficie_m2: existing?.superficie_m2 ?? null,
         configuration: existing?.configuration || null,
+        prix: (existing as any)?.prix ?? null,
+        prix_negociable: Boolean((existing as any)?.prix_negociable),
+        statut: (existing as any)?.statut || 'disponible',
+        suite_parentale: Boolean((existing as any)?.suite_parentale),
+        balcon: Boolean((existing as any)?.balcon),
+        terrasse: Boolean((existing as any)?.terrasse),
+        orientation: (existing as any)?.orientation || null,
+        vue: (existing as any)?.vue || null,
+        climatisation: Boolean((existing as any)?.climatisation),
+        chauffage_central: Boolean((existing as any)?.chauffage_central),
+        cuisine_equipee: Boolean((existing as any)?.cuisine_equipee),
+        parking: Boolean((existing as any)?.parking),
+        garage: Boolean((existing as any)?.garage),
+        titre_foncier_individuel: Boolean((existing as any)?.titre_foncier_individuel),
+        etat_bien: (existing as any)?.etat_bien || null,
       });
     }
     setFormData((prev) => ({ ...prev, immeuble_appartements: nextRows }));
@@ -4123,8 +4292,15 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       nextRows.push({
         index: i + 1,
         reference: existing?.reference || generateChildReference('TRN', i + 1),
+        modele: (existing as any)?.modele || null,
         type_terrain: (existing?.type_terrain || null),
         surface_m2: existing?.surface_m2 ?? null,
+        facade_m: (existing as any)?.facade_m ?? null,
+        profondeur_m: (existing as any)?.profondeur_m ?? null,
+        nb_facades: (existing as any)?.nb_facades ?? null,
+        prix_m2: (existing as any)?.prix_m2 ?? null,
+        prix_total: (existing as any)?.prix_total ?? null,
+        statut: (existing as any)?.statut || 'disponible',
         type_rue: (existing?.type_rue || null),
         type_papier: (existing?.type_papier || null),
         terrain_zone: existing?.terrain_zone || null,
@@ -4252,7 +4428,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       setFormData((prev) => ({ ...prev, reference: value }));
       return;
     }
-    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'terrain_prix_affiche_total', 'terrain_prix_affiche_par_m2', 'terrain_route_acces_largeur_m', 'lotissement_nb_terrains', 'lotissement_prix_total', 'lotissement_prix_m2_unique', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'prix_proprietaire', 'prix_semaine', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
+    const optionalNumericFields = ['superficie_m2', 'etage', 'annee_construction', 'distance_plage_m', 'surface_local_m2', 'facade_m', 'hauteur_plafond_m', 'local_surface_exploitable_m2', 'local_surface_rdc_m2', 'local_surface_mezzanine_m2', 'local_largeur_vitrine_m', 'local_nb_vitrines', 'local_nb_facades', 'local_nb_pieces_bureaux', 'local_nb_sanitaires', 'local_nb_places_parking', 'local_loyer_mensuel_actuel', 'terrain_facade_m', 'terrain_surface_m2', 'terrain_distance_plage_m', 'terrain_prix_affiche_total', 'terrain_prix_affiche_par_m2', 'terrain_route_acces_largeur_m', 'lotissement_nb_terrains', 'lotissement_prix_total', 'lotissement_prix_m2_unique', 'lotissement_prix_m2_moyen', 'lotissement_surface_totale_m2', 'lotissement_surface_vendable_m2', 'lotissement_surface_voirie_commune_m2', 'lotissement_nb_lots_disponibles', 'lotissement_nb_lots_vendus_reserves', 'lotissement_surface_lot_min_m2', 'lotissement_surface_lot_max_m2', 'lotissement_surface_lot_moyenne_m2', 'lotissement_largeur_voies_m', 'lotissement_distance_plage_m', 'lotissement_distance_centre_m', 'immeuble_surface_terrain_m2', 'immeuble_surface_batie_m2', 'immeuble_nb_niveaux', 'immeuble_nb_garages', 'immeuble_nb_appartements', 'immeuble_nb_locaux_commerciaux', 'immeuble_distance_plage_m', 'prix_affiche_client', 'prix_fixe_proprietaire', 'prix_proprietaire', 'prix_semaine', 'commission_pourcentage_proprietaire', 'commission_pourcentage_client', 'montant_max_reduction_negociation', 'pourcentage_premiere_partie_promesse', 'nombre_tranches', 'periode_tranches_mois'];
     if (name === 'mode') {
       const nextMode = value as BienMode;
       const allowedTypes = BIEN_TYPES_BY_MODE[nextMode] || BIEN_TYPES_BY_MODE.location_saisonniere;
@@ -4307,7 +4483,31 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       setFormData(prev => ({ ...prev, [name]: value === '' ? null : Number(value) }));
       return;
     }
+    if (type === 'checkbox') {
+      setFormData(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
+      return;
+    }
     setFormData(prev => ({ ...prev, [name]: type === 'number' ? Number(value) : value }));
+  };
+  const updateAppartementVenteDetails = (patch: Record<string, unknown>) => {
+    setFormData((prev) => ({
+      ...prev,
+      vente_appartement_details: {
+        ...APPARTEMENT_VENTE_DETAIL_DEFAULTS,
+        ...((prev.vente_appartement_details || {}) as Record<string, unknown>),
+        ...patch,
+      },
+    }));
+  };
+  const updateMaisonVenteDetails = (patch: Record<string, unknown>) => {
+    setFormData((prev) => ({
+      ...prev,
+      vente_maison_details: {
+        ...MAISON_VENTE_DETAIL_DEFAULTS,
+        ...((prev.vente_maison_details || {}) as Record<string, unknown>),
+        ...patch,
+      },
+    }));
   };
   const handleResidenceUnitChange = (index: number, field: 'main_type' | 'sub_type' | 'quantity', value: string) => {
     setFormData((prev) => {
@@ -4423,6 +4623,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     syndic: false,
     meuble: false,
     independant: false,
+    vente_appartement_details: { ...APPARTEMENT_VENTE_DETAIL_DEFAULTS },
+    vente_maison_details: { ...MAISON_VENTE_DETAIL_DEFAULTS },
     eau_puits: false,
     eau_sonede: false,
     electricite_steg: false,
@@ -4435,6 +4637,26 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     facade_m: null,
     hauteur_plafond_m: null,
     activite_recommandee: null,
+    local_sous_type: null,
+    local_usage_actuel: null,
+    local_surface_exploitable_m2: null,
+    local_surface_rdc_m2: null,
+    local_surface_mezzanine_m2: null,
+    local_largeur_vitrine_m: null,
+    local_nb_vitrines: null,
+    local_nb_facades: null,
+    local_visibilite_commerciale: null,
+    local_nb_pieces_bureaux: null,
+    local_nb_sanitaires: null,
+    local_nb_places_parking: null,
+    local_type_activite_actuelle: null,
+    local_etat: null,
+    local_standing: null,
+    local_passage_pieton: null,
+    local_passage_automobile: null,
+    local_titre_foncier: null,
+    local_situation_juridique: null,
+    local_loyer_mensuel_actuel: null,
     toilette: false,
     reserve_local: false,
     vitrine: false,
@@ -4442,6 +4664,34 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     electricite_3_phases: false,
     gaz_ville: false,
     alarme: false,
+    local_sur_rue_principale: false,
+    local_entree_independante: false,
+    local_open_space: false,
+    local_reception: false,
+    local_kitchenette: false,
+    local_mezzanine: false,
+    local_sous_sol: false,
+    local_acces_direct_rue: false,
+    local_acces_pmr: false,
+    local_ascenseur: false,
+    local_double_entree: false,
+    local_parking: false,
+    local_stationnement_facile: false,
+    local_chauffage: false,
+    local_fibre_internet: false,
+    local_activite_commerciale_autorisee: false,
+    local_extraction_possible: false,
+    local_adapte_restauration: false,
+    local_adapte_cabinet_medical: false,
+    local_adapte_bureau: false,
+    local_amenage: false,
+    local_actuellement_loue: false,
+    local_bail_en_cours: false,
+    local_zone_commerciale: false,
+    local_proche_administrations: false,
+    local_proche_commerces: false,
+    local_titre_bleu: false,
+    local_disponible_immediatement: false,
     eau_puits: false,
     eau_sonede: false,
     electricite_steg: false,
@@ -4495,6 +4745,43 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     lotissement_prix_total: null,
     lotissement_mode_prix_m2: null,
     lotissement_prix_m2_unique: null,
+    lotissement_vente_mode: null,
+    lotissement_prix_m2_moyen: null,
+    lotissement_prix_negociable: false,
+    lotissement_prix_different_par_lot: false,
+    lotissement_surface_totale_m2: null,
+    lotissement_surface_vendable_m2: null,
+    lotissement_surface_voirie_commune_m2: null,
+    lotissement_nb_lots_disponibles: null,
+    lotissement_nb_lots_vendus_reserves: null,
+    lotissement_surface_lot_min_m2: null,
+    lotissement_surface_lot_max_m2: null,
+    lotissement_surface_lot_moyenne_m2: null,
+    lotissement_cloture: false,
+    lotissement_entree_unique: false,
+    lotissement_voirie_interne: false,
+    lotissement_route_goudronnee: false,
+    lotissement_largeur_voies_m: null,
+    lotissement_vocation: null,
+    lotissement_approuve: null,
+    lotissement_constructible: false,
+    lotissement_nb_etages_autorises: null,
+    lotissement_cahier_charges: false,
+    lotissement_electricite: null,
+    lotissement_eau: null,
+    lotissement_onas: false,
+    lotissement_gaz: false,
+    lotissement_eclairage_public: false,
+    lotissement_distance_plage_m: null,
+    lotissement_distance_centre_m: null,
+    lotissement_vue_mer: false,
+    lotissement_quartier_residentiel: false,
+    lotissement_titre_foncier_global: false,
+    lotissement_titre_individuel_par_lot: null,
+    lotissement_titre_bleu: false,
+    lotissement_plan_lotissement: false,
+    lotissement_situation_juridique: null,
+    lotissement_disponible_immediatement: false,
     lotissement_terrains: [],
     lotissement_paliers_prix_m2: [],
   });
@@ -4504,17 +4791,54 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     type_papier: null,
     immeuble_surface_terrain_m2: null,
     immeuble_surface_batie_m2: null,
+    immeuble_largeur_facade_m: null,
+    immeuble_nb_facades: null,
     immeuble_nb_niveaux: null,
+    immeuble_nb_etages: null,
     immeuble_nb_garages: null,
     immeuble_nb_appartements: null,
+    immeuble_nb_s1: null,
+    immeuble_nb_s2: null,
+    immeuble_nb_s3: null,
     immeuble_nb_locaux_commerciaux: null,
+    immeuble_nb_bureaux: null,
+    immeuble_nb_places_parking: null,
+    immeuble_nb_unites_louees: null,
+    immeuble_revenu_locatif_mensuel: null,
+    immeuble_revenu_locatif_annuel: null,
+    immeuble_rendement_brut_pct: null,
+    immeuble_niveaux_autorises: null,
+    immeuble_distance_centre_m: null,
     immeuble_distance_plage_m: null,
+    immeuble_usage_actuel: null,
+    immeuble_etat: null,
+    immeuble_standing: null,
+    immeuble_loue_actuellement: null,
+    immeuble_titre_foncier: null,
+    immeuble_permis_batir: null,
+    immeuble_situation_juridique: null,
+    immeuble_mode_vente: null,
     immeuble_proche_plage: false,
     immeuble_ascenseur: false,
+    immeuble_depot_sous_sol: false,
+    immeuble_garage: false,
     immeuble_parking_sous_sol: false,
     immeuble_parking_exterieur: false,
     immeuble_syndic: false,
     immeuble_vue_mer: false,
+    immeuble_chauffage_central: false,
+    immeuble_climatisation: false,
+    immeuble_gaz_ville: false,
+    immeuble_compteurs_individuels: false,
+    immeuble_eau_electricite_disponible: false,
+    immeuble_location_saisonniere_possible: false,
+    immeuble_extension_possible: false,
+    immeuble_construction_supplementaire_possible: false,
+    immeuble_route_principale: false,
+    immeuble_proche_commerces: false,
+    immeuble_titre_bleu: false,
+    immeuble_plans_disponibles: false,
+    immeuble_disponible_immediatement: false,
     immeuble_appartements: [],
     immeuble_garages: [],
     immeuble_locaux_commerciaux: [],
@@ -4783,27 +5107,111 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     setFormData((prev) => ({ ...prev, [field]: value === 'oui' }));
   };
   const getBooleanSelectValue = (value?: boolean) => (value ? 'oui' : 'non');
-  const handleImmeubleAppartementChange = (index: number, field: 'chambres' | 'salle_bain' | 'superficie_m2' | 'configuration', value: string) => {
+  const handleImmeubleAppartementChange = (index: number, field: string, value: string) => {
     const rows = Array.isArray(formData.immeuble_appartements) ? [...formData.immeuble_appartements] : [];
-    const current = rows[index] || { index: index + 1, reference: generateChildReference('APT', index + 1), chambres: 0, salle_bain: 0, superficie_m2: null, configuration: null };
-    if (field === 'configuration') {
-      rows[index] = { ...current, configuration: value || null };
-    } else if (field === 'superficie_m2') {
+    const current = rows[index] || { index: index + 1, reference: generateChildReference('APT', index + 1), type_unite: 'appartement', chambres: 0, salle_bain: 0, superficie_m2: null, configuration: null, statut: 'disponible' };
+    const textFields = ['configuration', 'type_unite', 'etage', 'statut', 'orientation', 'vue', 'etat_bien'];
+    const numericFields = ['chambres', 'salle_bain', 'superficie_m2', 'prix'];
+    const booleanFields = ['prix_negociable', 'suite_parentale', 'balcon', 'terrasse', 'climatisation', 'chauffage_central', 'cuisine_equipee', 'parking', 'garage', 'titre_foncier_individuel'];
+    if (textFields.includes(field as string)) {
+      rows[index] = { ...current, [field]: value || null } as any;
+    } else if (numericFields.includes(field as string)) {
       rows[index] = { ...current, superficie_m2: value === '' ? null : Number(value) };
-    } else {
-      rows[index] = { ...current, [field]: Math.max(0, Number(value || 0)) } as any;
+      if (field !== 'superficie_m2') rows[index] = { ...current, [field]: value === '' ? null : Math.max(0, Number(value || 0)) } as any;
+    } else if (booleanFields.includes(field as string)) {
+      rows[index] = { ...current, [field]: value === 'true' } as any;
     }
     setFormData((prev) => ({ ...prev, immeuble_appartements: rows }));
+  };
+  const addImmeubleUnitModel = () => {
+    setFormData((prev) => ({
+      ...prev,
+      immeuble_unit_models: [...(prev.immeuble_unit_models || []), { id: `unit_model_${Date.now()}`, label: `Type ${(prev.immeuble_unit_models || []).length + 1}`, quantity: 1, type_unite: 'appartement', configuration: 'S+2', superficie_m2: null, chambres: 2, salle_bain: 1, prix: null }],
+    }));
+  };
+  const updateImmeubleUnitModel = (index: number, field: string, value: string | boolean) => {
+    const numericFields = ['quantity', 'superficie_m2', 'chambres', 'salle_bain', 'prix'];
+    setFormData((prev) => {
+      const rows = [...(prev.immeuble_unit_models || [])];
+      rows[index] = { ...(rows[index] || {}), [field]: numericFields.includes(field) ? (value === '' ? null : Number(value)) : value } as any;
+      return { ...prev, immeuble_unit_models: rows };
+    });
+  };
+  const generateImmeubleUnitsFromModels = () => {
+    const models = Array.isArray(formData.immeuble_unit_models) ? formData.immeuble_unit_models : [];
+    const units: any[] = [];
+    models.forEach((model: any, modelIndex: number) => {
+      const quantity = Math.max(1, Math.floor(Number(model.quantity || 1)));
+      const prefix = String.fromCharCode(65 + modelIndex);
+      for (let i = 0; i < quantity; i += 1) {
+        units.push({
+          index: units.length + 1,
+          reference: generateChildReference(prefix, i + 1),
+          modele: model.label || `Type ${modelIndex + 1}`,
+          type_unite: model.type_unite || 'appartement',
+          configuration: model.configuration || null,
+          superficie_m2: model.superficie_m2 ?? null,
+          chambres: Number(model.chambres || 0),
+          salle_bain: Number(model.salle_bain || 0),
+          prix: model.prix ?? null,
+          balcon: Boolean(model.balcon),
+          chauffage_central: Boolean(model.chauffage_central),
+          climatisation: Boolean(model.climatisation),
+          cuisine_equipee: Boolean(model.cuisine_equipee),
+          statut: 'disponible',
+        });
+      }
+    });
+    setFormData((prev) => ({ ...prev, immeuble_nb_appartements: units.length, immeuble_appartements: units }));
   };
   const handleLotissementTerrainChange = (index: number, field: string, value: string | boolean) => {
     const rows = Array.isArray(formData.lotissement_terrains) ? [...formData.lotissement_terrains] : [];
     const current = rows[index] || { index: index + 1, reference: generateChildReference('TRN', index + 1) };
-    const numericFields = ['surface_m2', 'terrain_distance_plage_m'];
+    const numericFields = ['surface_m2', 'facade_m', 'profondeur_m', 'nb_facades', 'prix_m2', 'prix_total', 'terrain_distance_plage_m'];
     const nextValue = numericFields.includes(field as string)
       ? (value === '' ? null : Number(value))
       : value;
     rows[index] = { ...current, [field]: nextValue };
     setFormData((prev) => ({ ...prev, lotissement_terrains: rows }));
+  };
+  const addLotissementLotModel = () => {
+    setFormData((prev) => ({
+      ...prev,
+      lotissement_lot_models: [...(prev.lotissement_lot_models || []), { id: `lot_model_${Date.now()}`, label: `Modele ${(prev.lotissement_lot_models || []).length + 1}`, quantity: 1, surface_m2: null, facade_m: null, prix_m2: null, type_terrain: 'habitation' as any }],
+    }));
+  };
+  const updateLotissementLotModel = (index: number, field: string, value: string | boolean) => {
+    const numericFields = ['quantity', 'surface_m2', 'facade_m', 'profondeur_m', 'nb_facades', 'prix_m2', 'prix_total'];
+    setFormData((prev) => {
+      const rows = [...(prev.lotissement_lot_models || [])];
+      rows[index] = { ...(rows[index] || {}), [field]: numericFields.includes(field) ? (value === '' ? null : Number(value)) : value } as any;
+      return { ...prev, lotissement_lot_models: rows };
+    });
+  };
+  const generateLotissementLotsFromModels = () => {
+    const models = Array.isArray(formData.lotissement_lot_models) ? formData.lotissement_lot_models : [];
+    const lots: any[] = [];
+    models.forEach((model: any, modelIndex: number) => {
+      const quantity = Math.max(1, Math.floor(Number(model.quantity || 1)));
+      for (let i = 0; i < quantity; i += 1) {
+        lots.push({
+          index: lots.length + 1,
+          reference: generateChildReference('LOT', lots.length + 1),
+          modele: model.label || `Modele ${modelIndex + 1}`,
+          type_terrain: model.type_terrain || null,
+          surface_m2: model.surface_m2 ?? null,
+          facade_m: model.facade_m ?? null,
+          profondeur_m: model.profondeur_m ?? null,
+          nb_facades: model.nb_facades ?? null,
+          prix_m2: model.prix_m2 ?? null,
+          prix_total: model.prix_total ?? null,
+          type_rue: model.type_rue || null,
+          type_papier: model.type_papier || null,
+          statut: 'disponible',
+        });
+      }
+    });
+    setFormData((prev) => ({ ...prev, lotissement_nb_terrains: lots.length || 1, lotissement_terrains: lots }));
   };
   const handleLotissementPalierChange = (index: number, field: 'min_m2' | 'max_m2' | 'prix_m2', value: string) => {
     const rows = Array.isArray(formData.lotissement_paliers_prix_m2) ? [...formData.lotissement_paliers_prix_m2] : [];
@@ -5944,6 +6352,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     const resolvedTypePapier = normalizeOwnerRequestTypePapier(formData.type_papier) || null;
     const venteTarification = computeVenteTarification(formData);
     const isAppartementVente = selectedMode === 'vente' && selectedType === 'appartement';
+    const isMaisonVente = selectedMode === 'vente' && selectedType === 'villa_maison';
     const isLocalCommercialVente = selectedMode === 'vente' && selectedType === 'local_commercial';
     const isTerrainVente = selectedMode === 'vente' && selectedType === 'terrain';
     const isLotissementVente = selectedMode === 'vente' && selectedType === 'lotissement';
@@ -6011,7 +6420,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     const resolvedNbSalleBain = (isLocalCommercialVente || isTerrainVente || isLotissementVente || isImmeubleVente)
       ? 0
       : explicitNbSalleBain ?? derivedCapacity.bathrooms ?? 0;
-    const appartementVenteData = isAppartementVente
+    const appartementVenteData = (isAppartementVente || isMaisonVente)
       ? {
           type_rue: resolvedTypeRue,
           type_papier: resolvedTypePapier,
@@ -6033,6 +6442,14 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           syndic: !!formData.syndic,
           meuble: !!formData.meuble,
           independant: !!formData.independant,
+          facade_m: isMaisonVente ? formData.facade_m ?? null : formData.facade_m ?? null,
+          vente_maison_details: isMaisonVente ? {
+            ...MAISON_VENTE_DETAIL_DEFAULTS,
+            ...((formData.vente_maison_details || {}) as Record<string, unknown>),
+            surface_batie_m2: formData.superficie_m2 ?? null,
+            facade_m: formData.facade_m ?? null,
+            independant: !!formData.independant,
+          } : null,
           eau_puits: !!formData.eau_puits,
           eau_sonede: !!formData.eau_sonede,
           electricite_steg: !!formData.electricite_steg,
@@ -6070,6 +6487,26 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           facade_m: formData.facade_m ?? null,
           hauteur_plafond_m: formData.hauteur_plafond_m ?? null,
           activite_recommandee: formData.activite_recommandee || null,
+          local_sous_type: formData.local_sous_type || 'local_commercial',
+          local_usage_actuel: formData.local_usage_actuel || null,
+          local_surface_exploitable_m2: formData.local_surface_exploitable_m2 ?? null,
+          local_surface_rdc_m2: formData.local_surface_rdc_m2 ?? null,
+          local_surface_mezzanine_m2: formData.local_surface_mezzanine_m2 ?? null,
+          local_largeur_vitrine_m: formData.local_largeur_vitrine_m ?? null,
+          local_nb_vitrines: formData.local_nb_vitrines ?? null,
+          local_nb_facades: formData.local_nb_facades ?? null,
+          local_visibilite_commerciale: formData.local_visibilite_commerciale || null,
+          local_nb_pieces_bureaux: formData.local_nb_pieces_bureaux ?? null,
+          local_nb_sanitaires: formData.local_nb_sanitaires ?? null,
+          local_nb_places_parking: formData.local_nb_places_parking ?? null,
+          local_type_activite_actuelle: formData.local_type_activite_actuelle || null,
+          local_etat: formData.local_etat || null,
+          local_standing: formData.local_standing || null,
+          local_passage_pieton: formData.local_passage_pieton || null,
+          local_passage_automobile: formData.local_passage_automobile || null,
+          local_titre_foncier: formData.local_titre_foncier || null,
+          local_situation_juridique: formData.local_situation_juridique || null,
+          local_loyer_mensuel_actuel: formData.local_loyer_mensuel_actuel ?? null,
           toilette: !!formData.toilette,
           reserve_local: !!formData.reserve_local,
           vitrine: !!formData.vitrine,
@@ -6077,6 +6514,34 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           electricite_3_phases: !!formData.electricite_3_phases,
           gaz_ville: !!formData.gaz_ville,
           alarme: !!formData.alarme,
+          local_sur_rue_principale: !!formData.local_sur_rue_principale,
+          local_entree_independante: !!formData.local_entree_independante,
+          local_open_space: !!formData.local_open_space,
+          local_reception: !!formData.local_reception,
+          local_kitchenette: !!formData.local_kitchenette,
+          local_mezzanine: !!formData.local_mezzanine,
+          local_sous_sol: !!formData.local_sous_sol,
+          local_acces_direct_rue: !!formData.local_acces_direct_rue,
+          local_acces_pmr: !!formData.local_acces_pmr,
+          local_ascenseur: !!formData.local_ascenseur,
+          local_double_entree: !!formData.local_double_entree,
+          local_parking: !!formData.local_parking,
+          local_stationnement_facile: !!formData.local_stationnement_facile,
+          local_chauffage: !!formData.local_chauffage,
+          local_fibre_internet: !!formData.local_fibre_internet,
+          local_activite_commerciale_autorisee: !!formData.local_activite_commerciale_autorisee,
+          local_extraction_possible: !!formData.local_extraction_possible,
+          local_adapte_restauration: !!formData.local_adapte_restauration,
+          local_adapte_cabinet_medical: !!formData.local_adapte_cabinet_medical,
+          local_adapte_bureau: !!formData.local_adapte_bureau,
+          local_amenage: !!formData.local_amenage,
+          local_actuellement_loue: !!formData.local_actuellement_loue,
+          local_bail_en_cours: !!formData.local_bail_en_cours,
+          local_zone_commerciale: !!formData.local_zone_commerciale,
+          local_proche_administrations: !!formData.local_proche_administrations,
+          local_proche_commerces: !!formData.local_proche_commerces,
+          local_titre_bleu: !!formData.local_titre_bleu,
+          local_disponible_immediatement: !!formData.local_disponible_immediatement,
           eau_puits: !!formData.eau_puits,
           eau_sonede: !!formData.eau_sonede,
           electricite_steg: !!formData.electricite_steg,
@@ -6086,12 +6551,60 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           facade_m: null,
           hauteur_plafond_m: null,
           activite_recommandee: null,
+          local_sous_type: null,
+          local_usage_actuel: null,
+          local_surface_exploitable_m2: null,
+          local_surface_rdc_m2: null,
+          local_surface_mezzanine_m2: null,
+          local_largeur_vitrine_m: null,
+          local_nb_vitrines: null,
+          local_nb_facades: null,
+          local_visibilite_commerciale: null,
+          local_nb_pieces_bureaux: null,
+          local_nb_sanitaires: null,
+          local_nb_places_parking: null,
+          local_type_activite_actuelle: null,
+          local_etat: null,
+          local_standing: null,
+          local_passage_pieton: null,
+          local_passage_automobile: null,
+          local_titre_foncier: null,
+          local_situation_juridique: null,
+          local_loyer_mensuel_actuel: null,
           toilette: false,
           reserve_local: false,
           vitrine: false,
           coin_angle: false,
           electricite_3_phases: false,
           alarme: false,
+          local_sur_rue_principale: false,
+          local_entree_independante: false,
+          local_open_space: false,
+          local_reception: false,
+          local_kitchenette: false,
+          local_mezzanine: false,
+          local_sous_sol: false,
+          local_acces_direct_rue: false,
+          local_acces_pmr: false,
+          local_ascenseur: false,
+          local_double_entree: false,
+          local_parking: false,
+          local_stationnement_facile: false,
+          local_chauffage: false,
+          local_fibre_internet: false,
+          local_activite_commerciale_autorisee: false,
+          local_extraction_possible: false,
+          local_adapte_restauration: false,
+          local_adapte_cabinet_medical: false,
+          local_adapte_bureau: false,
+          local_amenage: false,
+          local_actuellement_loue: false,
+          local_bail_en_cours: false,
+          local_zone_commerciale: false,
+          local_proche_administrations: false,
+          local_proche_commerces: false,
+          local_titre_bleu: false,
+          local_disponible_immediatement: false,
         };
     const terrainVenteData = isTerrainVente
       ? {
@@ -6179,7 +6692,45 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           lotissement_prix_total: formData.lotissement_prix_total ?? null,
           lotissement_mode_prix_m2: formData.lotissement_mode_prix_m2 || 'm2_unique',
           lotissement_prix_m2_unique: formData.lotissement_prix_m2_unique ?? null,
+          lotissement_vente_mode: formData.lotissement_vente_mode || 'les_deux',
+          lotissement_prix_m2_moyen: formData.lotissement_prix_m2_moyen ?? null,
+          lotissement_prix_negociable: Boolean(formData.lotissement_prix_negociable),
+          lotissement_prix_different_par_lot: Boolean(formData.lotissement_prix_different_par_lot),
+          lotissement_surface_totale_m2: formData.lotissement_surface_totale_m2 ?? null,
+          lotissement_surface_vendable_m2: formData.lotissement_surface_vendable_m2 ?? null,
+          lotissement_surface_voirie_commune_m2: formData.lotissement_surface_voirie_commune_m2 ?? null,
+          lotissement_nb_lots_disponibles: formData.lotissement_nb_lots_disponibles ?? null,
+          lotissement_nb_lots_vendus_reserves: formData.lotissement_nb_lots_vendus_reserves ?? null,
+          lotissement_surface_lot_min_m2: formData.lotissement_surface_lot_min_m2 ?? null,
+          lotissement_surface_lot_max_m2: formData.lotissement_surface_lot_max_m2 ?? null,
+          lotissement_surface_lot_moyenne_m2: formData.lotissement_surface_lot_moyenne_m2 ?? null,
+          lotissement_cloture: Boolean(formData.lotissement_cloture),
+          lotissement_entree_unique: Boolean(formData.lotissement_entree_unique),
+          lotissement_voirie_interne: Boolean(formData.lotissement_voirie_interne),
+          lotissement_route_goudronnee: Boolean(formData.lotissement_route_goudronnee),
+          lotissement_largeur_voies_m: formData.lotissement_largeur_voies_m ?? null,
+          lotissement_vocation: formData.lotissement_vocation || null,
+          lotissement_approuve: formData.lotissement_approuve || null,
+          lotissement_constructible: Boolean(formData.lotissement_constructible),
+          lotissement_nb_etages_autorises: formData.lotissement_nb_etages_autorises || null,
+          lotissement_cahier_charges: Boolean(formData.lotissement_cahier_charges),
+          lotissement_electricite: formData.lotissement_electricite || null,
+          lotissement_eau: formData.lotissement_eau || null,
+          lotissement_onas: Boolean(formData.lotissement_onas),
+          lotissement_gaz: Boolean(formData.lotissement_gaz),
+          lotissement_eclairage_public: Boolean(formData.lotissement_eclairage_public),
+          lotissement_distance_plage_m: formData.lotissement_distance_plage_m ?? null,
+          lotissement_distance_centre_m: formData.lotissement_distance_centre_m ?? null,
+          lotissement_vue_mer: Boolean(formData.lotissement_vue_mer),
+          lotissement_quartier_residentiel: Boolean(formData.lotissement_quartier_residentiel),
+          lotissement_titre_foncier_global: Boolean(formData.lotissement_titre_foncier_global),
+          lotissement_titre_individuel_par_lot: formData.lotissement_titre_individuel_par_lot || null,
+          lotissement_titre_bleu: Boolean(formData.lotissement_titre_bleu),
+          lotissement_plan_lotissement: Boolean(formData.lotissement_plan_lotissement),
+          lotissement_situation_juridique: formData.lotissement_situation_juridique || null,
+          lotissement_disponible_immediatement: Boolean(formData.lotissement_disponible_immediatement),
           lotissement_terrains: Array.isArray(formData.lotissement_terrains) ? formData.lotissement_terrains : [],
+          lotissement_lot_models: Array.isArray(formData.lotissement_lot_models) ? formData.lotissement_lot_models : [],
           lotissement_paliers_prix_m2: Array.isArray(formData.lotissement_paliers_prix_m2) ? formData.lotissement_paliers_prix_m2 : [],
         }
       : {
@@ -6187,7 +6738,45 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           lotissement_prix_total: null,
           lotissement_mode_prix_m2: null,
           lotissement_prix_m2_unique: null,
+          lotissement_vente_mode: null,
+          lotissement_prix_m2_moyen: null,
+          lotissement_prix_negociable: false,
+          lotissement_prix_different_par_lot: false,
+          lotissement_surface_totale_m2: null,
+          lotissement_surface_vendable_m2: null,
+          lotissement_surface_voirie_commune_m2: null,
+          lotissement_nb_lots_disponibles: null,
+          lotissement_nb_lots_vendus_reserves: null,
+          lotissement_surface_lot_min_m2: null,
+          lotissement_surface_lot_max_m2: null,
+          lotissement_surface_lot_moyenne_m2: null,
+          lotissement_cloture: false,
+          lotissement_entree_unique: false,
+          lotissement_voirie_interne: false,
+          lotissement_route_goudronnee: false,
+          lotissement_largeur_voies_m: null,
+          lotissement_vocation: null,
+          lotissement_approuve: null,
+          lotissement_constructible: false,
+          lotissement_nb_etages_autorises: null,
+          lotissement_cahier_charges: false,
+          lotissement_electricite: null,
+          lotissement_eau: null,
+          lotissement_onas: false,
+          lotissement_gaz: false,
+          lotissement_eclairage_public: false,
+          lotissement_distance_plage_m: null,
+          lotissement_distance_centre_m: null,
+          lotissement_vue_mer: false,
+          lotissement_quartier_residentiel: false,
+          lotissement_titre_foncier_global: false,
+          lotissement_titre_individuel_par_lot: null,
+          lotissement_titre_bleu: false,
+          lotissement_plan_lotissement: false,
+          lotissement_situation_juridique: null,
+          lotissement_disponible_immediatement: false,
           lotissement_terrains: [],
+          lotissement_lot_models: [],
           lotissement_paliers_prix_m2: [],
         };
     const immeubleVenteData = isImmeubleVente
@@ -6196,18 +6785,54 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
           type_papier: resolvedTypePapier,
           immeuble_surface_terrain_m2: formData.immeuble_surface_terrain_m2 ?? null,
           immeuble_surface_batie_m2: formData.immeuble_surface_batie_m2 ?? null,
+          immeuble_largeur_facade_m: formData.immeuble_largeur_facade_m ?? null,
+          immeuble_nb_facades: formData.immeuble_nb_facades ?? null,
           immeuble_nb_niveaux: formData.immeuble_nb_niveaux ?? null,
+          immeuble_nb_etages: formData.immeuble_nb_etages ?? null,
           immeuble_nb_garages: formData.immeuble_nb_garages ?? null,
           immeuble_nb_appartements: formData.immeuble_nb_appartements ?? null,
+          immeuble_nb_s1: formData.immeuble_nb_s1 ?? null,
+          immeuble_nb_s2: formData.immeuble_nb_s2 ?? null,
+          immeuble_nb_s3: formData.immeuble_nb_s3 ?? null,
           immeuble_nb_locaux_commerciaux: formData.immeuble_nb_locaux_commerciaux ?? null,
+          immeuble_nb_bureaux: formData.immeuble_nb_bureaux ?? null,
+          immeuble_nb_places_parking: formData.immeuble_nb_places_parking ?? null,
+          immeuble_nb_unites_louees: formData.immeuble_nb_unites_louees ?? null,
+          immeuble_revenu_locatif_mensuel: formData.immeuble_revenu_locatif_mensuel ?? null,
+          immeuble_niveaux_autorises: formData.immeuble_niveaux_autorises || null,
+          immeuble_distance_centre_m: formData.immeuble_distance_centre_m ?? null,
           immeuble_distance_plage_m: formData.immeuble_distance_plage_m ?? null,
+          immeuble_usage_actuel: formData.immeuble_usage_actuel || null,
+          immeuble_etat: formData.immeuble_etat || null,
+          immeuble_standing: formData.immeuble_standing || null,
+          immeuble_loue_actuellement: formData.immeuble_loue_actuellement || null,
+          immeuble_titre_foncier: formData.immeuble_titre_foncier || null,
+          immeuble_permis_batir: formData.immeuble_permis_batir || null,
+          immeuble_situation_juridique: formData.immeuble_situation_juridique || null,
+          immeuble_mode_vente: formData.immeuble_mode_vente || 'entier_et_unites',
           immeuble_proche_plage: !!formData.immeuble_proche_plage,
           immeuble_ascenseur: !!formData.immeuble_ascenseur,
+          immeuble_depot_sous_sol: !!formData.immeuble_depot_sous_sol,
+          immeuble_garage: !!formData.immeuble_garage,
           immeuble_parking_sous_sol: !!formData.immeuble_parking_sous_sol,
           immeuble_parking_exterieur: !!formData.immeuble_parking_exterieur,
           immeuble_syndic: !!formData.immeuble_syndic,
           immeuble_vue_mer: !!formData.immeuble_vue_mer,
+          immeuble_chauffage_central: !!formData.immeuble_chauffage_central,
+          immeuble_climatisation: !!formData.immeuble_climatisation,
+          immeuble_gaz_ville: !!formData.immeuble_gaz_ville,
+          immeuble_compteurs_individuels: !!formData.immeuble_compteurs_individuels,
+          immeuble_eau_electricite_disponible: !!formData.immeuble_eau_electricite_disponible,
+          immeuble_location_saisonniere_possible: !!formData.immeuble_location_saisonniere_possible,
+          immeuble_extension_possible: !!formData.immeuble_extension_possible,
+          immeuble_construction_supplementaire_possible: !!formData.immeuble_construction_supplementaire_possible,
+          immeuble_route_principale: !!formData.immeuble_route_principale,
+          immeuble_proche_commerces: !!formData.immeuble_proche_commerces,
+          immeuble_titre_bleu: !!formData.immeuble_titre_bleu,
+          immeuble_plans_disponibles: !!formData.immeuble_plans_disponibles,
+          immeuble_disponible_immediatement: !!formData.immeuble_disponible_immediatement,
           immeuble_appartements: Array.isArray(formData.immeuble_appartements) ? formData.immeuble_appartements : [],
+          immeuble_unit_models: Array.isArray(formData.immeuble_unit_models) ? formData.immeuble_unit_models : [],
           immeuble_garages: Array.isArray(formData.immeuble_garages) ? formData.immeuble_garages : [],
           immeuble_locaux_commerciaux: Array.isArray(formData.immeuble_locaux_commerciaux) ? formData.immeuble_locaux_commerciaux : [],
           eau_puits: !!formData.eau_puits,
@@ -6217,18 +6842,56 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
       : {
           immeuble_surface_terrain_m2: null,
           immeuble_surface_batie_m2: null,
+          immeuble_largeur_facade_m: null,
+          immeuble_nb_facades: null,
           immeuble_nb_niveaux: null,
+          immeuble_nb_etages: null,
           immeuble_nb_garages: null,
           immeuble_nb_appartements: null,
+          immeuble_nb_s1: null,
+          immeuble_nb_s2: null,
+          immeuble_nb_s3: null,
           immeuble_nb_locaux_commerciaux: null,
+          immeuble_nb_bureaux: null,
+          immeuble_nb_places_parking: null,
+          immeuble_nb_unites_louees: null,
+          immeuble_revenu_locatif_mensuel: null,
+          immeuble_revenu_locatif_annuel: null,
+          immeuble_rendement_brut_pct: null,
+          immeuble_niveaux_autorises: null,
+          immeuble_distance_centre_m: null,
           immeuble_distance_plage_m: null,
+          immeuble_usage_actuel: null,
+          immeuble_etat: null,
+          immeuble_standing: null,
+          immeuble_loue_actuellement: null,
+          immeuble_titre_foncier: null,
+          immeuble_permis_batir: null,
+          immeuble_situation_juridique: null,
+          immeuble_mode_vente: null,
           immeuble_proche_plage: false,
           immeuble_ascenseur: false,
+          immeuble_depot_sous_sol: false,
+          immeuble_garage: false,
           immeuble_parking_sous_sol: false,
           immeuble_parking_exterieur: false,
           immeuble_syndic: false,
           immeuble_vue_mer: false,
+          immeuble_chauffage_central: false,
+          immeuble_climatisation: false,
+          immeuble_gaz_ville: false,
+          immeuble_compteurs_individuels: false,
+          immeuble_eau_electricite_disponible: false,
+          immeuble_location_saisonniere_possible: false,
+          immeuble_extension_possible: false,
+          immeuble_construction_supplementaire_possible: false,
+          immeuble_route_principale: false,
+          immeuble_proche_commerces: false,
+          immeuble_titre_bleu: false,
+          immeuble_plans_disponibles: false,
+          immeuble_disponible_immediatement: false,
           immeuble_appartements: [],
+          immeuble_unit_models: [],
           immeuble_garages: [],
           immeuble_locaux_commerciaux: [],
         };
@@ -6609,6 +7272,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     </>
   );
   const isAppartementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'appartement';
+  const isMaisonVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'villa_maison';
   const isLocalCommercialVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'local_commercial';
   const isTerrainVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'terrain';
   const isLotissementVente = (formData.mode || 'location_saisonniere') === 'vente' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'lotissement';
@@ -7627,11 +8291,34 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
     </div>
   );
   const immeubleClientImageUnits = [
-    ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}` })),
+    ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_appartements || 0)) }, (_, idx) => ({ unitKey: `appartement_${idx + 1}`, label: `Appartement ${idx + 1}`, modelKey: normalizeMediaKey((formData.immeuble_appartements || [])[idx]?.modele) })),
     ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_garages || 0)) }, (_, idx) => ({ unitKey: `garage_${idx + 1}`, label: `Garage ${idx + 1}` })),
-    ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_locaux_commerciaux || 0)) }, (_, idx) => ({ unitKey: `local_commercial_${idx + 1}`, label: `Local commercial ${idx + 1}` })),
+    ...Array.from({ length: Math.max(0, Number(formData.immeuble_nb_locaux_commerciaux || 0)) }, (_, idx) => ({ unitKey: `local_commercial_${idx + 1}`, label: `Local commercial ${idx + 1}`, modelKey: normalizeMediaKey((formData.immeuble_locaux_commerciaux || [])[idx]?.modele) })),
   ];
-  const lotissementClientImageUnits = Array.from({ length: Math.max(1, Number(formData.lotissement_nb_terrains || 1)) }, (_, idx) => ({ unitKey: `terrain_${idx + 1}`, label: `Terrain ${idx + 1}` }));
+  const lotissementClientImageUnits = Array.from({ length: Math.max(1, Number(formData.lotissement_nb_terrains || 1)) }, (_, idx) => ({ unitKey: `terrain_${idx + 1}`, label: `Terrain ${idx + 1}`, modelKey: normalizeMediaKey((formData.lotissement_terrains || [])[idx]?.modele) }));
+  const hierarchicalMediaModelOptions = Array.from(new Map([
+    ...(isImmeubleVente
+      ? [
+          ...(formData.immeuble_unit_models || []).map((model) => [normalizeMediaKey(model.nom || model.id), String(model.nom || model.id || 'Modele')]),
+          ...(formData.immeuble_appartements || []).map((row) => [normalizeMediaKey(row.modele), String(row.modele || '')]),
+          ...(formData.immeuble_locaux_commerciaux || []).map((row) => [normalizeMediaKey((row as any).modele), String((row as any).modele || '')]),
+        ]
+      : []),
+    ...(isLotissementVente
+      ? [
+          ...(formData.lotissement_lot_models || []).map((model) => [normalizeMediaKey(model.nom || model.id), String(model.nom || model.id || 'Modele')]),
+          ...(formData.lotissement_terrains || []).map((row) => [normalizeMediaKey(row.modele), String(row.modele || '')]),
+        ]
+      : []),
+  ].filter(([key, label]) => key && label) as Array<[string, string]>)).map(([value, label]) => ({ value, label }));
+  const hierarchicalMediaUnitOptions = (isImmeubleVente ? immeubleClientImageUnits : isLotissementVente ? lotissementClientImageUnits : [])
+    .map((unit) => ({ value: normalizeMediaKey(unit.unitKey), label: unit.label, modelKey: unit.modelKey || '' }));
+  const activeHierarchicalTargetOptions = hierarchicalMediaScope === 'model' ? hierarchicalMediaModelOptions : hierarchicalMediaScope === 'unit' ? hierarchicalMediaUnitOptions : [];
+  const selectedHierarchicalTarget = hierarchicalMediaScope === 'parent'
+    ? 'general'
+    : (activeHierarchicalTargetOptions.some((option) => option.value === hierarchicalMediaTarget) ? hierarchicalMediaTarget : activeHierarchicalTargetOptions[0]?.value || '');
+  const currentHierarchicalMediaMotif = buildHierarchicalMediaMotif(hierarchicalMediaScope, selectedHierarchicalTarget, hierarchicalMediaCategory);
+  const currentHierarchicalMediaImages = getHierarchicalMediaImages(hierarchicalMediaScope, selectedHierarchicalTarget);
   const residenceUnitTemplates = Array.isArray(formData.residence_units) ? formData.residence_units : [];
   const isModeVente = (formData.mode || 'location_saisonniere') === 'vente';
   const isResidenceDraft = (formData.mode || 'location_saisonniere') === 'location_saisonniere' && normalizeLegacyType((formData.type || 'appartement') as BienType) === 'residence';
@@ -8865,6 +9552,55 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                       <input type="number" min={0} name="distance_plage_m" value={formData.distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
                   </div>
+                  <div className="mt-4 rounded-xl border border-emerald-100 bg-white p-4">
+                    <h5 className="text-sm font-semibold text-gray-900">Critères structurés pour matching</h5>
+                    <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Etat du bien</label>
+                        <select value={String(appartementVenteDetails.etat_bien || '')} onChange={(e) => updateAppartementVenteDetails({ etat_bien: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">Indifferent</option>
+                          {APPARTEMENT_VENTE_SELECT_OPTIONS.etat_bien.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Standing</label>
+                        <select value={String(appartementVenteDetails.standing || '')} onChange={(e) => updateAppartementVenteDetails({ standing: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">Indifferent</option>
+                          {APPARTEMENT_VENTE_SELECT_OPTIONS.standing.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Orientation</label>
+                        <select value={String(appartementVenteDetails.orientation || '')} onChange={(e) => updateAppartementVenteDetails({ orientation: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">Indifferent</option>
+                          {APPARTEMENT_VENTE_SELECT_OPTIONS.orientation.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Vue</label>
+                        <select value={String(appartementVenteDetails.vue || '')} onChange={(e) => updateAppartementVenteDetails({ vue: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2">
+                          <option value="">Indifferent</option>
+                          {APPARTEMENT_VENTE_SELECT_OPTIONS.vue.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Frais syndic (DT)</label>
+                        <input type="number" min={0} step="0.01" value={appartementVenteDetails.frais_syndic_tnd ?? ''} onChange={(e) => updateAppartementVenteDetails({ frais_syndic_tnd: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" />
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {APPARTEMENT_VENTE_EXTENDED_BOOLEAN_FIELDS.map(([field, label]) => (
+                        <label key={field} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                          <span className="text-sm text-gray-700">{label}</span>
+                          <span className="relative inline-flex items-center">
+                            <input type="checkbox" checked={Boolean((appartementVenteDetails as any)[field])} onChange={(e) => updateAppartementVenteDetails({ [field]: e.target.checked })} className="peer sr-only" />
+                            <span className="h-5 w-10 rounded-full bg-gray-300 transition-colors peer-checked:bg-emerald-600" />
+                            <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                   {renderTypeProofUploads()}
                   {renderDetailTabFeatures()}
                     </>
@@ -8877,6 +9613,94 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                   {!isInfoDetailTab && !isCharacteristicsDetailTab && renderDetailTabFeatures()}
                 </div>
               )}
+              {isMaisonVente && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-800 mb-3">Détails Villa / Maison (Vente)</h4>
+                  {renderDetailTabsNavigation()}
+                  {isInfoDetailTab && (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Surface terrain (m²)</label>
+                          <input type="number" min={0} step="0.01" value={maisonVenteDetails.surface_terrain_m2 ?? ''} onChange={(e) => updateMaisonVenteDetails({ surface_terrain_m2: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Surface bâtie (m²)</label>
+                          <input type="number" min={0} step="0.01" name="superficie_m2" value={formData.superficie_m2 ?? ''} onChange={(e) => { handleChange(e); updateMaisonVenteDetails({ surface_batie_m2: e.target.value === '' ? null : Number(e.target.value) }); }} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Largeur façade (m)</label>
+                          <input type="number" min={0} step="0.01" name="facade_m" value={formData.facade_m ?? ''} onChange={(e) => { handleChange(e); updateMaisonVenteDetails({ facade_m: e.target.value === '' ? null : Number(e.target.value) }); }} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de niveaux</label>
+                          <input type="number" min={0} value={maisonVenteDetails.nb_niveaux ?? ''} onChange={(e) => updateMaisonVenteDetails({ nb_niveaux: e.target.value === '' ? null : Number(e.target.value) })} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de chambres</label>
+                          <input type="number" min={0} name="nb_chambres" value={formData.nb_chambres ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de SDB</label>
+                          <input type="number" min={0} name="nb_salle_bain" value={formData.nb_salle_bain ?? 0} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Année construction</label>
+                          <input type="number" min={1800} max={3000} name="annee_construction" value={formData.annee_construction ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label>
+                          <input type="number" min={0} name="distance_plage_m" value={formData.distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Type de rue *</label>
+                          <select name="type_rue" value={formData.type_rue || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                            <option value="">-- Choisir --</option>
+                            {Object.entries(TYPE_RUE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label>
+                          <select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                            <option value="">-- Choisir --</option>
+                            {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="mt-4 rounded-xl border border-emerald-100 bg-white p-4">
+                        <h5 className="text-sm font-semibold text-gray-900">Critères structurés pour matching</h5>
+                        <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-4">
+                          {(['etat_bien', 'standing', 'orientation', 'vue'] as const).map((field) => (
+                            <div key={field}>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">{field === 'etat_bien' ? 'Etat du bien' : field === 'standing' ? 'Standing' : field === 'orientation' ? 'Orientation' : 'Vue'}</label>
+                              <select value={String(maisonVenteDetails[field] || '')} onChange={(e) => updateMaisonVenteDetails({ [field]: e.target.value || null })} className="block w-full rounded-lg border-gray-300 border p-2">
+                                <option value="">Indifferent</option>
+                                {APPARTEMENT_VENTE_SELECT_OPTIONS[field].map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {MAISON_VENTE_EXTENDED_BOOLEAN_FIELDS.map(([field, label]) => (
+                            <label key={field} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                              <span className="text-sm text-gray-700">{label}</span>
+                              <span className="relative inline-flex items-center">
+                                <input type="checkbox" checked={field === 'independant' ? Boolean(formData.independant) : Boolean((maisonVenteDetails as any)[field])} onChange={(e) => { updateMaisonVenteDetails({ [field]: e.target.checked }); if (field === 'independant') setFormData((prev) => ({ ...prev, independant: e.target.checked })); }} className="peer sr-only" />
+                                <span className="h-5 w-10 rounded-full bg-gray-300 transition-colors peer-checked:bg-emerald-600" />
+                                <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      {renderTypeProofUploads()}
+                      {renderDetailTabFeatures()}
+                    </>
+                  )}
+                  {isCharacteristicsDetailTab && renderDetailTabFeatures()}
+                  {!isInfoDetailTab && !isCharacteristicsDetailTab && renderDetailTabFeatures()}
+                </div>
+              )}
               {isLocalCommercialVente && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <h4 className="text-sm font-semibold text-gray-800 mb-3">{detailSectionHeading}</h4>
@@ -8884,6 +9708,8 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                   {isInfoDetailTab && (
                     <>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Sous-type</label><select name="local_sous_type" value={formData.local_sous_type || 'local_commercial'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="local_commercial">Local commercial</option><option value="bureau">Bureau</option></select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Usage actuel</label><select name="local_usage_actuel" value={formData.local_usage_actuel || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option><option value="commerce">Commerce</option><option value="bureau">Bureau</option><option value="autre">Autre</option></select></div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Surface (m²)</label>
                       <input type="number" min={0} step="0.01" name="surface_local_m2" value={formData.surface_local_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
@@ -8900,6 +9726,39 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                       <label className="block text-sm font-medium text-gray-700 mb-1">Activité recommandée</label>
                       <input name="activite_recommandee" value={formData.activite_recommandee || ''} onChange={handleChange} placeholder="Café, boutique..." className="block w-full rounded-lg border-gray-300 border p-2" />
                     </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface exploitable (m2)</label><input type="number" min={0} step="0.01" name="local_surface_exploitable_m2" value={formData.local_surface_exploitable_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface RDC (m2)</label><input type="number" min={0} step="0.01" name="local_surface_rdc_m2" value={formData.local_surface_rdc_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Surface mezzanine (m2)</label><input type="number" min={0} step="0.01" name="local_surface_mezzanine_m2" value={formData.local_surface_mezzanine_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Largeur vitrine (m)</label><input type="number" min={0} step="0.01" name="local_largeur_vitrine_m" value={formData.local_largeur_vitrine_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre vitrines</label><input type="number" min={0} name="local_nb_vitrines" value={formData.local_nb_vitrines ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre facades</label><input type="number" min={0} max={3} name="local_nb_facades" value={formData.local_nb_facades ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Visibilite commerciale</label><select name="local_visibilite_commerciale" value={formData.local_visibilite_commerciale || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option><option value="faible">Faible</option><option value="bonne">Bonne</option><option value="excellente">Excellente</option></select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Pieces / bureaux</label><input type="number" min={0} name="local_nb_pieces_bureaux" value={formData.local_nb_pieces_bureaux ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Sanitaires</label><input type="number" min={0} name="local_nb_sanitaires" value={formData.local_nb_sanitaires ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Places parking</label><input type="number" min={0} name="local_nb_places_parking" value={formData.local_nb_places_parking ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Loyer mensuel actuel</label><input type="number" min={0} step="0.01" name="local_loyer_mensuel_actuel" value={formData.local_loyer_mensuel_actuel ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Revenu annuel calcule</label><input readOnly value={Number(formData.local_loyer_mensuel_actuel || 0) > 0 ? `${(Number(formData.local_loyer_mensuel_actuel || 0) * 12).toLocaleString('fr-FR')} DT` : ''} className="block w-full rounded-lg border-gray-200 border bg-gray-50 p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Rendement brut calcule</label><input readOnly value={Number(formData.local_loyer_mensuel_actuel || 0) > 0 && Number(formData.prix_affiche_client || formData.prix_nuitee || 0) > 0 ? `${(((Number(formData.local_loyer_mensuel_actuel || 0) * 12) / Number(formData.prix_affiche_client || formData.prix_nuitee || 0)) * 100).toFixed(2)} %` : ''} className="block w-full rounded-lg border-gray-200 border bg-gray-50 p-2" /></div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                    {[
+                      ['local_sur_rue_principale', 'Sur rue principale'], ['coin_angle', 'Coin de rue'], ['local_entree_independante', 'Entree independante'], ['local_acces_direct_rue', 'Acces direct rue'],
+                      ['local_acces_pmr', 'Acces PMR'], ['local_ascenseur', 'Ascenseur'], ['local_double_entree', 'Double entree'], ['local_parking', 'Parking'],
+                      ['local_stationnement_facile', 'Stationnement facile'], ['climatisation', 'Climatisation'], ['local_chauffage', 'Chauffage'], ['electricite_3_phases', 'Electricite triphasee'],
+                      ['eau_sonede', 'Eau'], ['gaz_ville', 'Gaz'], ['local_fibre_internet', 'Fibre / internet'], ['local_activite_commerciale_autorisee', 'Activite commerciale autorisee'],
+                      ['local_extraction_possible', 'Extraction possible'], ['local_adapte_restauration', 'Adapte restauration'], ['local_adapte_cabinet_medical', 'Adapte cabinet medical'], ['local_adapte_bureau', 'Adapte bureau'],
+                      ['local_open_space', 'Open space'], ['local_reception', 'Reception'], ['local_kitchenette', 'Kitchenette'], ['local_mezzanine', 'Mezzanine'],
+                      ['reserve_local', 'Depot / reserve'], ['local_sous_sol', 'Sous-sol'], ['local_amenage', 'Amenage'], ['local_actuellement_loue', 'Actuellement loue'],
+                      ['local_bail_en_cours', 'Bail en cours'], ['local_zone_commerciale', 'Zone commerciale'], ['local_proche_administrations', 'Proche administrations'], ['local_proche_commerces', 'Proche commerces'],
+                      ['local_titre_bleu', 'Titre bleu'], ['local_disponible_immediatement', 'Disponible immediatement'], ['vitrine', 'Vitrine'], ['toilette', 'Toilette'],
+                    ].map(([name, label]) => (
+                      <label key={name} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-3 text-sm font-medium text-gray-700">
+                        <input type="checkbox" name={name} checked={!!(formData as any)[name]} onChange={handleCheckboxChange} />
+                        {label}
+                      </label>
+                    ))}
                   </div>
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -9255,6 +10114,147 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                       </div>
                     )}
                   </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Vente</label>
+                      <select name="lotissement_vente_mode" value={formData.lotissement_vente_mode || 'les_deux'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="ensemble">Ensemble</option>
+                        <option value="lots_separes">Lots separes</option>
+                        <option value="les_deux">Les deux</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Prix moyen m2 (DT)</label>
+                      <input type="number" min={0} step="0.01" name="lotissement_prix_m2_moyen" value={formData.lotissement_prix_m2_moyen ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface totale (m2)</label>
+                      <input type="number" min={0} step="0.01" name="lotissement_surface_totale_m2" value={formData.lotissement_surface_totale_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface vendable (m2)</label>
+                      <input type="number" min={0} step="0.01" name="lotissement_surface_vendable_m2" value={formData.lotissement_surface_vendable_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Voirie / commun (m2)</label>
+                      <input type="number" min={0} step="0.01" name="lotissement_surface_voirie_commune_m2" value={formData.lotissement_surface_voirie_commune_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Lots disponibles</label>
+                      <input type="number" min={0} name="lotissement_nb_lots_disponibles" value={formData.lotissement_nb_lots_disponibles ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Lots vendus/reserves</label>
+                      <input type="number" min={0} name="lotissement_nb_lots_vendus_reserves" value={formData.lotissement_nb_lots_vendus_reserves ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Largeur voies (m)</label>
+                      <input type="number" min={0} step="0.01" name="lotissement_largeur_voies_m" value={formData.lotissement_largeur_voies_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface lot min</label>
+                      <input type="number" min={0} step="0.01" name="lotissement_surface_lot_min_m2" value={formData.lotissement_surface_lot_min_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface lot max</label>
+                      <input type="number" min={0} step="0.01" name="lotissement_surface_lot_max_m2" value={formData.lotissement_surface_lot_max_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Surface lot moyenne</label>
+                      <input type="number" min={0} step="0.01" name="lotissement_surface_lot_moyenne_m2" value={formData.lotissement_surface_lot_moyenne_m2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Vocation</label>
+                      <select name="lotissement_vocation" value={formData.lotissement_vocation || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">Non defini</option>
+                        <option value="habitation">Habitation</option>
+                        <option value="commerciale">Commerciale</option>
+                        <option value="mixte">Mixte</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Lotissement approuve</label>
+                      <select name="lotissement_approuve" value={formData.lotissement_approuve || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">Non defini</option>
+                        <option value="oui">Oui</option>
+                        <option value="non">Non</option>
+                        <option value="en_cours">En cours</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Niveaux autorises</label>
+                      <input name="lotissement_nb_etages_autorises" value={formData.lotissement_nb_etages_autorises || ''} onChange={handleChange} placeholder="R+2" className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Electricite</label>
+                      <select name="lotissement_electricite" value={formData.lotissement_electricite || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">Non defini</option>
+                        <option value="installee">Installee</option>
+                        <option value="a_proximite">A proximite</option>
+                        <option value="non">Non</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Eau</label>
+                      <select name="lotissement_eau" value={formData.lotissement_eau || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">Non defini</option>
+                        <option value="installee">Installee</option>
+                        <option value="a_proximite">A proximite</option>
+                        <option value="non">Non</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label>
+                      <input type="number" min={0} name="lotissement_distance_plage_m" value={formData.lotissement_distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Distance centre (m)</label>
+                      <input type="number" min={0} name="lotissement_distance_centre_m" value={formData.lotissement_distance_centre_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Titre individuel par lot</label>
+                      <select name="lotissement_titre_individuel_par_lot" value={formData.lotissement_titre_individuel_par_lot || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">Non defini</option>
+                        <option value="oui">Oui</option>
+                        <option value="non">Non</option>
+                        <option value="en_cours">En cours</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Situation juridique</label>
+                      <select name="lotissement_situation_juridique" value={formData.lotissement_situation_juridique || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2">
+                        <option value="">Non definie</option>
+                        <option value="reguliere">Reguliere</option>
+                        <option value="a_verifier">A verifier</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                    {[
+                      ['lotissement_prix_negociable', 'Prix negociable'],
+                      ['lotissement_prix_different_par_lot', 'Prix different par lot'],
+                      ['lotissement_cloture', 'Cloture'],
+                      ['lotissement_entree_unique', 'Entree unique'],
+                      ['lotissement_voirie_interne', 'Voirie interne'],
+                      ['lotissement_route_goudronnee', 'Route goudronnee'],
+                      ['lotissement_constructible', 'Constructible'],
+                      ['lotissement_cahier_charges', 'Cahier des charges'],
+                      ['lotissement_onas', 'ONAS'],
+                      ['lotissement_gaz', 'Gaz'],
+                      ['lotissement_eclairage_public', 'Eclairage public'],
+                      ['lotissement_vue_mer', 'Vue mer'],
+                      ['lotissement_quartier_residentiel', 'Quartier residentiel'],
+                      ['lotissement_titre_foncier_global', 'Titre foncier global'],
+                      ['lotissement_titre_bleu', 'Titre bleu'],
+                      ['lotissement_plan_lotissement', 'Plan de lotissement'],
+                      ['lotissement_disponible_immediatement', 'Disponible immediatement'],
+                    ].map(([field, label]) => (
+                      <label key={field} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                        <input type="checkbox" name={field} checked={Boolean((formData as any)[field])} onChange={handleChange} className="rounded border-gray-300 text-emerald-600" />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
                   {(formData.lotissement_mode_prix_m2 || 'm2_unique') === 'paliers' && (
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center justify-between">
@@ -9277,15 +10277,63 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                   {isLotissementTerrainsDetailTab && (
                     <>
                   <div className="mt-4 space-y-2">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h5 className="text-sm font-semibold text-gray-800">Modeles de lots</h5>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={addLotissementLotModel} className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-xs font-semibold text-emerald-700">Ajouter modele</button>
+                          <button type="button" onClick={generateLotissementLotsFromModels} className="px-3 py-1.5 rounded-lg bg-emerald-700 text-xs font-semibold text-white">Generer les lots</button>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {(formData.lotissement_lot_models || []).map((model: any, modelIndex: number) => (
+                          <div key={model.id || modelIndex} className="grid grid-cols-1 md:grid-cols-7 gap-2">
+                            <input placeholder="Modele" value={model.label || ''} onChange={(e) => updateLotissementLotModel(modelIndex, 'label', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={1} placeholder="Quantite" value={model.quantity ?? 1} onChange={(e) => updateLotissementLotModel(modelIndex, 'quantity', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={0} placeholder="Surface" value={model.surface_m2 ?? ''} onChange={(e) => updateLotissementLotModel(modelIndex, 'surface_m2', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={0} placeholder="Facade" value={model.facade_m ?? ''} onChange={(e) => updateLotissementLotModel(modelIndex, 'facade_m', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={0} placeholder="Prix m2" value={model.prix_m2 ?? ''} onChange={(e) => updateLotissementLotModel(modelIndex, 'prix_m2', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={0} placeholder="Prix total" value={model.prix_total ?? ''} onChange={(e) => updateLotissementLotModel(modelIndex, 'prix_total', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <select value={model.type_terrain || ''} onChange={(e) => updateLotissementLotModel(modelIndex, 'type_terrain', e.target.value)} className="rounded-lg border-gray-300 border p-2">
+                              <option value="">Type</option>
+                              {Object.entries(TYPE_TERRAIN_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                     <h5 className="text-sm font-semibold text-gray-800">Terrains du lotissement</h5>
                     {(formData.lotissement_terrains || []).map((row, idx) => (
-                      <div key={idx} className="grid grid-cols-1 md:grid-cols-6 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
+                      <div key={idx} className="grid grid-cols-1 md:grid-cols-8 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
                         <input value={row.reference || generateChildReference('TRN', idx + 1)} readOnly className="rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" />
                         <select value={row.type_terrain || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'type_terrain', e.target.value)} className="rounded-lg border-gray-300 border p-2">
                           <option value="">Type terrain</option>
                           {Object.entries(TYPE_TERRAIN_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                         </select>
                         <input type="number" min={0} step="0.01" placeholder="Surface m2" value={row.surface_m2 ?? ''} onChange={(e) => handleLotissementTerrainChange(idx, 'surface_m2', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                        <input type="number" min={0} step="0.01" placeholder="Facade m" value={row.facade_m ?? ''} onChange={(e) => handleLotissementTerrainChange(idx, 'facade_m', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                        <input type="number" min={0} step="0.01" placeholder="Profondeur m" value={row.profondeur_m ?? ''} onChange={(e) => handleLotissementTerrainChange(idx, 'profondeur_m', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                        <input type="number" min={0} placeholder="Nb facades" value={row.nb_facades ?? ''} onChange={(e) => handleLotissementTerrainChange(idx, 'nb_facades', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                        <select value={row.orientation || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'orientation', e.target.value)} className="rounded-lg border-gray-300 border p-2">
+                          <option value="">Orientation</option>
+                          <option value="nord">Nord</option>
+                          <option value="sud">Sud</option>
+                          <option value="est">Est</option>
+                          <option value="ouest">Ouest</option>
+                        </select>
+                        <select value={row.position || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'position', e.target.value)} className="rounded-lg border-gray-300 border p-2">
+                          <option value="">Position</option>
+                          <option value="angle">Angle</option>
+                          <option value="interieur">Interieur</option>
+                          <option value="principal">Principal</option>
+                        </select>
+                        <input type="number" min={0} step="0.01" placeholder="Prix m2" value={row.prix_m2 ?? ''} onChange={(e) => handleLotissementTerrainChange(idx, 'prix_m2', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                        <input type="number" min={0} step="0.01" placeholder="Prix total" value={row.prix_total ?? ''} onChange={(e) => handleLotissementTerrainChange(idx, 'prix_total', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                        <select value={row.statut || 'disponible'} onChange={(e) => handleLotissementTerrainChange(idx, 'statut', e.target.value)} className="rounded-lg border-gray-300 border p-2">
+                          <option value="disponible">Disponible</option>
+                          <option value="reserve">Reserve</option>
+                          <option value="vendu">Vendu</option>
+                        </select>
                         <select value={row.type_rue || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'type_rue', e.target.value)} className="rounded-lg border-gray-300 border p-2">
                           <option value="">Type rue</option>
                           {Object.entries(TYPE_RUE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -9295,7 +10343,7 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                           {Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                         </select>
                         <input placeholder="Zone" value={row.terrain_zone || ''} onChange={(e) => handleLotissementTerrainChange(idx, 'terrain_zone', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
-                        <div className="md:col-span-5 mt-1 rounded-lg border border-dashed border-gray-300 p-2">
+                        <div className="md:col-span-8 mt-1 rounded-lg border border-dashed border-gray-300 p-2">
                           <div className="text-xs font-medium text-gray-700 mb-2">Preuves Terrain {idx + 1} (type rue / type papier)</div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
@@ -9374,22 +10422,110 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Type de papier *</label><select name="type_papier" value={formData.type_papier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option>{Object.entries(TYPE_PAPIER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Distance plage (m)</label><input type="number" min={0} name="immeuble_distance_plage_m" value={formData.immeuble_distance_plage_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                   </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Usage actuel</label><select name="immeuble_usage_actuel" value={formData.immeuble_usage_actuel || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option><option value="habitation">Habitation</option><option value="commercial">Commercial</option><option value="mixte">Mixte</option></select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Largeur facade (m)</label><input type="number" min={0} step="0.01" name="immeuble_largeur_facade_m" value={formData.immeuble_largeur_facade_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre de facades</label><input type="number" min={0} max={4} name="immeuble_nb_facades" value={formData.immeuble_nb_facades ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre d'etages</label><input type="number" min={0} name="immeuble_nb_etages" value={formData.immeuble_nb_etages ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Etat</label><select name="immeuble_etat" value={formData.immeuble_etat || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option><option value="neuf">Neuf</option><option value="bon">Bon</option><option value="a_renover">A renover</option></select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Standing</label><select name="immeuble_standing" value={formData.immeuble_standing || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option><option value="standard">Standard</option><option value="bon">Bon standing</option><option value="haut">Haut standing</option></select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre S+1</label><input type="number" min={0} name="immeuble_nb_s1" value={formData.immeuble_nb_s1 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre S+2</label><input type="number" min={0} name="immeuble_nb_s2" value={formData.immeuble_nb_s2 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre S+3</label><input type="number" min={0} name="immeuble_nb_s3" value={formData.immeuble_nb_s3 ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nombre de bureaux</label><input type="number" min={0} name="immeuble_nb_bureaux" value={formData.immeuble_nb_bureaux ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Places parking</label><input type="number" min={0} name="immeuble_nb_places_parking" value={formData.immeuble_nb_places_parking ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Distance centre-ville (m)</label><input type="number" min={0} name="immeuble_distance_centre_m" value={formData.immeuble_distance_centre_m ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                  </div>
+                  <div className="mt-4 rounded-lg border border-emerald-100 bg-white p-4">
+                    <h5 className="mb-3 text-sm font-semibold text-gray-800">Investissement et rentabilite</h5>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Immeuble loue</label><select name="immeuble_loue_actuellement" value={formData.immeuble_loue_actuellement || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option><option value="oui">Oui</option><option value="non">Non</option><option value="partiellement">Partiellement</option></select></div>
+                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Unites louees</label><input type="number" min={0} name="immeuble_nb_unites_louees" value={formData.immeuble_nb_unites_louees ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Revenu mensuel (DT)</label><input type="number" min={0} step="0.01" name="immeuble_revenu_locatif_mensuel" value={formData.immeuble_revenu_locatif_mensuel ?? ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Revenu annuel calcule</label><input readOnly value={Number(formData.immeuble_revenu_locatif_mensuel || 0) > 0 ? `${(Number(formData.immeuble_revenu_locatif_mensuel || 0) * 12).toLocaleString('fr-FR')} DT` : ''} className="block w-full rounded-lg border-gray-200 border bg-gray-50 p-2" /></div>
+                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Rendement brut calcule</label><input readOnly value={Number(formData.immeuble_revenu_locatif_mensuel || 0) > 0 && Number(formData.prix_affiche_client || formData.prix_nuitee || 0) > 0 ? `${(((Number(formData.immeuble_revenu_locatif_mensuel || 0) * 12) / Number(formData.prix_affiche_client || formData.prix_nuitee || 0)) * 100).toFixed(2)} %` : ''} className="block w-full rounded-lg border-gray-200 border bg-gray-50 p-2" /></div>
+                      <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm font-medium text-gray-700"><input type="checkbox" name="immeuble_location_saisonniere_possible" checked={!!formData.immeuble_location_saisonniere_possible} onChange={handleCheckboxChange} />Location saisonniere possible</label>
+                      <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm font-medium text-gray-700"><input type="checkbox" name="immeuble_extension_possible" checked={!!formData.immeuble_extension_possible} onChange={handleCheckboxChange} />Extension possible</label>
+                      <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm font-medium text-gray-700"><input type="checkbox" name="immeuble_construction_supplementaire_possible" checked={!!formData.immeuble_construction_supplementaire_possible} onChange={handleCheckboxChange} />Construction supplementaire</label>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                    {[
+                      ['immeuble_ascenseur', 'Ascenseur'], ['immeuble_depot_sous_sol', 'Depot / sous-sol'], ['immeuble_garage', 'Garage'], ['immeuble_parking_exterieur', 'Parking'],
+                      ['immeuble_chauffage_central', 'Chauffage central'], ['immeuble_climatisation', 'Climatisation'], ['immeuble_gaz_ville', 'Gaz de ville'], ['immeuble_compteurs_individuels', 'Compteurs individuels'],
+                      ['immeuble_eau_electricite_disponible', 'Eau / electricite'], ['immeuble_route_principale', 'Route principale'], ['immeuble_proche_commerces', 'Proche commerces'], ['immeuble_vue_mer', 'Vue mer'],
+                      ['immeuble_titre_bleu', 'Titre bleu'], ['immeuble_plans_disponibles', 'Plans disponibles'], ['immeuble_disponible_immediatement', 'Disponible immediatement'], ['immeuble_proche_plage', 'Proche plage'],
+                    ].map(([name, label]) => (
+                      <label key={name} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-3 text-sm font-medium text-gray-700">
+                        <input type="checkbox" name={name} checked={!!(formData as any)[name]} onChange={handleCheckboxChange} />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Mode de vente</label><select name="immeuble_mode_vente" value={formData.immeuble_mode_vente || 'entier_et_unites'} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="immeuble_entier">Immeuble entier</option><option value="unites_separement">Unites separement</option><option value="entier_et_unites">Entier + unites separement</option></select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Titre foncier</label><select name="immeuble_titre_foncier" value={formData.immeuble_titre_foncier || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option><option value="individuel">Individuel</option><option value="collectif">Collectif</option><option value="autre">Autre</option></select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Permis de batir</label><select name="immeuble_permis_batir" value={formData.immeuble_permis_batir || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option><option value="oui">Oui</option><option value="non">Non</option><option value="a_verifier">A verifier</option></select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Situation juridique</label><select name="immeuble_situation_juridique" value={formData.immeuble_situation_juridique || ''} onChange={handleChange} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">-- Choisir --</option><option value="reguliere">Reguliere</option><option value="a_verifier">A verifier</option></select></div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Niveaux autorises</label><input name="immeuble_niveaux_autorises" value={formData.immeuble_niveaux_autorises || ''} onChange={handleChange} placeholder="Ex: R+4" className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                  </div>
                   {renderDetailTabFeatures()}
                     </>
                   )}
                   {isImmeubleAppartementsDetailTab && (
                     <>
                   <div className="mt-4">
-                    <h5 className="text-sm font-semibold text-gray-800 mb-2">Appartements de l'immeuble</h5>
+                    <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h5 className="text-sm font-semibold text-gray-800">Modeles d'unites</h5>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={addImmeubleUnitModel} className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-xs font-semibold text-emerald-700">Ajouter modele</button>
+                          <button type="button" onClick={generateImmeubleUnitsFromModels} className="px-3 py-1.5 rounded-lg bg-emerald-700 text-xs font-semibold text-white">Generer les unites</button>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {(formData.immeuble_unit_models || []).map((model: any, modelIndex: number) => (
+                          <div key={model.id || modelIndex} className="grid grid-cols-1 md:grid-cols-8 gap-2">
+                            <input placeholder="Type A" value={model.label || ''} onChange={(e) => updateImmeubleUnitModel(modelIndex, 'label', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={1} placeholder="Qté" value={model.quantity ?? 1} onChange={(e) => updateImmeubleUnitModel(modelIndex, 'quantity', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <select value={model.type_unite || 'appartement'} onChange={(e) => updateImmeubleUnitModel(modelIndex, 'type_unite', e.target.value)} className="rounded-lg border-gray-300 border p-2"><option value="appartement">Appartement</option><option value="local_commercial">Local</option><option value="bureau">Bureau</option></select>
+                            <input placeholder="S+2" value={model.configuration || ''} onChange={(e) => updateImmeubleUnitModel(modelIndex, 'configuration', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={0} placeholder="Surface" value={model.superficie_m2 ?? ''} onChange={(e) => updateImmeubleUnitModel(modelIndex, 'superficie_m2', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={0} placeholder="Chambres" value={model.chambres ?? ''} onChange={(e) => updateImmeubleUnitModel(modelIndex, 'chambres', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={0} placeholder="SDB" value={model.salle_bain ?? ''} onChange={(e) => updateImmeubleUnitModel(modelIndex, 'salle_bain', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                            <input type="number" min={0} placeholder="Prix" value={model.prix ?? ''} onChange={(e) => updateImmeubleUnitModel(modelIndex, 'prix', e.target.value)} className="rounded-lg border-gray-300 border p-2" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <h5 className="text-sm font-semibold text-gray-800 mb-2">Unites de l'immeuble</h5>
                     <div className="space-y-2">
                       {(formData.immeuble_appartements || []).map((row, idx) => (
-                        <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
+                        <div key={idx} className="grid grid-cols-1 md:grid-cols-6 gap-2 p-3 rounded-lg border border-gray-200 bg-white">
+                          <div><label className="block text-xs text-gray-600 mb-1">Type unite</label><select value={(row as any).type_unite || 'appartement'} onChange={(e) => handleImmeubleAppartementChange(idx, 'type_unite', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2"><option value="appartement">Appartement</option><option value="local_commercial">Local commercial</option><option value="bureau">Bureau</option></select></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Statut</label><select value={(row as any).statut || 'disponible'} onChange={(e) => handleImmeubleAppartementChange(idx, 'statut', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2"><option value="disponible">Disponible</option><option value="reserve">Reserve</option><option value="vendu">Vendu</option></select></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Etage</label><input value={(row as any).etage ?? ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'etage', e.target.value)} placeholder="RDC / 1er" className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Référence</label><input value={row.reference || generateChildReference('APT', idx + 1)} readOnly className="block w-full rounded-lg border-gray-300 border p-2 bg-gray-50 text-xs font-semibold text-gray-700" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Chambres</label><input type="number" min={0} value={row.chambres || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'chambres', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - SDB</label><input type="number" min={0} value={row.salle_bain || 0} onChange={(e) => handleImmeubleAppartementChange(idx, 'salle_bain', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Surface (m²)</label><input type="number" min={0} step="0.01" value={row.superficie_m2 ?? ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'superficie_m2', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
                           <div><label className="block text-xs text-gray-600 mb-1">Appartement {idx + 1} - Configuration</label><input value={row.configuration || ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'configuration', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
-                          <div className="md:col-span-4 mt-1 rounded-lg border border-dashed border-gray-300 p-2">
+                          <div><label className="block text-xs text-gray-600 mb-1">Prix (DT)</label><input type="number" min={0} step="0.01" value={(row as any).prix ?? ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'prix', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Orientation</label><select value={(row as any).orientation || ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'orientation', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option><option value="nord">Nord</option><option value="sud">Sud</option><option value="est">Est</option><option value="ouest">Ouest</option></select></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Vue</label><input value={(row as any).vue || ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'vue', e.target.value)} placeholder="mer, degagee..." className="block w-full rounded-lg border-gray-300 border p-2" /></div>
+                          <div><label className="block text-xs text-gray-600 mb-1">Etat</label><select value={(row as any).etat_bien || ''} onChange={(e) => handleImmeubleAppartementChange(idx, 'etat_bien', e.target.value)} className="block w-full rounded-lg border-gray-300 border p-2"><option value="">--</option><option value="neuf">Neuf</option><option value="recent">Recent</option><option value="a_renover">A renover</option></select></div>
+                          <div className="md:col-span-6 grid grid-cols-2 lg:grid-cols-5 gap-2">
+                            {[
+                              ['prix_negociable', 'Prix negociable'], ['suite_parentale', 'Suite parentale'], ['balcon', 'Balcon'], ['terrasse', 'Terrasse'], ['climatisation', 'Climatisation'],
+                              ['chauffage_central', 'Chauffage'], ['cuisine_equipee', 'Cuisine equipee'], ['parking', 'Parking'], ['garage', 'Garage'], ['titre_foncier_individuel', 'Titre individuel'],
+                            ].map(([field, label]) => (
+                              <label key={field} className="flex items-center gap-2 rounded-lg border border-gray-200 px-2 py-2 text-xs font-medium text-gray-700">
+                                <input type="checkbox" checked={Boolean((row as any)[field])} onChange={(e) => handleImmeubleAppartementChange(idx, field, String(e.target.checked))} />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                          <div className="md:col-span-6 mt-1 rounded-lg border border-dashed border-gray-300 p-2">
                             <div className="text-xs font-medium text-gray-700 mb-2">Preuves Appartement {idx + 1} (type rue / type papier)</div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                               <div>
@@ -10330,6 +11466,82 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
               )}
               <h3 className="text-lg font-semibold mb-4"><ImageIcon className="h-5 w-5 inline text-emerald-600 mr-2" />Gestion des images</h3>
               {(((formData.mode || 'location_saisonniere') === 'vente')) && (
+                <div className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+                  <div className="mb-3 flex flex-col gap-1">
+                    <h4 className="text-sm font-semibold text-gray-900">Mediatheque hierarchique</h4>
+                    <p className="text-xs text-gray-600">
+                      Choisissez si la photo appartient au bien parent, a un modele commun ou a une unite precise.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <label className="text-sm font-medium text-gray-700">
+                      Photo de
+                      <select
+                        value={hierarchicalMediaScope}
+                        onChange={(e) => {
+                          const nextScope = e.target.value as HierarchicalMediaScope;
+                          setHierarchicalMediaScope(nextScope);
+                          setHierarchicalMediaTarget('');
+                        }}
+                        className="mt-1 w-full rounded-lg border border-gray-300 p-2"
+                      >
+                        <option value="parent">{isImmeubleVente ? 'Immeuble' : isLotissementVente ? 'Lotissement' : 'Bien'}</option>
+                        <option value="model" disabled={!isImmeubleVente && !isLotissementVente}>Modele</option>
+                        <option value="unit" disabled={!isImmeubleVente && !isLotissementVente}>Unite precise</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium text-gray-700">
+                      Cible
+                      <select
+                        value={selectedHierarchicalTarget}
+                        onChange={(e) => setHierarchicalMediaTarget(e.target.value)}
+                        disabled={hierarchicalMediaScope === 'parent' || activeHierarchicalTargetOptions.length === 0}
+                        className="mt-1 w-full rounded-lg border border-gray-300 p-2 disabled:bg-gray-100 disabled:text-gray-500"
+                      >
+                        {hierarchicalMediaScope === 'parent' ? (
+                          <option value="general">Galerie generale</option>
+                        ) : activeHierarchicalTargetOptions.length > 0 ? (
+                          activeHierarchicalTargetOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)
+                        ) : (
+                          <option value="">Aucune cible creee</option>
+                        )}
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium text-gray-700">
+                      Categorie
+                      <select
+                        value={hierarchicalMediaCategory}
+                        onChange={(e) => setHierarchicalMediaCategory(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-gray-300 p-2"
+                      >
+                        {SALE_MEDIA_CATEGORIES.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="mt-3 flex flex-col gap-3 lg:flex-row">
+                    <input
+                      type="text"
+                      value={newImageUrl}
+                      onChange={(e) => setNewImageUrl(e.target.value)}
+                      placeholder="URL de l'image hierarchique"
+                      className="flex-1 rounded-lg border-gray-300 border p-2"
+                    />
+                    <button type="button" onClick={() => handleAddImage(currentHierarchicalMediaMotif)} disabled={!newImageUrl.trim() || (hierarchicalMediaScope !== 'parent' && !selectedHierarchicalTarget)} className="px-4 py-2 bg-emerald-600 text-white rounded-lg disabled:opacity-50">Ajouter</button>
+                  </div>
+                  <div className="mt-3">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                      <Upload className="h-4 w-4 text-emerald-600" />
+                      <span>Upload vers cette cible</span>
+                    </label>
+                    <input type="file" accept="image/*,.heic,.heif" multiple onChange={(e) => handleFileUpload(e, currentHierarchicalMediaMotif)} disabled={uploading || (hierarchicalMediaScope !== 'parent' && !selectedHierarchicalTarget)} className="block w-full text-sm" />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs text-gray-600">
+                    <span>Motif stocke: <span className="font-mono text-gray-900">{currentHierarchicalMediaMotif}</span></span>
+                    <span className="font-semibold text-emerald-700">{currentHierarchicalMediaImages.length} image{currentHierarchicalMediaImages.length > 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+              )}
+              {(((formData.mode || 'location_saisonniere') === 'vente')) && (
                 <div className="mb-3">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Motif d'upload image vente</label>
                   <input
@@ -10359,13 +11571,17 @@ function BienEditor({ initialData, seedData, initialGeneralStep = 1, initialTab 
                   <p className="text-sm text-gray-600">
                     Les images client sont séparées par {(isImmeubleVente ? "unité d'immeuble" : "terrain")} pour éviter tout mélange.
                   </p>
-                  {(isImmeubleVente ? immeubleClientImageUnits : lotissementClientImageUnits).map(({ unitKey, label }) => {
+                  {(isImmeubleVente ? immeubleClientImageUnits : lotissementClientImageUnits).map(({ unitKey, label, modelKey }) => {
                     const unitMotif = buildUnitGalleryMotif(
                       (formData.mode || 'location_saisonniere') as BienMode,
                       normalizeLegacyType((formData.type || 'appartement') as BienType),
                       unitKey
                     );
-                    const unitImages = getUnitClientImages(unitKey);
+                    const unitImages = [
+                      ...(modelKey ? getHierarchicalMediaImages('model', modelKey) : []),
+                      ...getUnitClientImages(unitKey),
+                      ...getHierarchicalMediaImages('unit', unitKey),
+                    ];
                     return (
                       <div key={unitKey} className="rounded-lg border border-gray-200 p-3">
                         <h4 className="text-sm font-semibold text-gray-800 mb-2">{label}</h4>

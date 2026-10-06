@@ -44,6 +44,15 @@ export function AdminLayout() {
   }, [location.pathname]);
 
   useEffect(() => {
+    if (!sidebarOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [sidebarOpen]);
+
+  useEffect(() => {
     window.localStorage.setItem('dwira-admin-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
   }, [sidebarCollapsed]);
 
@@ -61,26 +70,28 @@ export function AdminLayout() {
   const isWideWorkspace = location.pathname.startsWith('/admin/ventes');
 
   return (
-    <div className="flex min-h-screen bg-gray-50 font-sans text-gray-900">
+    <div className="flex min-h-screen overflow-x-hidden bg-gray-50 font-sans text-gray-900">
       {navigation.state !== 'idle' && (
         <div className="pointer-events-none fixed left-0 right-0 top-0 z-[70] h-1 overflow-hidden bg-transparent">
           <div className="h-full w-full origin-left animate-[dwira-admin-progress_1.15s_ease-in-out_infinite] bg-gradient-to-r from-emerald-400 via-emerald-600 to-emerald-400" />
         </div>
       )}
-      <div className="fixed left-0 right-0 top-0 z-50 flex h-16 items-center justify-between bg-emerald-950 px-4 text-white lg:hidden">
+      <div className="fixed left-0 right-0 top-0 z-50 flex h-16 items-center justify-between bg-emerald-950 px-4 text-white shadow-lg shadow-emerald-950/10 lg:hidden">
         <div className="flex items-center gap-2">
           <img src={logo} alt="Dwira" className="h-6 w-auto" />
           <h1 className="font-bold">Dwira Admin</h1>
         </div>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-2 hover:bg-emerald-900 rounded-lg transition-colors"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-800 bg-emerald-900/70 transition-colors hover:border-emerald-300 hover:bg-emerald-800"
+          aria-label={sidebarOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
+          aria-expanded={sidebarOpen}
         >
           {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
 
-      <div className="fixed left-0 right-0 top-16 z-40 border-b border-emerald-100 bg-white/95 backdrop-blur lg:hidden">
+      <div className="fixed left-0 right-0 top-16 z-30 border-b border-emerald-100 bg-white/95 backdrop-blur lg:hidden">
         <div className="dwira-admin-mobile-tabs flex gap-2 overflow-x-auto px-4 py-3">
           {navItems.map((item) => (
             <button
@@ -102,20 +113,26 @@ export function AdminLayout() {
 
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 z-[55] bg-slate-950/60 backdrop-blur-[2px] lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
+      {sidebarOpen && (
+        <div className="fixed inset-y-0 left-0 z-[60] transform transition-transform duration-300 ease-in-out lg:hidden">
+          <AdminSidebar
+            onClose={() => setSidebarOpen(false)}
+            collapsed={false}
+            variant="mobile"
+          />
+        </div>
+      )}
+
       <div className={`
-        fixed inset-y-0 left-0 z-50
-        lg:top-0 lg:h-screen
-        transform transition-all duration-300 ease-in-out
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
-        lg:translate-x-0
+        fixed inset-y-0 left-0 z-50 hidden
+        lg:block lg:translate-x-0
       `}>
         <AdminSidebar
-          onClose={() => setSidebarOpen(false)}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
         />

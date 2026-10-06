@@ -141,6 +141,10 @@ export type ModeAffichagePrixTerrain = 'total_uniquement' | 'm2_uniquement' | 't
 export type ModePrixLotissement = 'm2_unique' | 'paliers';
 export type TarificationMethodeVente = 'avec_commission' | 'sans_commission';
 export type ModalitePaiementVente = 'comptant' | 'facilite';
+export type AppartementVenteStanding = 'standard' | 'bon_standing' | 'haut_standing';
+export type AppartementVenteOrientation = 'nord' | 'sud' | 'est' | 'ouest' | 'nord_est' | 'nord_ouest' | 'sud_est' | 'sud_ouest';
+export type AppartementVenteEtat = 'neuf' | 'recent' | 'a_renover';
+export type AppartementVenteVue = 'mer' | 'degagee' | 'jardin' | 'piscine' | 'ville' | 'sans_vue';
 export type TerrainTopographie = 'plat' | 'en_pente';
 export type TerrainVoisinage = 'residentiel_calme' | 'touristique_anime' | 'agricole';
 export type TerrainNiveauSonore = 'faible' | 'moyen' | 'eleve';
@@ -176,15 +180,50 @@ export interface SeasonalPricingPeriod {
 export interface ImmeubleAppartementDetail {
   index: number;
   reference?: string | null;
+  modele?: string | null;
+  type_unite?: 'appartement' | 'local_commercial' | 'bureau' | null;
+  etage?: string | number | null;
   chambres: number;
   salle_bain: number;
   superficie_m2?: number | null;
   configuration?: string | null;
+  prix?: number | null;
+  prix_negociable?: boolean;
+  statut?: string | null;
+  suite_parentale?: boolean;
+  balcon?: boolean;
+  terrasse?: boolean;
+  orientation?: string | null;
+  vue?: string | null;
+  climatisation?: boolean;
+  chauffage_central?: boolean;
+  cuisine_equipee?: boolean;
+  parking?: boolean;
+  garage?: boolean;
+  titre_foncier_individuel?: boolean;
+  etat_bien?: string | null;
+}
+
+export interface ImmeubleUnitModel {
+  id?: string;
+  label?: string;
+  quantity?: number;
+  type_unite?: 'appartement' | 'local_commercial' | 'bureau' | null;
+  configuration?: string | null;
+  superficie_m2?: number | null;
+  chambres?: number | null;
+  salle_bain?: number | null;
+  prix?: number | null;
+  balcon?: boolean;
+  chauffage_central?: boolean;
+  climatisation?: boolean;
+  cuisine_equipee?: boolean;
 }
 
 export interface ImmeubleGarageDetail {
   index: number;
   reference?: string | null;
+  modele?: string | null;
 }
 
 export interface ImmeubleLocalCommercialDetail {
@@ -220,8 +259,17 @@ export interface ResidenceUnitTemplate {
 export interface LotissementTerrainDetail {
   index: number;
   reference?: string | null;
+  modele?: string | null;
   type_terrain?: TypeTerrainVente | null;
   surface_m2?: number | null;
+  facade_m?: number | null;
+  profondeur_m?: number | null;
+  nb_facades?: number | null;
+  orientation?: string | null;
+  position?: string | null;
+  prix_m2?: number | null;
+  prix_total?: number | null;
+  statut?: string | null;
   type_rue?: TypeRueAppartementVente | null;
   type_papier?: TypePapierAppartementVente | null;
   terrain_zone?: string | null;
@@ -230,10 +278,69 @@ export interface LotissementTerrainDetail {
   terrain_angle?: boolean;
 }
 
+export interface LotissementLotModel {
+  id?: string;
+  label?: string;
+  quantity?: number;
+  type_terrain?: TypeTerrainVente | null;
+  surface_m2?: number | null;
+  facade_m?: number | null;
+  profondeur_m?: number | null;
+  nb_facades?: number | null;
+  prix_m2?: number | null;
+  prix_total?: number | null;
+  type_rue?: TypeRueAppartementVente | null;
+  type_papier?: TypePapierAppartementVente | null;
+}
+
 export interface LotissementPalierPrix {
   min_m2: number;
   max_m2?: number | null;
   prix_m2: number;
+}
+
+export interface VenteAppartementDetails {
+  proximite_plage?: boolean;
+  proximite_centre?: boolean;
+  proximite_ecoles?: boolean;
+  proximite_commerces?: boolean;
+  residence?: boolean;
+  residence_gardee?: boolean;
+  copropriete?: boolean;
+  titre_foncier_individuel?: boolean;
+  etat_bien?: AppartementVenteEtat | null;
+  standing?: AppartementVenteStanding | null;
+  orientation?: AppartementVenteOrientation | null;
+  vue?: AppartementVenteVue | null;
+  garage?: boolean;
+  abri_voiture?: boolean;
+  suite_parentale?: boolean;
+  jardin_rdc?: boolean;
+  piscine_individuelle?: boolean;
+  piscine_commune?: boolean;
+  frais_syndic_tnd?: number | null;
+  disponibilite_immediate?: boolean;
+}
+
+export interface VenteMaisonDetails {
+  surface_terrain_m2?: number | null;
+  surface_batie_m2?: number | null;
+  facade_m?: number | null;
+  nb_niveaux?: number | null;
+  rdc?: boolean;
+  independant?: boolean;
+  titre_foncier_individuel?: boolean;
+  etat_bien?: AppartementVenteEtat | null;
+  standing?: AppartementVenteStanding | null;
+  orientation?: AppartementVenteOrientation | null;
+  vue?: AppartementVenteVue | null;
+  garage?: boolean;
+  abri_voiture?: boolean;
+  jardin?: boolean;
+  piscine_individuelle?: boolean;
+  piscine_commune?: boolean;
+  suite_parentale?: boolean;
+  disponibilite_immediate?: boolean;
 }
 
 export interface BienUiConfig {
@@ -434,6 +541,10 @@ export interface Bien {
   syndic?: boolean;
   meuble?: boolean;
   independant?: boolean;
+  vente_appartement_details?: VenteAppartementDetails | null;
+  vente_appartement_details_json?: string | null;
+  vente_maison_details?: VenteMaisonDetails | null;
+  vente_maison_details_json?: string | null;
   eau_puits?: boolean;
   eau_sonede?: boolean;
   electricite_steg?: boolean;
@@ -441,12 +552,64 @@ export interface Bien {
   facade_m?: number | null;
   hauteur_plafond_m?: number | null;
   activite_recommandee?: string | null;
+  local_commercial_details?: Record<string, any> | null;
+  local_commercial_details_json?: string | null;
+  local_sous_type?: string | null;
+  local_usage_actuel?: string | null;
+  local_surface_exploitable_m2?: number | null;
+  local_surface_rdc_m2?: number | null;
+  local_surface_mezzanine_m2?: number | null;
+  local_largeur_vitrine_m?: number | null;
+  local_nb_vitrines?: number | null;
+  local_nb_facades?: number | null;
+  local_visibilite_commerciale?: string | null;
+  local_nb_pieces_bureaux?: number | null;
+  local_nb_sanitaires?: number | null;
+  local_nb_places_parking?: number | null;
+  local_type_activite_actuelle?: string | null;
+  local_etat?: string | null;
+  local_standing?: string | null;
+  local_passage_pieton?: string | null;
+  local_passage_automobile?: string | null;
+  local_titre_foncier?: string | null;
+  local_situation_juridique?: string | null;
+  local_loyer_mensuel_actuel?: number | null;
+  local_revenu_annuel?: number | null;
+  local_rendement_brut_pct?: number | null;
   toilette?: boolean;
   reserve_local?: boolean;
   vitrine?: boolean;
   coin_angle?: boolean;
   electricite_3_phases?: boolean;
   alarme?: boolean;
+  local_sur_rue_principale?: boolean;
+  local_entree_independante?: boolean;
+  local_open_space?: boolean;
+  local_reception?: boolean;
+  local_kitchenette?: boolean;
+  local_mezzanine?: boolean;
+  local_sous_sol?: boolean;
+  local_acces_direct_rue?: boolean;
+  local_acces_pmr?: boolean;
+  local_ascenseur?: boolean;
+  local_double_entree?: boolean;
+  local_parking?: boolean;
+  local_stationnement_facile?: boolean;
+  local_chauffage?: boolean;
+  local_fibre_internet?: boolean;
+  local_activite_commerciale_autorisee?: boolean;
+  local_extraction_possible?: boolean;
+  local_adapte_restauration?: boolean;
+  local_adapte_cabinet_medical?: boolean;
+  local_adapte_bureau?: boolean;
+  local_amenage?: boolean;
+  local_actuellement_loue?: boolean;
+  local_bail_en_cours?: boolean;
+  local_zone_commerciale?: boolean;
+  local_proche_administrations?: boolean;
+  local_proche_commerces?: boolean;
+  local_titre_bleu?: boolean;
+  local_disponible_immediatement?: boolean;
   type_terrain?: TypeTerrainVente | null;
   terrain_facade_m?: number | null;
   terrain_surface_m2?: number | null;
@@ -484,25 +647,101 @@ export interface Bien {
   terrain_documents_disponibles?: string[] | null;
   immeuble_surface_terrain_m2?: number | null;
   immeuble_surface_batie_m2?: number | null;
+  immeuble_largeur_facade_m?: number | null;
+  immeuble_nb_facades?: number | null;
   immeuble_nb_niveaux?: number | null;
+  immeuble_nb_etages?: number | null;
   immeuble_nb_garages?: number | null;
   immeuble_nb_appartements?: number | null;
+  immeuble_nb_s1?: number | null;
+  immeuble_nb_s2?: number | null;
+  immeuble_nb_s3?: number | null;
   immeuble_nb_locaux_commerciaux?: number | null;
+  immeuble_nb_bureaux?: number | null;
+  immeuble_nb_places_parking?: number | null;
+  immeuble_nb_unites_louees?: number | null;
+  immeuble_revenu_locatif_mensuel?: number | null;
+  immeuble_revenu_locatif_annuel?: number | null;
+  immeuble_rendement_brut_pct?: number | null;
+  immeuble_niveaux_autorises?: string | null;
+  immeuble_distance_centre_m?: number | null;
   immeuble_distance_plage_m?: number | null;
+  immeuble_usage_actuel?: string | null;
+  immeuble_etat?: string | null;
+  immeuble_standing?: string | null;
+  immeuble_loue_actuellement?: string | null;
+  immeuble_titre_foncier?: string | null;
+  immeuble_permis_batir?: string | null;
+  immeuble_situation_juridique?: string | null;
+  immeuble_mode_vente?: string | null;
   immeuble_proche_plage?: boolean;
   immeuble_ascenseur?: boolean;
+  immeuble_depot_sous_sol?: boolean;
+  immeuble_garage?: boolean;
   immeuble_parking_sous_sol?: boolean;
   immeuble_parking_exterieur?: boolean;
   immeuble_syndic?: boolean;
   immeuble_vue_mer?: boolean;
+  immeuble_chauffage_central?: boolean;
+  immeuble_climatisation?: boolean;
+  immeuble_gaz_ville?: boolean;
+  immeuble_compteurs_individuels?: boolean;
+  immeuble_eau_electricite_disponible?: boolean;
+  immeuble_location_saisonniere_possible?: boolean;
+  immeuble_extension_possible?: boolean;
+  immeuble_construction_supplementaire_possible?: boolean;
+  immeuble_route_principale?: boolean;
+  immeuble_proche_commerces?: boolean;
+  immeuble_titre_bleu?: boolean;
+  immeuble_plans_disponibles?: boolean;
+  immeuble_disponible_immediatement?: boolean;
   immeuble_appartements?: ImmeubleAppartementDetail[];
+  immeuble_unit_models?: ImmeubleUnitModel[];
   immeuble_garages?: ImmeubleGarageDetail[];
   immeuble_locaux_commerciaux?: ImmeubleLocalCommercialDetail[];
   lotissement_nb_terrains?: number | null;
   lotissement_prix_total?: number | null;
   lotissement_mode_prix_m2?: ModePrixLotissement | null;
   lotissement_prix_m2_unique?: number | null;
+  lotissement_vente_mode?: string | null;
+  lotissement_prix_m2_moyen?: number | null;
+  lotissement_prix_negociable?: boolean;
+  lotissement_prix_different_par_lot?: boolean;
+  lotissement_surface_totale_m2?: number | null;
+  lotissement_surface_vendable_m2?: number | null;
+  lotissement_surface_voirie_commune_m2?: number | null;
+  lotissement_nb_lots_disponibles?: number | null;
+  lotissement_nb_lots_vendus_reserves?: number | null;
+  lotissement_surface_lot_min_m2?: number | null;
+  lotissement_surface_lot_max_m2?: number | null;
+  lotissement_surface_lot_moyenne_m2?: number | null;
+  lotissement_cloture?: boolean;
+  lotissement_entree_unique?: boolean;
+  lotissement_voirie_interne?: boolean;
+  lotissement_route_goudronnee?: boolean;
+  lotissement_largeur_voies_m?: number | null;
+  lotissement_vocation?: string | null;
+  lotissement_approuve?: string | null;
+  lotissement_constructible?: boolean;
+  lotissement_nb_etages_autorises?: string | null;
+  lotissement_cahier_charges?: boolean;
+  lotissement_electricite?: string | null;
+  lotissement_eau?: string | null;
+  lotissement_onas?: boolean;
+  lotissement_gaz?: boolean;
+  lotissement_eclairage_public?: boolean;
+  lotissement_distance_plage_m?: number | null;
+  lotissement_distance_centre_m?: number | null;
+  lotissement_vue_mer?: boolean;
+  lotissement_quartier_residentiel?: boolean;
+  lotissement_titre_foncier_global?: boolean;
+  lotissement_titre_individuel_par_lot?: string | null;
+  lotissement_titre_bleu?: boolean;
+  lotissement_plan_lotissement?: boolean;
+  lotissement_situation_juridique?: string | null;
+  lotissement_disponible_immediatement?: boolean;
   lotissement_terrains?: LotissementTerrainDetail[];
+  lotissement_lot_models?: LotissementLotModel[];
   lotissement_paliers_prix_m2?: LotissementPalierPrix[];
   charges?: number;
   statut: BienStatut;

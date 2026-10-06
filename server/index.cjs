@@ -8471,6 +8471,7 @@ function normalizeAppartementVenteDetails(mode, type, payload = {}) {
     return Number.isFinite(numeric) ? numeric : null;
   };
   const toFlag = (value) => value === true || value === 1 || value === '1';
+  const toNullableString = (value) => (value !== undefined && value !== null ? String(value) : '').trim() || null;
 
   if (!isAppartementVente) {
     return {
@@ -8494,9 +8495,11 @@ function normalizeAppartementVenteDetails(mode, type, payload = {}) {
       syndic: false,
       meuble: false,
       independant: false,
+      venteAppartementDetailsJson: null,
       eauPuits: false,
       eauSonede: false,
       electriciteSteg: false,
+      detailsJson: null,
     };
   }
 
@@ -8509,6 +8512,35 @@ function normalizeAppartementVenteDetails(mode, type, payload = {}) {
   if (typePapier && !APPARTEMENT_VENTE_PAPIER_TYPES.includes(typePapier)) {
     return { error: 'type_papier invalide' };
   }
+  const rawExtended = payload.vente_appartement_details && typeof payload.vente_appartement_details === 'object'
+    ? payload.vente_appartement_details
+    : safeParseJson(payload.vente_appartement_details_json, {});
+  const enumOrNull = (value, allowed) => {
+    const normalized = toNullableString(value);
+    return normalized && allowed.includes(normalized) ? normalized : null;
+  };
+  const extended = {
+    proximite_plage: toFlag(rawExtended.proximite_plage),
+    proximite_centre: toFlag(rawExtended.proximite_centre),
+    proximite_ecoles: toFlag(rawExtended.proximite_ecoles),
+    proximite_commerces: toFlag(rawExtended.proximite_commerces),
+    residence: toFlag(rawExtended.residence),
+    residence_gardee: toFlag(rawExtended.residence_gardee),
+    copropriete: toFlag(rawExtended.copropriete),
+    titre_foncier_individuel: toFlag(rawExtended.titre_foncier_individuel),
+    etat_bien: enumOrNull(rawExtended.etat_bien, ['neuf', 'recent', 'a_renover']),
+    standing: enumOrNull(rawExtended.standing, ['standard', 'bon_standing', 'haut_standing']),
+    orientation: enumOrNull(rawExtended.orientation, ['nord', 'sud', 'est', 'ouest', 'nord_est', 'nord_ouest', 'sud_est', 'sud_ouest']),
+    vue: enumOrNull(rawExtended.vue, ['mer', 'degagee', 'jardin', 'piscine', 'ville', 'sans_vue']),
+    garage: toFlag(rawExtended.garage),
+    abri_voiture: toFlag(rawExtended.abri_voiture),
+    suite_parentale: toFlag(rawExtended.suite_parentale),
+    jardin_rdc: toFlag(rawExtended.jardin_rdc),
+    piscine_individuelle: toFlag(rawExtended.piscine_individuelle),
+    piscine_commune: toFlag(rawExtended.piscine_commune),
+    frais_syndic_tnd: toNullableNumber(rawExtended.frais_syndic_tnd),
+    disponibilite_immediate: toFlag(rawExtended.disponibilite_immediate),
+  };
 
   return {
     typeRue,
@@ -8531,6 +8563,7 @@ function normalizeAppartementVenteDetails(mode, type, payload = {}) {
     syndic: toFlag(payload.syndic),
     meuble: toFlag(payload.meuble),
     independant: toFlag(payload.independant),
+    venteAppartementDetailsJson: JSON.stringify(extended),
     eauPuits: toFlag(payload.eau_puits),
     eauSonede: toFlag(payload.eau_sonede),
     electriciteSteg: toFlag(payload.electricite_steg),
@@ -8577,6 +8610,67 @@ function normalizeLocalCommercialVenteDetails(mode, type, payload = {}) {
     return { error: 'type_papier invalide' };
   }
 
+  const revenuMensuel = toNullableNumber(payload.local_loyer_mensuel_actuel);
+  const revenuAnnuel = revenuMensuel !== null
+    ? Math.round(revenuMensuel * 12 * 100) / 100
+    : toNullableNumber(payload.local_revenu_annuel);
+  const prixVente = toNullableNumber(payload.prix_affiche_client) || toNullableNumber(payload.prix_final) || toNullableNumber(payload.prix_nuitee);
+  const rendementBrut = revenuAnnuel !== null && prixVente && prixVente > 0
+    ? Math.round((revenuAnnuel / prixVente) * 10000) / 100
+    : toNullableNumber(payload.local_rendement_brut_pct);
+  const details = {
+    sous_type: String(payload.local_sous_type || '').trim() || 'local_commercial',
+    usage_actuel: String(payload.local_usage_actuel || '').trim() || null,
+    surface_exploitable_m2: toNullableNumber(payload.local_surface_exploitable_m2),
+    surface_rdc_m2: toNullableNumber(payload.local_surface_rdc_m2),
+    surface_mezzanine_m2: toNullableNumber(payload.local_surface_mezzanine_m2),
+    largeur_vitrine_m: toNullableNumber(payload.local_largeur_vitrine_m),
+    nb_vitrines: Math.max(0, Math.floor(toNullableNumber(payload.local_nb_vitrines) || 0)),
+    nb_facades: Math.max(0, Math.floor(toNullableNumber(payload.local_nb_facades) || 0)),
+    visibilite_commerciale: String(payload.local_visibilite_commerciale || '').trim() || null,
+    nb_pieces_bureaux: Math.max(0, Math.floor(toNullableNumber(payload.local_nb_pieces_bureaux) || 0)),
+    nb_sanitaires: Math.max(0, Math.floor(toNullableNumber(payload.local_nb_sanitaires) || 0)),
+    nb_places_parking: Math.max(0, Math.floor(toNullableNumber(payload.local_nb_places_parking) || 0)),
+    type_activite_actuelle: String(payload.local_type_activite_actuelle || '').trim() || null,
+    etat: String(payload.local_etat || '').trim() || null,
+    standing: String(payload.local_standing || '').trim() || null,
+    passage_pieton: String(payload.local_passage_pieton || '').trim() || null,
+    passage_automobile: String(payload.local_passage_automobile || '').trim() || null,
+    titre_foncier: String(payload.local_titre_foncier || '').trim() || null,
+    situation_juridique: String(payload.local_situation_juridique || '').trim() || null,
+    loyer_mensuel_actuel: revenuMensuel,
+    revenu_annuel: revenuAnnuel,
+    rendement_brut_pct: rendementBrut,
+    sur_rue_principale: toFlag(payload.local_sur_rue_principale),
+    entree_independante: toFlag(payload.local_entree_independante),
+    open_space: toFlag(payload.local_open_space),
+    reception: toFlag(payload.local_reception),
+    kitchenette: toFlag(payload.local_kitchenette),
+    mezzanine: toFlag(payload.local_mezzanine),
+    sous_sol: toFlag(payload.local_sous_sol),
+    acces_direct_rue: toFlag(payload.local_acces_direct_rue),
+    acces_pmr: toFlag(payload.local_acces_pmr),
+    ascenseur: toFlag(payload.local_ascenseur),
+    double_entree: toFlag(payload.local_double_entree),
+    parking: toFlag(payload.local_parking),
+    stationnement_facile: toFlag(payload.local_stationnement_facile),
+    chauffage: toFlag(payload.local_chauffage),
+    fibre_internet: toFlag(payload.local_fibre_internet),
+    activite_commerciale_autorisee: toFlag(payload.local_activite_commerciale_autorisee),
+    extraction_possible: toFlag(payload.local_extraction_possible),
+    adapte_restauration: toFlag(payload.local_adapte_restauration),
+    adapte_cabinet_medical: toFlag(payload.local_adapte_cabinet_medical),
+    adapte_bureau: toFlag(payload.local_adapte_bureau),
+    amenage: toFlag(payload.local_amenage),
+    actuellement_loue: toFlag(payload.local_actuellement_loue),
+    bail_en_cours: toFlag(payload.local_bail_en_cours),
+    zone_commerciale: toFlag(payload.local_zone_commerciale),
+    proche_administrations: toFlag(payload.local_proche_administrations),
+    proche_commerces: toFlag(payload.local_proche_commerces),
+    titre_bleu: toFlag(payload.local_titre_bleu),
+    disponible_immediatement: toFlag(payload.local_disponible_immediatement),
+  };
+
   return {
     typeRue,
     typePapier,
@@ -8594,6 +8688,7 @@ function normalizeLocalCommercialVenteDetails(mode, type, payload = {}) {
     eauPuits: toFlag(payload.eau_puits),
     eauSonede: toFlag(payload.eau_sonede),
     electriciteSteg: toFlag(payload.electricite_steg),
+    detailsJson: JSON.stringify(details),
   };
 }
 
@@ -8756,6 +8851,7 @@ function normalizeLotissementVenteDetails(mode, type, payload = {}) {
       prixM2Unique: null,
       terrainsJson: null,
       paliersPrixM2Json: null,
+      detailsJson: null,
     };
   }
 
@@ -8766,6 +8862,7 @@ function normalizeLotissementVenteDetails(mode, type, payload = {}) {
   }
 
   const rawTerrains = Array.isArray(payload.lotissement_terrains) ? payload.lotissement_terrains : [];
+  const rawLotModels = Array.isArray(payload.lotissement_lot_models) ? payload.lotissement_lot_models : [];
   const baseReference = payload.reference || payload.titre || 'LOTISSEMENT';
   const terrains = [];
   for (let i = 0; i < nbTerrains; i += 1) {
@@ -8778,11 +8875,22 @@ function normalizeLotissementVenteDetails(mode, type, payload = {}) {
     if (typePapier && !TERRAIN_VENTE_PAPIER_TYPES.includes(typePapier)) return { error: `type_papier invalide pour terrain ${i + 1}` };
     const surfaceM2 = toNullableNumber(row.surface_m2);
     if (!surfaceM2 || surfaceM2 <= 0) return { error: `surface_m2 obligatoire pour terrain ${i + 1}` };
+    const prixM2 = toNullableNumber(row.prix_m2);
+    const prixTotalLot = toNullableNumber(row.prix_total) || (prixM2 && surfaceM2 ? Math.round(prixM2 * surfaceM2 * 100) / 100 : null);
     terrains.push({
       index: i + 1,
       reference: (row.reference ? String(row.reference).trim().toUpperCase() : buildChildReference(baseReference, 'TRN', i + 1)),
+      modele: row.modele ? String(row.modele).trim() : null,
       type_terrain: typeTerrain,
       surface_m2: surfaceM2,
+      facade_m: toNullableNumber(row.facade_m),
+      profondeur_m: toNullableNumber(row.profondeur_m),
+      nb_facades: toNullableNumber(row.nb_facades),
+      orientation: row.orientation ? String(row.orientation).trim() : null,
+      position: row.position ? String(row.position).trim() : null,
+      prix_m2: prixM2,
+      prix_total: prixTotalLot,
+      statut: row.statut ? String(row.statut).trim() : 'disponible',
       type_rue: typeRue,
       type_papier: typePapier,
       terrain_zone: row.terrain_zone ? String(row.terrain_zone).trim() : null,
@@ -8809,6 +8917,64 @@ function normalizeLotissementVenteDetails(mode, type, payload = {}) {
       .filter((row) => row.min_m2 > 0 && row.prix_m2 > 0);
     if (paliers.length === 0) return { error: 'lotissement_paliers_prix_m2 obligatoire en mode paliers' };
   }
+  const surfaces = terrains.map((terrain) => terrain.surface_m2).filter((value) => value !== null && value > 0);
+  const prixM2Lots = terrains.map((terrain) => terrain.prix_m2).filter((value) => value !== null && value > 0);
+  const reservedOrSold = terrains.filter((terrain) => ['reserve', 'réservé', 'vendu'].includes(String(terrain.statut || '').toLowerCase())).length;
+  const availableLots = terrains.filter((terrain) => !['reserve', 'réservé', 'vendu'].includes(String(terrain.statut || '').toLowerCase())).length;
+  const surfaceTotalFromLots = surfaces.reduce((sum, value) => sum + value, 0);
+  const details = {
+    vente_mode: payload.lotissement_vente_mode ? String(payload.lotissement_vente_mode).trim() : 'les_deux',
+    prix_m2_moyen: toNullableNumber(payload.lotissement_prix_m2_moyen) || (prixM2Lots.length ? Math.round((prixM2Lots.reduce((sum, value) => sum + value, 0) / prixM2Lots.length) * 100) / 100 : (modePrixM2 === 'm2_unique' ? prixM2Unique : null)),
+    prix_negociable: toFlag(payload.lotissement_prix_negociable),
+    prix_different_par_lot: toFlag(payload.lotissement_prix_different_par_lot),
+    surface_totale_m2: toNullableNumber(payload.lotissement_surface_totale_m2) || (surfaceTotalFromLots || null),
+    surface_vendable_m2: toNullableNumber(payload.lotissement_surface_vendable_m2),
+    surface_voirie_commune_m2: toNullableNumber(payload.lotissement_surface_voirie_commune_m2),
+    nb_lots_disponibles: toNullableNumber(payload.lotissement_nb_lots_disponibles) ?? availableLots,
+    nb_lots_vendus_reserves: toNullableNumber(payload.lotissement_nb_lots_vendus_reserves) ?? reservedOrSold,
+    surface_lot_min_m2: toNullableNumber(payload.lotissement_surface_lot_min_m2) || (surfaces.length ? Math.min(...surfaces) : null),
+    surface_lot_max_m2: toNullableNumber(payload.lotissement_surface_lot_max_m2) || (surfaces.length ? Math.max(...surfaces) : null),
+    surface_lot_moyenne_m2: toNullableNumber(payload.lotissement_surface_lot_moyenne_m2) || (surfaces.length ? Math.round((surfaceTotalFromLots / surfaces.length) * 100) / 100 : null),
+    cloture: toFlag(payload.lotissement_cloture),
+    entree_unique: toFlag(payload.lotissement_entree_unique),
+    voirie_interne: toFlag(payload.lotissement_voirie_interne),
+    route_goudronnee: toFlag(payload.lotissement_route_goudronnee),
+    largeur_voies_m: toNullableNumber(payload.lotissement_largeur_voies_m),
+    vocation: payload.lotissement_vocation ? String(payload.lotissement_vocation).trim() : null,
+    approuve: payload.lotissement_approuve ? String(payload.lotissement_approuve).trim() : null,
+    constructible: toFlag(payload.lotissement_constructible),
+    nb_etages_autorises: payload.lotissement_nb_etages_autorises ? String(payload.lotissement_nb_etages_autorises).trim() : null,
+    cahier_charges: toFlag(payload.lotissement_cahier_charges),
+    electricite: payload.lotissement_electricite ? String(payload.lotissement_electricite).trim() : null,
+    eau: payload.lotissement_eau ? String(payload.lotissement_eau).trim() : null,
+    onas: toFlag(payload.lotissement_onas),
+    gaz: toFlag(payload.lotissement_gaz),
+    eclairage_public: toFlag(payload.lotissement_eclairage_public),
+    distance_plage_m: toNullableNumber(payload.lotissement_distance_plage_m),
+    distance_centre_m: toNullableNumber(payload.lotissement_distance_centre_m),
+    vue_mer: toFlag(payload.lotissement_vue_mer),
+    quartier_residentiel: toFlag(payload.lotissement_quartier_residentiel),
+    titre_foncier_global: toFlag(payload.lotissement_titre_foncier_global),
+    titre_individuel_par_lot: payload.lotissement_titre_individuel_par_lot ? String(payload.lotissement_titre_individuel_par_lot).trim() : null,
+    titre_bleu: toFlag(payload.lotissement_titre_bleu),
+    plan_lotissement: toFlag(payload.lotissement_plan_lotissement),
+    situation_juridique: payload.lotissement_situation_juridique ? String(payload.lotissement_situation_juridique).trim() : null,
+    disponible_immediatement: toFlag(payload.lotissement_disponible_immediatement),
+    lot_models: rawLotModels.map((model, index) => ({
+      id: String(model?.id || `lot_model_${index + 1}`).trim(),
+      label: String(model?.label || `Modele ${index + 1}`).trim(),
+      quantity: Math.max(1, Math.floor(toNullableNumber(model?.quantity) || 1)),
+      type_terrain: model?.type_terrain || null,
+      surface_m2: toNullableNumber(model?.surface_m2),
+      facade_m: toNullableNumber(model?.facade_m),
+      profondeur_m: toNullableNumber(model?.profondeur_m),
+      nb_facades: toNullableNumber(model?.nb_facades),
+      prix_m2: toNullableNumber(model?.prix_m2),
+      prix_total: toNullableNumber(model?.prix_total),
+      type_rue: model?.type_rue || null,
+      type_papier: model?.type_papier || null,
+    })),
+  };
 
   return {
     nbTerrains,
@@ -8817,6 +8983,7 @@ function normalizeLotissementVenteDetails(mode, type, payload = {}) {
     prixM2Unique: modePrixM2 === 'm2_unique' ? prixM2Unique : null,
     terrainsJson: JSON.stringify(terrains),
     paliersPrixM2Json: modePrixM2 === 'paliers' ? JSON.stringify(paliers) : null,
+    detailsJson: JSON.stringify(details),
   };
 }
 
@@ -8850,8 +9017,17 @@ function normalizeImmeubleVenteDetails(mode, type, payload = {}) {
   const nbAppartements = Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_appartements) || 0));
   const nbGarages = Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_garages) || 0));
   const nbLocauxCommerciaux = Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_locaux_commerciaux) || 0));
+  const revenuMensuel = toNullableNumber(payload.immeuble_revenu_locatif_mensuel);
+  const revenuAnnuel = revenuMensuel !== null
+    ? Math.round(revenuMensuel * 12 * 100) / 100
+    : toNullableNumber(payload.immeuble_revenu_locatif_annuel);
+  const prixVente = toNullableNumber(payload.prix_affiche_client) || toNullableNumber(payload.prix_final) || toNullableNumber(payload.prix_nuitee);
+  const rendementBrut = revenuAnnuel !== null && prixVente && prixVente > 0
+    ? Math.round((revenuAnnuel / prixVente) * 10000) / 100
+    : toNullableNumber(payload.immeuble_rendement_brut_pct);
   const baseReference = payload.reference || payload.titre || 'IMMEUBLE';
   const inputRows = Array.isArray(payload.immeuble_appartements) ? payload.immeuble_appartements : [];
+  const inputUnitModels = Array.isArray(payload.immeuble_unit_models) ? payload.immeuble_unit_models : [];
   const inputGarages = Array.isArray(payload.immeuble_garages) ? payload.immeuble_garages : [];
   const inputLocaux = Array.isArray(payload.immeuble_locaux_commerciaux) ? payload.immeuble_locaux_commerciaux : [];
   const appartements = [];
@@ -8860,10 +9036,28 @@ function normalizeImmeubleVenteDetails(mode, type, payload = {}) {
     appartements.push({
       index: i + 1,
       reference: (row.reference ? String(row.reference).trim().toUpperCase() : buildChildReference(baseReference, 'APT', i + 1)),
+      modele: row.modele ? String(row.modele).trim() : null,
+      type_unite: row.type_unite ? String(row.type_unite).trim() : 'appartement',
+      etage: row.etage !== undefined && row.etage !== null ? String(row.etage).trim() : null,
       chambres: Math.max(0, Math.floor(toNullableNumber(row.chambres) || 0)),
       salle_bain: Math.max(0, Math.floor(toNullableNumber(row.salle_bain) || 0)),
       superficie_m2: toNullableNumber(row.superficie_m2),
       configuration: row.configuration ? String(row.configuration).trim() : null,
+      prix: toNullableNumber(row.prix),
+      prix_negociable: toFlag(row.prix_negociable),
+      statut: row.statut ? String(row.statut).trim() : 'disponible',
+      suite_parentale: toFlag(row.suite_parentale),
+      balcon: toFlag(row.balcon),
+      terrasse: toFlag(row.terrasse),
+      orientation: row.orientation ? String(row.orientation).trim() : null,
+      vue: row.vue ? String(row.vue).trim() : null,
+      climatisation: toFlag(row.climatisation),
+      chauffage_central: toFlag(row.chauffage_central),
+      cuisine_equipee: toFlag(row.cuisine_equipee),
+      parking: toFlag(row.parking),
+      garage: toFlag(row.garage),
+      titre_foncier_individuel: toFlag(row.titre_foncier_individuel),
+      etat_bien: row.etat_bien ? String(row.etat_bien).trim() : null,
     });
   }
   const garages = [];
@@ -8884,19 +9078,71 @@ function normalizeImmeubleVenteDetails(mode, type, payload = {}) {
   }
 
   const details = {
+    mode_vente: payload.immeuble_mode_vente ? String(payload.immeuble_mode_vente).trim() : 'entier_et_unites',
     surface_terrain_m2: toNullableNumber(payload.immeuble_surface_terrain_m2),
     surface_batie_m2: toNullableNumber(payload.immeuble_surface_batie_m2),
+    largeur_facade_m: toNullableNumber(payload.immeuble_largeur_facade_m),
+    nb_facades: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_facades) || 0)),
     nb_niveaux: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_niveaux) || 0)),
+    nb_etages: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_etages) || 0)),
     nb_garages: nbGarages,
     nb_appartements: nbAppartements,
+    nb_s1: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_s1) || 0)),
+    nb_s2: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_s2) || 0)),
+    nb_s3: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_s3) || 0)),
     nb_locaux_commerciaux: nbLocauxCommerciaux,
+    nb_bureaux: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_bureaux) || 0)),
+    nb_places_parking: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_places_parking) || 0)),
+    nb_unites_louees: Math.max(0, Math.floor(toNullableNumber(payload.immeuble_nb_unites_louees) || 0)),
+    revenu_locatif_mensuel: revenuMensuel,
+    revenu_locatif_annuel: revenuAnnuel,
+    rendement_brut_pct: rendementBrut,
+    niveaux_autorises: payload.immeuble_niveaux_autorises ? String(payload.immeuble_niveaux_autorises).trim() : null,
+    distance_centre_m: toNullableNumber(payload.immeuble_distance_centre_m),
     distance_plage_m: toNullableNumber(payload.immeuble_distance_plage_m),
+    usage_actuel: payload.immeuble_usage_actuel ? String(payload.immeuble_usage_actuel).trim() : null,
+    etat: payload.immeuble_etat ? String(payload.immeuble_etat).trim() : null,
+    standing: payload.immeuble_standing ? String(payload.immeuble_standing).trim() : null,
+    loue_actuellement: payload.immeuble_loue_actuellement ? String(payload.immeuble_loue_actuellement).trim() : null,
+    titre_foncier: payload.immeuble_titre_foncier ? String(payload.immeuble_titre_foncier).trim() : null,
+    permis_batir: payload.immeuble_permis_batir ? String(payload.immeuble_permis_batir).trim() : null,
+    situation_juridique: payload.immeuble_situation_juridique ? String(payload.immeuble_situation_juridique).trim() : null,
     proche_plage: toFlag(payload.immeuble_proche_plage),
     ascenseur: toFlag(payload.immeuble_ascenseur),
+    depot_sous_sol: toFlag(payload.immeuble_depot_sous_sol),
+    garage: toFlag(payload.immeuble_garage),
     parking_sous_sol: toFlag(payload.immeuble_parking_sous_sol),
     parking_exterieur: toFlag(payload.immeuble_parking_exterieur),
     syndic: toFlag(payload.immeuble_syndic),
     vue_mer: toFlag(payload.immeuble_vue_mer),
+    chauffage_central: toFlag(payload.immeuble_chauffage_central),
+    climatisation: toFlag(payload.immeuble_climatisation),
+    gaz_ville: toFlag(payload.immeuble_gaz_ville),
+    compteurs_individuels: toFlag(payload.immeuble_compteurs_individuels),
+    eau_electricite_disponible: toFlag(payload.immeuble_eau_electricite_disponible),
+    location_saisonniere_possible: toFlag(payload.immeuble_location_saisonniere_possible),
+    extension_possible: toFlag(payload.immeuble_extension_possible),
+    construction_supplementaire_possible: toFlag(payload.immeuble_construction_supplementaire_possible),
+    route_principale: toFlag(payload.immeuble_route_principale),
+    proche_commerces: toFlag(payload.immeuble_proche_commerces),
+    titre_bleu: toFlag(payload.immeuble_titre_bleu),
+    plans_disponibles: toFlag(payload.immeuble_plans_disponibles),
+    disponible_immediatement: toFlag(payload.immeuble_disponible_immediatement),
+    unit_models: inputUnitModels.map((model, index) => ({
+      id: String(model?.id || `unit_model_${index + 1}`).trim(),
+      label: String(model?.label || `Type ${index + 1}`).trim(),
+      quantity: Math.max(1, Math.floor(toNullableNumber(model?.quantity) || 1)),
+      type_unite: model?.type_unite ? String(model.type_unite).trim() : 'appartement',
+      configuration: model?.configuration ? String(model.configuration).trim() : null,
+      superficie_m2: toNullableNumber(model?.superficie_m2),
+      chambres: Math.max(0, Math.floor(toNullableNumber(model?.chambres) || 0)),
+      salle_bain: Math.max(0, Math.floor(toNullableNumber(model?.salle_bain) || 0)),
+      prix: toNullableNumber(model?.prix),
+      balcon: toFlag(model?.balcon),
+      chauffage_central: toFlag(model?.chauffage_central),
+      climatisation: toFlag(model?.climatisation),
+      cuisine_equipee: toFlag(model?.cuisine_equipee),
+    })),
     garages,
     locaux_commerciaux: locauxCommerciaux,
   };
@@ -8915,6 +9161,48 @@ function deriveBedroomsFromConfiguration(configuration) {
   if (!match) return 0;
   const parsed = Number(match[1]);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeMaisonVenteDetails(mode, type, payload = {}) {
+  const isMaisonVente = mode === 'vente' && type === 'villa_maison';
+  const toNullableNumber = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const toFlag = (value) => value === true || value === 1 || value === '1';
+  const toNullableString = (value) => (value !== undefined && value !== null ? String(value) : '').trim() || null;
+  if (!isMaisonVente) {
+    return { venteMaisonDetailsJson: null };
+  }
+  const raw = payload.vente_maison_details && typeof payload.vente_maison_details === 'object'
+    ? payload.vente_maison_details
+    : safeParseJson(payload.vente_maison_details_json, {});
+  const enumOrNull = (value, allowed) => {
+    const normalized = toNullableString(value);
+    return normalized && allowed.includes(normalized) ? normalized : null;
+  };
+  const extended = {
+    surface_terrain_m2: toNullableNumber(raw.surface_terrain_m2),
+    surface_batie_m2: toNullableNumber(raw.surface_batie_m2 ?? payload.superficie_m2),
+    facade_m: toNullableNumber(raw.facade_m ?? payload.facade_m),
+    nb_niveaux: toNullableNumber(raw.nb_niveaux),
+    rdc: toFlag(raw.rdc),
+    independant: toFlag(raw.independant ?? payload.independant),
+    titre_foncier_individuel: toFlag(raw.titre_foncier_individuel) || payload.type_papier === 'titre_foncier_individuel',
+    etat_bien: enumOrNull(raw.etat_bien, ['neuf', 'recent', 'a_renover']),
+    standing: enumOrNull(raw.standing, ['standard', 'bon_standing', 'haut_standing']),
+    orientation: enumOrNull(raw.orientation, ['nord', 'sud', 'est', 'ouest', 'nord_est', 'nord_ouest', 'sud_est', 'sud_ouest']),
+    vue: enumOrNull(raw.vue, ['mer', 'degagee', 'jardin', 'piscine', 'ville', 'sans_vue']),
+    garage: toFlag(raw.garage),
+    abri_voiture: toFlag(raw.abri_voiture),
+    jardin: toFlag(raw.jardin),
+    piscine_individuelle: toFlag(raw.piscine_individuelle),
+    piscine_commune: toFlag(raw.piscine_commune),
+    suite_parentale: toFlag(raw.suite_parentale),
+    disponibilite_immediate: toFlag(raw.disponibilite_immediate),
+  };
+  return { venteMaisonDetailsJson: JSON.stringify(extended), extended };
 }
 
 function normalizeResidenceUnits(rawUnits) {
@@ -9679,6 +9967,16 @@ async function ensureBiensWorkflowSchema() {
       'ALTER TABLE biens ADD COLUMN location_saisonniere_config_json LONGTEXT NULL AFTER ui_config_json'
     );
   }
+  if (!(await columnExists('biens', 'vente_appartement_details_json'))) {
+    await pool.query(
+      'ALTER TABLE biens ADD COLUMN vente_appartement_details_json LONGTEXT NULL AFTER location_saisonniere_config_json'
+    );
+  }
+  if (!(await columnExists('biens', 'vente_maison_details_json'))) {
+    await pool.query(
+      'ALTER TABLE biens ADD COLUMN vente_maison_details_json LONGTEXT NULL AFTER vente_appartement_details_json'
+    );
+  }
   if (!(await columnExists('biens', 'admin_last_saved_at'))) {
     await pool.query(
       'ALTER TABLE biens ADD COLUMN admin_last_saved_at DATETIME NULL AFTER updated_at'
@@ -9848,6 +10146,9 @@ async function ensureBiensWorkflowSchema() {
   if (!(await columnExists('biens', 'alarme'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN alarme TINYINT(1) NOT NULL DEFAULT 0 AFTER electricite_3_phases');
   }
+  if (!(await columnExists('biens', 'local_commercial_details_json'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN local_commercial_details_json LONGTEXT NULL AFTER alarme');
+  }
   if (!(await columnExists('biens', 'type_terrain'))) {
     await pool.query("ALTER TABLE biens ADD COLUMN type_terrain ENUM('agricole','habitation','industrielle','loisir') NULL DEFAULT NULL AFTER alarme");
   }
@@ -9898,6 +10199,9 @@ async function ensureBiensWorkflowSchema() {
   }
   if (!(await columnExists('biens', 'lotissement_paliers_prix_m2_json'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN lotissement_paliers_prix_m2_json LONGTEXT NULL AFTER lotissement_terrains_json');
+  }
+  if (!(await columnExists('biens', 'lotissement_details_json'))) {
+    await pool.query('ALTER TABLE biens ADD COLUMN lotissement_details_json LONGTEXT NULL AFTER lotissement_paliers_prix_m2_json');
   }
   if (!(await columnExists('biens', 'immeuble_details_json'))) {
     await pool.query('ALTER TABLE biens ADD COLUMN immeuble_details_json LONGTEXT NULL AFTER terrain_angle');
@@ -11128,6 +11432,24 @@ async function ensureClientInteractionsSchema() {
   await ensureIndex('idx_client_interactions_device', 'device_id');
   await ensureIndex('idx_client_interactions_type', 'type');
   await ensureIndex('idx_client_interactions_channel', 'channel');
+}
+
+async function sendDwiraAdminEmail({ to, subject, text, html }) {
+  const recipients = Array.from(new Set((Array.isArray(to) ? to : [to])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)));
+  if (recipients.length === 0) return { delivered: false, reason: 'missing_recipient' };
+  const transporter = createSmtpTransporter();
+  const fromAddress = String(process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+  if (!transporter || !fromAddress) return { delivered: false, reason: 'smtp_missing' };
+  await transporter.sendMail({
+    from: fromAddress,
+    to: recipients.join(', '),
+    subject: String(subject || 'Notification Dwira Immobilier').trim(),
+    text: String(text || '').trim() || String(subject || 'Notification Dwira Immobilier').trim(),
+    html: html || undefined,
+  });
+  return { delivered: true };
 }
 
 async function ensureClientelesSchema() {
@@ -14343,6 +14665,165 @@ app.get('/api/admin/sales-demands', requireAdminSession, async (req, res) => {
   }
 });
 
+app.get('/api/admin/sales-client-files', requireAdminSession, async (_req, res) => {
+  try {
+    await ensureSalesClientFilesSchema();
+    const [rows] = await pool.query(
+      `SELECT *,
+        DATE_FORMAT(last_contact_at, '%Y-%m-%d %H:%i:%s') AS last_contact_at,
+        DATE_FORMAT(reminder_at, '%Y-%m-%d %H:%i:%s') AS reminder_at,
+        DATE_FORMAT(reminder_sent_at, '%Y-%m-%d %H:%i:%s') AS reminder_sent_at,
+        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+        DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM sales_client_files
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT 500`
+    );
+    res.json((rows || []).map(formatSalesClientFileRow));
+  } catch (error) {
+    console.error('Error fetching sales client files:', error);
+    res.status(500).json({ error: 'Impossible de charger les dossiers clients ventes' });
+  }
+});
+
+app.post('/api/admin/sales-client-files', requireAdminSession, express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    await ensureSalesClientFilesSchema();
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const clientName = String(body.client_name || body.clientName || '').trim();
+    const clientPhone = String(body.client_phone || body.phone || '').trim();
+    if (!clientName) return res.status(400).json({ error: 'Nom client obligatoire' });
+    if (!clientPhone) return res.status(400).json({ error: 'Telephone client obligatoire' });
+    const now = getAgencySqlDateTime();
+    const id = `scf_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    const criteria = Array.isArray(body.criteria) ? body.criteria.map(normalizeSalesClientCriterion).filter((item) => item.key) : [];
+    const interestedBienIds = Array.isArray(body.interested_bien_ids) ? body.interested_bien_ids.map((item) => String(item || '').trim()).filter(Boolean) : [];
+    const reminderEmails = normalizeReminderEmails(body.reminder_emails);
+    const reminderAt = body.reminder_at ? String(body.reminder_at).trim().replace('T', ' ') : null;
+    await pool.query(
+      `INSERT INTO sales_client_files
+       (id, client_name, client_phone, client_email, status, progress_stage, last_contact_at, interested_bien_ids_json, criteria_json, notes, reminder_task, reminder_at, reminder_emails_json, reminder_sent_at, outcome, created_by_admin_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+      [
+        id,
+        clientName,
+        clientPhone,
+        String(body.client_email || body.email || '').trim() || null,
+        String(body.status || 'nouveau').trim() || 'nouveau',
+        String(body.progress_stage || 'qualification').trim() || 'qualification',
+        body.last_contact_at ? String(body.last_contact_at).trim().replace('T', ' ') : null,
+        JSON.stringify(interestedBienIds),
+        JSON.stringify(criteria),
+        String(body.notes || '').trim(),
+        String(body.reminder_task || '').trim() || null,
+        reminderAt,
+        JSON.stringify(reminderEmails),
+        body.outcome ? String(body.outcome).trim() : null,
+        String(req.adminUser?.id || req.user?.id || '').trim() || null,
+        now,
+        now,
+      ]
+    );
+    scheduleSalesClientReminder(id, reminderAt);
+    const [rows] = await pool.query('SELECT * FROM sales_client_files WHERE id = ? LIMIT 1', [id]);
+    res.status(201).json(formatSalesClientFileRow(rows?.[0] || null));
+  } catch (error) {
+    console.error('Error creating sales client file:', error);
+    res.status(500).json({ error: 'Impossible de creer le dossier client vente' });
+  }
+});
+
+app.patch('/api/admin/sales-client-files/:id', requireAdminSession, express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    await ensureSalesClientFilesSchema();
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const criteria = Array.isArray(body.criteria) ? body.criteria.map(normalizeSalesClientCriterion).filter((item) => item.key) : [];
+    const interestedBienIds = Array.isArray(body.interested_bien_ids) ? body.interested_bien_ids.map((item) => String(item || '').trim()).filter(Boolean) : [];
+    const reminderEmails = normalizeReminderEmails(body.reminder_emails);
+    const reminderAt = body.reminder_at ? String(body.reminder_at).trim().replace('T', ' ') : null;
+    await pool.query(
+      `UPDATE sales_client_files
+       SET client_name = ?, client_phone = ?, client_email = ?, status = ?, progress_stage = ?, last_contact_at = ?,
+           interested_bien_ids_json = ?, criteria_json = ?, notes = ?, reminder_task = ?, reminder_at = ?, reminder_emails_json = ?, reminder_sent_at = NULL, outcome = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        String(body.client_name || body.clientName || '').trim() || 'Client vente',
+        String(body.client_phone || body.phone || '').trim(),
+        String(body.client_email || body.email || '').trim() || null,
+        String(body.status || 'nouveau').trim() || 'nouveau',
+        String(body.progress_stage || 'qualification').trim() || 'qualification',
+        body.last_contact_at ? String(body.last_contact_at).trim().replace('T', ' ') : null,
+        JSON.stringify(interestedBienIds),
+        JSON.stringify(criteria),
+        String(body.notes || '').trim(),
+        String(body.reminder_task || '').trim() || null,
+        reminderAt,
+        JSON.stringify(reminderEmails),
+        body.outcome ? String(body.outcome).trim() : null,
+        getAgencySqlDateTime(),
+        id,
+      ]
+    );
+    scheduleSalesClientReminder(id, reminderAt);
+    const [rows] = await pool.query('SELECT * FROM sales_client_files WHERE id = ? LIMIT 1', [id]);
+    res.json(formatSalesClientFileRow(rows?.[0] || null));
+  } catch (error) {
+    console.error('Error updating sales client file:', error);
+    res.status(500).json({ error: 'Impossible de sauvegarder le dossier client vente' });
+  }
+});
+
+app.post('/api/admin/sales-client-files/:id/reminder/schedule', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSalesClientFilesSchema();
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    const [rows] = await pool.query(
+      `SELECT id, reminder_task, reminder_at, reminder_emails_json, reminder_sent_at
+       FROM sales_client_files
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const row = rows?.[0];
+    if (!row) return res.status(404).json({ error: 'Dossier client introuvable' });
+    if (!String(row.reminder_task || '').trim()) return res.status(400).json({ error: 'Tache de rappel obligatoire' });
+    if (!row.reminder_at) return res.status(400).json({ error: 'Date de rappel obligatoire' });
+    if (normalizeReminderEmails(parseOwnerSaleRequestJson(row.reminder_emails_json, [])).length === 0) {
+      return res.status(400).json({ error: 'Au moins un email admin est obligatoire' });
+    }
+    if (row.reminder_sent_at) return res.json({ scheduled: false, already_sent: true, reminder_sent_at: row.reminder_sent_at });
+    scheduleSalesClientReminder(id, row.reminder_at);
+    res.json({ scheduled: true, reminder_at: row.reminder_at });
+  } catch (error) {
+    console.error('Error scheduling sales client reminder:', error);
+    res.status(500).json({ error: 'Impossible de programmer le rappel' });
+  }
+});
+
+app.post('/api/admin/sales-client-files/:id/reminder/send-now', requireAdminSession, async (req, res) => {
+  try {
+    await ensureSalesClientFilesSchema();
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    const timer = salesClientReminderTimers.get(id);
+    if (timer) clearTimeout(timer);
+    salesClientReminderTimers.delete(id);
+    await pool.query('UPDATE sales_client_files SET reminder_sent_at = NULL WHERE id = ?', [id]);
+    const result = await sendSalesClientReminderEmail(id);
+    if (!result?.delivered) {
+      return res.status(400).json({ error: `Rappel non envoye: ${result?.reason || 'erreur inconnue'}` });
+    }
+    const [rows] = await pool.query('SELECT * FROM sales_client_files WHERE id = ? LIMIT 1', [id]);
+    res.json({ delivered: true, file: formatSalesClientFileRow(rows?.[0] || null) });
+  } catch (error) {
+    console.error('Error sending sales client reminder now:', error);
+    res.status(500).json({ error: `Impossible d'envoyer le rappel: ${error?.message || 'erreur SMTP'}` });
+  }
+});
+
 app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, express.json({ limit: '2mb' }), async (req, res) => {
   try {
     await ensureOwnerSaleListingRequestsSchema();
@@ -14439,6 +14920,18 @@ app.post('/api/owner-sale-listing-requests', requireAuthenticatedSession, expres
     ).catch((notificationError) => {
       console.error('Owner sale request notification failed:', notificationError?.message || notificationError);
     });
+    sendDwiraAdminEmail({
+      to: 'dwiraimmobilier@gmail.com',
+      subject: `Nouvelle demande proprietaire vente - ${payload.title}`,
+      text: [
+        'Nouvelle demande proprietaire pour publication vente.',
+        `Bien: ${payload.title}`,
+        `Type: ${payload.propertyType}`,
+        `Zone: ${payload.region} / ${payload.zone}`,
+        `Proprietaire: ${String(body.contactName || user.name || '').trim()}`,
+        `Telephone: ${String(body.contactPhone || user.telephone || '').trim()}`,
+      ].join('\n'),
+    }).catch((mailError) => console.error('Owner sale request email failed:', mailError?.message || mailError));
     res.status(201).json({ id, status: 'nouvelle_demande' });
   } catch (error) {
     console.error('Error creating owner sale listing request:', error);
@@ -18400,7 +18893,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
       proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
-      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg,
+      cuisine_equipee, place_parking, syndic, meuble, independant, vente_appartement_details, vente_appartement_details_json, vente_maison_details, vente_maison_details_json, eau_puits, eau_sonede, electricite_steg,
       surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
       type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
       terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
@@ -18425,12 +18918,16 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
     const details = normalizeAppartementVenteDetails(resolvedMode, resolvedType, {
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
       proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
-      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
+      cuisine_equipee, place_parking, syndic, meuble, independant, vente_appartement_details, vente_appartement_details_json, eau_puits, eau_sonede, electricite_steg
     });
     if (details.error) {
       return res.status(400).json({ error: details.error });
     }
+    const maisonDetails = normalizeMaisonVenteDetails(resolvedMode, resolvedType, {
+      type_papier, superficie_m2, facade_m, independant, vente_maison_details, vente_maison_details_json
+    });
     const localDetails = normalizeLocalCommercialVenteDetails(resolvedMode, resolvedType, {
+      ...req.body,
       type_rue, type_papier, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette,
       reserve_local, vitrine, coin_angle, electricite_3_phases, gaz_ville, alarme, eau_puits, eau_sonede, electricite_steg
     });
@@ -18462,12 +18959,14 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
         });
 
     const lotissementDetails = normalizeLotissementVenteDetails(resolvedMode, resolvedType, {
+      ...req.body,
       reference: resolvedReference, titre, lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
     });
     if (lotissementDetails.error) {
       return res.status(400).json({ error: lotissementDetails.error });
     }
     const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
+      ...req.body,
       reference: resolvedReference, titre, type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
       immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m, immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur,
       immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
@@ -18554,9 +19053,9 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
         prix_nuitee, avance, caution, type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
         proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville, cuisine_equipee, place_parking,
         syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
-        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, is_featured, reservation_sur_demande, ui_config_json, location_saisonniere_config_json, menage_en_cours, zone_id, proprietaire_id, folder_id, 
+        type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle, immeuble_details_json, immeuble_appartements_json, statut, visible_sur_site, is_featured, reservation_sur_demande, ui_config_json, location_saisonniere_config_json, vente_appartement_details_json, menage_en_cours, zone_id, proprietaire_id, folder_id,
         date_ajout, created_at, updated_at, admin_last_saved_at) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [bienId, resolvedReference, titre, normalizedNomBienMobile || null, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
        details.prochePlage ? 1 : 0, details.chauffageCentral ? 1 : 0, details.climatisation ? 1 : 0, details.balcon ? 1 : 0, details.terrasse ? 1 : 0, details.ascenseur ? 1 : 0, details.vueMer ? 1 : 0, details.gazVille ? 1 : 0, details.cuisineEquipee ? 1 : 0, details.placeParking ? 1 : 0,
@@ -18574,6 +19073,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
        resolvedReservationSurDemande,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        effectiveLocationSaisonniereConfig ? JSON.stringify(effectiveLocationSaisonniereConfig) : null,
+       details.venteAppartementDetailsJson,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null, String(folder_id || '').trim() || null,
        date_ajout, created_at, updated_at, updated_at]
     );
@@ -18585,7 +19085,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
            modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
            nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?,
            terrain_prix_affiche_total = ?, terrain_prix_affiche_par_m2 = ?, terrain_mode_affichage_prix = ?, terrain_details_json = ?,
-           lotissement_nb_terrains = ?, lotissement_prix_total = ?, lotissement_mode_prix_m2 = ?, lotissement_prix_m2_unique = ?, lotissement_terrains_json = ?, lotissement_paliers_prix_m2_json = ?
+           lotissement_nb_terrains = ?, lotissement_prix_total = ?, lotissement_mode_prix_m2 = ?, lotissement_prix_m2_unique = ?, lotissement_terrains_json = ?, lotissement_paliers_prix_m2_json = ?, lotissement_details_json = ?
        WHERE id = ?`,
       [
         venteTarification.tarificationMethode,
@@ -18597,7 +19097,7 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
         venteTarification.commissionPourcentageProprietaire,
         venteTarification.commissionPourcentageClient,
         venteTarification.montantMaxReductionNegociation,
-        venteTarification.prixMinimumAccepte,
+       venteTarification.prixMinimumAccepte,
         paiementVente.modalitePaiementVente,
         paiementVente.pourcentagePremierePartiePromesse,
         paiementVente.montantPremierePartiePromesse,
@@ -18615,9 +19115,40 @@ app.post('/api/biens', requireAdminSession, async (req, res) => {
         lotissementDetails.prixM2Unique,
         lotissementDetails.terrainsJson,
         lotissementDetails.paliersPrixM2Json,
+        lotissementDetails.detailsJson,
         bienId,
       ]
     );
+    await pool.query('UPDATE biens SET local_commercial_details_json = ? WHERE id = ?', [localDetails.detailsJson, bienId]);
+    if (resolvedMode === 'vente' && resolvedType === 'villa_maison') {
+      await pool.query(
+        `UPDATE biens
+         SET type_rue = ?, type_papier = ?, superficie_m2 = ?, annee_construction = ?, distance_plage_m = ?,
+             chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, vue_mer = ?, gaz_ville = ?,
+             cuisine_equipee = ?, place_parking = ?, meuble = ?, independant = ?, facade_m = ?, vente_maison_details_json = ?
+         WHERE id = ?`,
+        [
+          type_rue || null,
+          type_papier || null,
+          toNullableNumber(superficie_m2),
+          toNullableNumber(annee_construction),
+          toNullableNumber(distance_plage_m),
+          (chauffage_central === true || Number(chauffage_central) === 1) ? 1 : 0,
+          (climatisation === true || Number(climatisation) === 1) ? 1 : 0,
+          (balcon === true || Number(balcon) === 1) ? 1 : 0,
+          (terrasse === true || Number(terrasse) === 1) ? 1 : 0,
+          (vue_mer === true || Number(vue_mer) === 1) ? 1 : 0,
+          (gaz_ville === true || Number(gaz_ville) === 1) ? 1 : 0,
+          (cuisine_equipee === true || Number(cuisine_equipee) === 1) ? 1 : 0,
+          (place_parking === true || Number(place_parking) === 1) ? 1 : 0,
+          (meuble === true || Number(meuble) === 1) ? 1 : 0,
+          (independant === true || Number(independant) === 1) ? 1 : 0,
+          toNullableNumber(facade_m),
+          maisonDetails.venteMaisonDetailsJson,
+          bienId,
+        ]
+      );
+    }
     const normalizedResidenceUnits = normalizeResidenceUnits(residence_units);
     const residenceUnitsForStorage = stripResidenceUnitsForStorage(residence_units);
     await pool.query(
@@ -18962,7 +19493,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
       modalite_paiement_vente, pourcentage_premiere_partie_promesse, nombre_tranches, periode_tranches_mois,
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
       proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
-      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg,
+      cuisine_equipee, place_parking, syndic, meuble, independant, vente_appartement_details, vente_appartement_details_json, vente_maison_details, vente_maison_details_json, eau_puits, eau_sonede, electricite_steg,
       surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette, reserve_local, vitrine, coin_angle, electricite_3_phases, alarme,
       type_terrain, terrain_facade_m, terrain_surface_m2, terrain_distance_plage_m, terrain_zone, terrain_constructible, terrain_angle,
       terrain_prix_affiche_total, terrain_prix_affiche_par_m2, terrain_mode_affichage_prix,
@@ -18987,12 +19518,16 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
     const details = normalizeAppartementVenteDetails(resolvedMode, resolvedType, {
       type_rue, type_papier, superficie_m2, etage, configuration, annee_construction, distance_plage_m,
       proche_plage, chauffage_central, climatisation, balcon, terrasse, ascenseur, vue_mer, gaz_ville,
-      cuisine_equipee, place_parking, syndic, meuble, independant, eau_puits, eau_sonede, electricite_steg
+      cuisine_equipee, place_parking, syndic, meuble, independant, vente_appartement_details, vente_appartement_details_json, eau_puits, eau_sonede, electricite_steg
     });
     if (details.error) {
       return res.status(400).json({ error: details.error });
     }
+    const maisonDetails = normalizeMaisonVenteDetails(resolvedMode, resolvedType, {
+      type_papier, superficie_m2, facade_m, independant, vente_maison_details, vente_maison_details_json
+    });
     const localDetails = normalizeLocalCommercialVenteDetails(resolvedMode, resolvedType, {
+      ...req.body,
       type_rue, type_papier, surface_local_m2, facade_m, hauteur_plafond_m, activite_recommandee, toilette,
       reserve_local, vitrine, coin_angle, electricite_3_phases, gaz_ville, alarme, eau_puits, eau_sonede, electricite_steg
     });
@@ -19026,12 +19561,14 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
         });
 
     const lotissementDetails = normalizeLotissementVenteDetails(resolvedMode, resolvedType, {
+      ...req.body,
       reference: resolvedReference, titre, lotissement_nb_terrains, lotissement_prix_total, lotissement_mode_prix_m2, lotissement_prix_m2_unique, lotissement_terrains, lotissement_paliers_prix_m2
     });
     if (lotissementDetails.error) {
       return res.status(400).json({ error: lotissementDetails.error });
     }
     const immeubleDetails = normalizeImmeubleVenteDetails(resolvedMode, resolvedType, {
+      ...req.body,
       reference: resolvedReference, titre, type_rue, type_papier, immeuble_surface_terrain_m2, immeuble_surface_batie_m2, immeuble_nb_niveaux, immeuble_nb_garages, immeuble_nb_appartements,
       immeuble_nb_locaux_commerciaux, immeuble_distance_plage_m, immeuble_proche_plage, immeuble_ascenseur, immeuble_parking_sous_sol, immeuble_parking_exterieur,
       immeuble_syndic, immeuble_vue_mer, immeuble_appartements, immeuble_garages, immeuble_locaux_commerciaux
@@ -19117,7 +19654,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
         proche_plage = ?, chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, ascenseur = ?, vue_mer = ?, gaz_ville = ?, cuisine_equipee = ?, place_parking = ?,
         syndic = ?, meuble = ?, independant = ?, eau_puits = ?, eau_sonede = ?, electricite_steg = ?, surface_local_m2 = ?, facade_m = ?, hauteur_plafond_m = ?, activite_recommandee = ?, toilette = ?, reserve_local = ?, vitrine = ?, coin_angle = ?, electricite_3_phases = ?, alarme = ?,
         type_terrain = ?, terrain_facade_m = ?, terrain_surface_m2 = ?, terrain_distance_plage_m = ?, terrain_zone = ?, terrain_constructible = ?, terrain_angle = ?, immeuble_details_json = ?, immeuble_appartements_json = ?,
-        statut = ?, visible_sur_site = ?, is_featured = ?, reservation_sur_demande = ?, ui_config_json = ?, location_saisonniere_config_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, folder_id = ?, updated_at = ?, admin_last_saved_at = ?
+        statut = ?, visible_sur_site = ?, is_featured = ?, reservation_sur_demande = ?, ui_config_json = ?, location_saisonniere_config_json = ?, vente_appartement_details_json = ?, menage_en_cours = ?, zone_id = ?, proprietaire_id = ?, folder_id = ?, updated_at = ?, admin_last_saved_at = ?
        WHERE id = ?`,
       [resolvedReference, titre, normalizedNomBienMobile || null, description || null, resolvedMode, resolvedType, resolvedNbChambres, resolvedNbSalleBain,
        resolvedPrixNuitee, avance || 0, caution || 0, details.typeRue, details.typePapier, details.superficieM2, details.etage, persistedConfiguration, details.anneeConstruction, details.distancePlageM,
@@ -19136,6 +19673,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
        resolvedReservationSurDemande,
        ui_config && typeof ui_config === 'object' ? JSON.stringify(ui_config) : null,
        effectiveLocationSaisonniereConfig ? JSON.stringify(effectiveLocationSaisonniereConfig) : null,
+       details.venteAppartementDetailsJson,
        menage_en_cours ? 1 : 0, zone_id || null, proprietaire_id || null, String(folder_id || '').trim() || null,
        updated_at, updated_at, req.params.id]
     );
@@ -19147,7 +19685,7 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
            modalite_paiement_vente = ?, pourcentage_premiere_partie_promesse = ?, montant_premiere_partie_promesse = ?, montant_deuxieme_partie = ?,
            nombre_tranches = ?, periode_tranches_mois = ?, montant_par_tranche = ?,
            terrain_prix_affiche_total = ?, terrain_prix_affiche_par_m2 = ?, terrain_mode_affichage_prix = ?, terrain_details_json = ?,
-           lotissement_nb_terrains = ?, lotissement_prix_total = ?, lotissement_mode_prix_m2 = ?, lotissement_prix_m2_unique = ?, lotissement_terrains_json = ?, lotissement_paliers_prix_m2_json = ?
+           lotissement_nb_terrains = ?, lotissement_prix_total = ?, lotissement_mode_prix_m2 = ?, lotissement_prix_m2_unique = ?, lotissement_terrains_json = ?, lotissement_paliers_prix_m2_json = ?, lotissement_details_json = ?
        WHERE id = ?`,
       [
         venteTarification.tarificationMethode,
@@ -19177,9 +19715,40 @@ app.put('/api/biens/:id', requireAdminSession, async (req, res) => {
         lotissementDetails.prixM2Unique,
         lotissementDetails.terrainsJson,
         lotissementDetails.paliersPrixM2Json,
+        lotissementDetails.detailsJson,
         req.params.id,
       ]
     );
+    await pool.query('UPDATE biens SET local_commercial_details_json = ? WHERE id = ?', [localDetails.detailsJson, req.params.id]);
+    if (resolvedMode === 'vente' && resolvedType === 'villa_maison') {
+      await pool.query(
+        `UPDATE biens
+         SET type_rue = ?, type_papier = ?, superficie_m2 = ?, annee_construction = ?, distance_plage_m = ?,
+             chauffage_central = ?, climatisation = ?, balcon = ?, terrasse = ?, vue_mer = ?, gaz_ville = ?,
+             cuisine_equipee = ?, place_parking = ?, meuble = ?, independant = ?, facade_m = ?, vente_maison_details_json = ?
+         WHERE id = ?`,
+        [
+          type_rue || null,
+          type_papier || null,
+          toNullableNumber(superficie_m2),
+          toNullableNumber(annee_construction),
+          toNullableNumber(distance_plage_m),
+          (chauffage_central === true || Number(chauffage_central) === 1) ? 1 : 0,
+          (climatisation === true || Number(climatisation) === 1) ? 1 : 0,
+          (balcon === true || Number(balcon) === 1) ? 1 : 0,
+          (terrasse === true || Number(terrasse) === 1) ? 1 : 0,
+          (vue_mer === true || Number(vue_mer) === 1) ? 1 : 0,
+          (gaz_ville === true || Number(gaz_ville) === 1) ? 1 : 0,
+          (cuisine_equipee === true || Number(cuisine_equipee) === 1) ? 1 : 0,
+          (place_parking === true || Number(place_parking) === 1) ? 1 : 0,
+          (meuble === true || Number(meuble) === 1) ? 1 : 0,
+          (independant === true || Number(independant) === 1) ? 1 : 0,
+          toNullableNumber(facade_m),
+          maisonDetails.venteMaisonDetailsJson,
+          req.params.id,
+        ]
+      );
+    }
     const normalizedResidenceUnits = normalizeResidenceUnits(residence_units);
     const residenceUnitsForStorage = stripResidenceUnitsForStorage(residence_units);
     await pool.query(
@@ -25260,6 +25829,21 @@ app.post('/api/reservation-demands', reservationMutationRateLimit, async (req, r
         : `Nouvelle demande de ${requestType === 'visite' ? 'visite' : 'reservation'} pour ${bien.reference || bien.id} - ${bien.titre}`
     );
 
+    if (isSalesVisitDemand) {
+      sendDwiraAdminEmail({
+        to: 'dwiraimmobilier@gmail.com',
+        subject: `Nouvelle demande visite vente - ${bien.reference || bien.id}`,
+        text: [
+          'Nouvelle demande de visite pour un bien en vente.',
+          `Bien: ${bien.reference || bien.id} - ${bien.titre || ''}`,
+          `Client: ${resolvedClientName || resolvedClientEmail || 'Client'}`,
+          `Telephone: ${resolvedClientTelephone || '-'}`,
+          `Date souhaitee: ${normalizedVisitPreferredDate || '-'}`,
+          `Creneau: ${normalizedVisitTimeSlot || '-'}`,
+        ].join('\n'),
+      }).catch((mailError) => console.error('Sales visit demand email failed:', mailError?.message || mailError));
+    }
+
     if (isPartnerAgencyFlow) {
       await createAdminNotification(
         'warning',
@@ -30029,6 +30613,154 @@ function parseOwnerSaleRequestJson(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+async function ensureSalesClientFilesSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sales_client_files (
+      id VARCHAR(100) PRIMARY KEY,
+      client_name VARCHAR(180) NOT NULL,
+      client_phone VARCHAR(80) NOT NULL,
+      client_email VARCHAR(180) NULL,
+      status VARCHAR(40) NOT NULL DEFAULT 'nouveau',
+      progress_stage VARCHAR(60) NOT NULL DEFAULT 'qualification',
+      last_contact_at DATETIME NULL,
+      interested_bien_ids_json LONGTEXT NULL,
+      criteria_json LONGTEXT NULL,
+      notes TEXT NULL,
+      outcome VARCHAR(40) NULL,
+      created_by_admin_id VARCHAR(100) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_sales_client_files_status (status, progress_stage, updated_at),
+      KEY idx_sales_client_files_phone (client_phone),
+      KEY idx_sales_client_files_last_contact (last_contact_at)
+    )
+  `);
+  if (!(await columnExists('sales_client_files', 'reminder_task'))) {
+    await pool.query('ALTER TABLE sales_client_files ADD COLUMN reminder_task TEXT NULL AFTER notes');
+  }
+  if (!(await columnExists('sales_client_files', 'reminder_at'))) {
+    await pool.query('ALTER TABLE sales_client_files ADD COLUMN reminder_at DATETIME NULL AFTER reminder_task');
+  }
+  if (!(await columnExists('sales_client_files', 'reminder_emails_json'))) {
+    await pool.query('ALTER TABLE sales_client_files ADD COLUMN reminder_emails_json LONGTEXT NULL AFTER reminder_at');
+  }
+  if (!(await columnExists('sales_client_files', 'reminder_sent_at'))) {
+    await pool.query('ALTER TABLE sales_client_files ADD COLUMN reminder_sent_at DATETIME NULL AFTER reminder_emails_json');
+  }
+}
+
+const salesClientReminderTimers = new Map();
+
+function normalizeReminderEmails(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(/[,;\n]/);
+  const emails = raw.map((item) => String(item || '').trim().toLowerCase()).filter((item) => item && item.includes('@'));
+  return Array.from(new Set(emails));
+}
+
+async function sendSalesClientReminderEmail(clientFileId) {
+  const [rows] = await pool.query('SELECT * FROM sales_client_files WHERE id = ? LIMIT 1', [clientFileId]);
+  const row = rows?.[0];
+  if (!row || row.reminder_sent_at) return { delivered: false, reason: 'already_sent_or_missing' };
+  const emails = normalizeReminderEmails(parseOwnerSaleRequestJson(row.reminder_emails_json, []));
+  const task = String(row.reminder_task || '').trim();
+  if (!task) return { delivered: false, reason: 'missing_task' };
+  if (emails.length === 0) return { delivered: false, reason: 'missing_recipient' };
+  const result = await sendDwiraAdminEmail({
+    to: emails,
+    subject: `Rappel dossier client vente - ${String(row.client_name || 'Client')}`,
+    text: [
+      `Rappel dossier client vente`,
+      `Client: ${row.client_name || '-'}`,
+      `Telephone: ${row.client_phone || '-'}`,
+      `Tache: ${task}`,
+      `Date programmee: ${row.reminder_at || '-'}`,
+    ].join('\n'),
+  });
+  if (!result?.delivered) return result;
+  await pool.query('UPDATE sales_client_files SET reminder_sent_at = ? WHERE id = ?', [getAgencySqlDateTime(), clientFileId]);
+  return result;
+}
+
+function scheduleSalesClientReminder(clientFileId, reminderAt) {
+  const id = String(clientFileId || '').trim();
+  if (!id) return;
+  const previous = salesClientReminderTimers.get(id);
+  if (previous) clearTimeout(previous);
+  salesClientReminderTimers.delete(id);
+  const target = new Date(String(reminderAt || '').replace(' ', 'T')).getTime();
+  if (!Number.isFinite(target)) return;
+  const delay = target - Date.now();
+  if (delay <= 0) {
+    void sendSalesClientReminderEmail(id).catch((error) => console.error('Sales client reminder email failed:', error?.message || error));
+    return;
+  }
+  const timer = setTimeout(() => {
+    salesClientReminderTimers.delete(id);
+    void sendSalesClientReminderEmail(id).catch((error) => console.error('Sales client reminder email failed:', error?.message || error));
+  }, Math.min(delay, 2147483647));
+  salesClientReminderTimers.set(id, timer);
+}
+
+async function schedulePendingSalesClientReminders() {
+  try {
+    await ensureSalesClientFilesSchema();
+    const [rows] = await pool.query(
+      `SELECT id, reminder_at
+       FROM sales_client_files
+       WHERE reminder_task IS NOT NULL
+         AND reminder_task <> ''
+         AND reminder_at IS NOT NULL
+         AND reminder_emails_json IS NOT NULL
+         AND reminder_sent_at IS NULL
+       LIMIT 500`
+    );
+    (rows || []).forEach((row) => scheduleSalesClientReminder(row.id, row.reminder_at));
+  } catch (error) {
+    console.error('Sales client reminders startup scheduling failed:', error?.message || error);
+  }
+}
+
+function normalizeSalesClientCriterion(raw = {}) {
+  const importance = ['obligatoire', 'important', 'souhaite', 'bonus', 'ignore'].includes(String(raw.importance || '').trim())
+    ? String(raw.importance || '').trim()
+    : 'important';
+  const condition = ['exact', 'min', 'max', 'tolerance', 'contient', 'oui_non', 'indifferent'].includes(String(raw.condition || '').trim())
+    ? String(raw.condition || '').trim()
+    : 'exact';
+  return {
+    key: String(raw.key || raw.criterion || '').trim(),
+    label: String(raw.label || raw.key || '').trim(),
+    importance,
+    condition,
+    value: raw.value === undefined || raw.value === null ? '' : String(raw.value),
+    tolerance: raw.tolerance === undefined || raw.tolerance === null ? '' : String(raw.tolerance),
+  };
+}
+
+function formatSalesClientFileRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id || '').trim(),
+    client_name: String(row.client_name || '').trim(),
+    client_phone: String(row.client_phone || '').trim(),
+    client_email: String(row.client_email || '').trim() || null,
+    status: String(row.status || 'nouveau').trim(),
+    progress_stage: String(row.progress_stage || 'qualification').trim(),
+    last_contact_at: row.last_contact_at || null,
+    interested_bien_ids: parseOwnerSaleRequestJson(row.interested_bien_ids_json, []),
+    criteria: parseOwnerSaleRequestJson(row.criteria_json, []).map(normalizeSalesClientCriterion).filter((item) => item.key),
+    notes: row.notes || '',
+    reminder_task: row.reminder_task || '',
+    reminder_at: row.reminder_at || null,
+    reminder_emails: normalizeReminderEmails(parseOwnerSaleRequestJson(row.reminder_emails_json, [])),
+    reminder_sent_at: row.reminder_sent_at || null,
+    outcome: row.outcome || null,
+    created_by_admin_id: row.created_by_admin_id || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
 }
 
 let ensurePropertyGroupsSchemaPromise = null;
@@ -38994,6 +39726,7 @@ app.listen(PORT, () => {
   console.log('   - GET    /api/mobile/owners/:ownerId/calendar-prompts/pending');
   console.log('   - POST   /api/mobile/owners/:ownerId/calendar-prompts/:promptId/respond');
   runOwnerCalendarPromptSchedulerTick();
+  schedulePendingSalesClientReminders();
 });
 
 

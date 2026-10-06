@@ -106,7 +106,7 @@ type DemandDraft = {
 };
 
 type MatchImportance = "obligatoire" | "important" | "souhaite" | "ignore";
-type NumericRule = "exact" | "min" | "max" | "tolerance";
+type NumericRule = "exact" | "min" | "max" | "between" | "tolerance";
 
 type MatchCriterion = {
   importance: MatchImportance;
@@ -122,6 +122,33 @@ type BuyerMatchRequest = {
   email: string;
   status: string;
   criteria: Record<string, MatchCriterion>;
+};
+
+type SalesClientCriterion = {
+  key: string;
+  label: string;
+  importance: MatchImportance;
+  rule?: NumericRule;
+  condition?: NumericRule | "contient" | "oui_non" | "indifferent";
+  value: string;
+  tolerance?: string;
+};
+
+type SalesClientFile = {
+  id: string;
+  client_name: string;
+  client_phone: string;
+  client_email?: string | null;
+  status: string;
+  progress_stage: string;
+  last_contact_at?: string | null;
+  interested_bien_ids: string[];
+  criteria: SalesClientCriterion[];
+  notes?: string | null;
+  outcome?: string | null;
+  reminder_task?: string | null;
+  reminder_at?: string | null;
+  reminder_emails?: string[];
 };
 
 type MatchResult = {
@@ -150,8 +177,9 @@ const MATCH_IMPORTANCE_STYLES: Record<MatchImportance, string> = {
 
 const MATCH_NUMERIC_RULE_LABELS: Record<NumericRule, string> = {
   exact: "Exact",
-  min: "Minimum a",
+  min: "Minimum",
   max: "Maximum",
+  between: "Entre",
   tolerance: "+/- Tolerance",
 };
 
@@ -162,6 +190,110 @@ const YES_NO_OPTIONS = [
 
 const BEDROOM_OPTIONS = ["0", "1", "2", "3", "4", "5", "6"];
 const FLOOR_OPTIONS = ["RDC", "1", "2", "3", "4", "5+"];
+
+type SaleCharacteristicKind = "text" | "number" | "boolean" | "choice";
+type SaleCharacteristicDefinition = {
+  key: string;
+  label: string;
+  kind: SaleCharacteristicKind;
+  appliesTo: string[];
+  defaultImportance: MatchImportance;
+  defaultRule?: NumericRule;
+};
+
+const ALL_SALE_TYPES = ["appartement", "villa_maison", "terrain", "lotissement", "immeuble", "local_commercial", "bureau"];
+const SALE_CHARACTERISTIC_DEFINITIONS: SaleCharacteristicDefinition[] = [
+  { key: "operation", label: "Type d'operation", kind: "choice", appliesTo: ALL_SALE_TYPES, defaultImportance: "obligatoire" },
+  { key: "propertyType", label: "Type de bien", kind: "choice", appliesTo: ALL_SALE_TYPES, defaultImportance: "obligatoire" },
+  { key: "location", label: "Localisation", kind: "text", appliesTo: ALL_SALE_TYPES, defaultImportance: "important" },
+  { key: "budget", label: "Budget", kind: "number", appliesTo: ALL_SALE_TYPES, defaultImportance: "obligatoire", defaultRule: "max" },
+  { key: "surface", label: "Surface", kind: "number", appliesTo: ALL_SALE_TYPES, defaultImportance: "obligatoire", defaultRule: "min" },
+  { key: "facade", label: "Facade", kind: "number", appliesTo: ["villa_maison", "terrain", "lotissement", "immeuble", "local_commercial", "bureau"], defaultImportance: "important", defaultRule: "min" },
+  { key: "distanceBeach", label: "Distance plage (m)", kind: "number", appliesTo: ALL_SALE_TYPES, defaultImportance: "ignore", defaultRule: "max" },
+  { key: "bedrooms", label: "Nombre de chambres", kind: "number", appliesTo: ["appartement", "villa_maison", "immeuble"], defaultImportance: "souhaite", defaultRule: "min" },
+  { key: "bathrooms", label: "Salles de bain", kind: "number", appliesTo: ["appartement", "villa_maison", "immeuble"], defaultImportance: "ignore", defaultRule: "min" },
+  { key: "floor", label: "Etage", kind: "choice", appliesTo: ["appartement", "immeuble", "local_commercial"], defaultImportance: "ignore" },
+  { key: "independent", label: "Maison independante", kind: "boolean", appliesTo: ["villa_maison"], defaultImportance: "important" },
+  { key: "garage", label: "Garage / Parking", kind: "boolean", appliesTo: ["appartement", "villa_maison", "immeuble", "local_commercial", "bureau"], defaultImportance: "souhaite" },
+  { key: "pool", label: "Piscine", kind: "boolean", appliesTo: ["appartement", "villa_maison"], defaultImportance: "souhaite" },
+  { key: "beach", label: "Proche plage", kind: "boolean", appliesTo: ALL_SALE_TYPES, defaultImportance: "important" },
+  { key: "balcony", label: "Balcon", kind: "boolean", appliesTo: ["appartement", "immeuble"], defaultImportance: "ignore" },
+  { key: "terrace", label: "Terrasse", kind: "boolean", appliesTo: ["appartement", "villa_maison", "immeuble", "local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "airConditioning", label: "Climatisation", kind: "boolean", appliesTo: ["appartement", "villa_maison", "immeuble", "local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "centralHeating", label: "Chauffage central", kind: "boolean", appliesTo: ["appartement", "villa_maison", "immeuble", "local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "equippedKitchen", label: "Cuisine equipee", kind: "boolean", appliesTo: ["appartement", "villa_maison"], defaultImportance: "ignore" },
+  { key: "furnished", label: "Meuble", kind: "boolean", appliesTo: ["appartement", "villa_maison", "local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "residence", label: "Residence", kind: "boolean", appliesTo: ["appartement"], defaultImportance: "ignore" },
+  { key: "securedResidence", label: "Residence gardee", kind: "boolean", appliesTo: ["appartement"], defaultImportance: "ignore" },
+  { key: "landUse", label: "Vocation", kind: "choice", appliesTo: ["terrain", "lotissement", "immeuble", "local_commercial", "bureau"], defaultImportance: "important" },
+  { key: "constructible", label: "Constructible", kind: "boolean", appliesTo: ["terrain", "lotissement"], defaultImportance: "important" },
+  { key: "title", label: "Titre foncier", kind: "boolean", appliesTo: ALL_SALE_TYPES, defaultImportance: "important" },
+  { key: "blueTitle", label: "Titre bleu", kind: "boolean", appliesTo: ["terrain", "lotissement", "immeuble", "local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "access", label: "Acces", kind: "text", appliesTo: ["terrain", "lotissement", "local_commercial", "bureau"], defaultImportance: "souhaite" },
+  { key: "corner", label: "Coin de rue", kind: "boolean", appliesTo: ["terrain", "lotissement", "local_commercial", "bureau"], defaultImportance: "souhaite" },
+  { key: "roadWidth", label: "Largeur route/voies", kind: "number", appliesTo: ["terrain", "lotissement"], defaultImportance: "ignore", defaultRule: "min" },
+  { key: "apartments", label: "Nombre appartements", kind: "number", appliesTo: ["immeuble"], defaultImportance: "ignore", defaultRule: "min" },
+  { key: "commercialUnits", label: "Locaux commerciaux", kind: "number", appliesTo: ["immeuble"], defaultImportance: "ignore", defaultRule: "min" },
+  { key: "rentalYield", label: "Rendement brut (%)", kind: "number", appliesTo: ["immeuble", "local_commercial", "bureau"], defaultImportance: "ignore", defaultRule: "min" },
+  { key: "elevator", label: "Ascenseur", kind: "boolean", appliesTo: ["appartement", "immeuble", "local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "storefrontWidth", label: "Largeur vitrine", kind: "number", appliesTo: ["local_commercial"], defaultImportance: "ignore", defaultRule: "min" },
+  { key: "mainFacadeWidth", label: "Largeur facade principale", kind: "number", appliesTo: ["local_commercial", "bureau", "immeuble"], defaultImportance: "ignore", defaultRule: "min" },
+  { key: "roomsOffices", label: "Pieces / bureaux", kind: "number", appliesTo: ["local_commercial", "bureau"], defaultImportance: "ignore", defaultRule: "min" },
+  { key: "sanitaryCount", label: "Sanitaires", kind: "number", appliesTo: ["local_commercial", "bureau"], defaultImportance: "ignore", defaultRule: "min" },
+  { key: "directAccess", label: "Acces direct rue", kind: "boolean", appliesTo: ["local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "mainStreet", label: "Rue principale", kind: "boolean", appliesTo: ["local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "activityAllowed", label: "Activite autorisee", kind: "boolean", appliesTo: ["local_commercial"], defaultImportance: "ignore" },
+  { key: "openSpace", label: "Open space", kind: "boolean", appliesTo: ["local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "reception", label: "Reception", kind: "boolean", appliesTo: ["local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "kitchenette", label: "Kitchenette", kind: "boolean", appliesTo: ["local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "extraction", label: "Extraction possible", kind: "boolean", appliesTo: ["local_commercial"], defaultImportance: "ignore" },
+  { key: "fiberInternet", label: "Fibre / Internet", kind: "boolean", appliesTo: ["terrain", "lotissement", "immeuble", "local_commercial", "bureau"], defaultImportance: "ignore" },
+  { key: "other", label: "Autres criteres", kind: "text", appliesTo: ALL_SALE_TYPES, defaultImportance: "souhaite" },
+];
+
+const saleCharacteristicByKey = new Map(SALE_CHARACTERISTIC_DEFINITIONS.map((item) => [item.key, item]));
+
+function getSaleCharacteristicDefinition(key: string) {
+  return saleCharacteristicByKey.get(key);
+}
+
+function buildCriteriaFromSaleCharacteristics(propertyType = ""): SalesClientCriterion[] {
+  const normalizedType = String(propertyType || "").trim();
+  return SALE_CHARACTERISTIC_DEFINITIONS
+    .filter((definition) => !normalizedType || definition.appliesTo.includes(normalizedType) || ["operation", "propertyType"].includes(definition.key))
+    .map((definition) => ({
+      key: definition.key,
+      label: definition.label,
+      importance: definition.defaultImportance,
+      value: definition.key === "operation" ? "Achat" : definition.key === "propertyType" ? normalizedType : "",
+      rule: definition.kind === "number" ? definition.defaultRule || "exact" : undefined,
+      condition: definition.kind === "boolean" ? "oui_non" : definition.kind === "number" ? definition.defaultRule || "exact" : "contient",
+      tolerance: "",
+    }));
+}
+
+function mergeCriteriaWithSaleCharacteristics(criteria: SalesClientCriterion[] | undefined, propertyType = "") {
+  const existing = new Map((criteria || []).map((criterion) => [criterion.key, criterion]));
+  return buildCriteriaFromSaleCharacteristics(propertyType).map((criterion) => ({
+    ...criterion,
+    ...(existing.get(criterion.key) || {}),
+    label: criterion.label,
+    rule: existing.get(criterion.key)?.rule || criterion.rule,
+    condition: existing.get(criterion.key)?.condition || criterion.condition,
+  }));
+}
+
+function recordCriteriaFromClientCriteria(criteria: SalesClientCriterion[]) {
+  return Object.fromEntries(criteria.map((criterion) => [
+    criterion.key,
+    {
+      importance: criterion.importance,
+      value: criterion.value,
+      rule: criterion.rule || (["exact", "min", "max", "between", "tolerance"].includes(String(criterion.condition || "")) ? criterion.condition as NumericRule : undefined),
+      tolerance: criterion.tolerance,
+    },
+  ]));
+}
 
 const DEFAULT_MATCH_REQUESTS: BuyerMatchRequest[] = [
   {
@@ -200,11 +332,19 @@ const DEFAULT_MATCH_REQUESTS: BuyerMatchRequest[] = [
       budget: { importance: "obligatoire", value: "250000", rule: "max" },
       bedrooms: { importance: "important", value: "2", rule: "min" },
       floor: { importance: "ignore", value: "" },
-      garage: { importance: "souhaite", value: "oui" },
-      beach: { importance: "important", value: "oui" },
+        garage: { importance: "souhaite", value: "oui" },
+        beach: { importance: "important", value: "oui" },
+        facade: { importance: "important", value: "", rule: "min" },
+        landUse: { importance: "ignore", value: "" },
+        constructible: { importance: "ignore", value: "" },
+        title: { importance: "important", value: "oui" },
+        access: { importance: "ignore", value: "" },
+        corner: { importance: "ignore", value: "" },
+      },
     },
-  },
-];
+  ];
+
+const DEFAULT_CLIENT_CRITERIA: SalesClientCriterion[] = buildCriteriaFromSaleCharacteristics();
 
 const SALES_STAGE_OPTIONS: Array<{ value: SalesStage; label: string }> = [
   { value: "nouvelle_demande", label: "Nouvelle demande" },
@@ -401,12 +541,68 @@ const DEMO_SALE_BIENS: any[] = [
     prix_affiche_client: 420000,
     surface_local_m2: 118,
     facade_m: 14,
+    local_largeur_vitrine_m: 9,
+    local_acces_direct_rue: true,
+    local_sur_rue_principale: true,
+    local_parking: true,
+    local_activite_commerciale_autorisee: true,
+    local_visibilite_commerciale: "excellente",
     nb_chambres: 0,
     etage: 0,
     vitrine: true,
     toilette: true,
     description: "Local commercial avec vitrine, grande facade, usage commercial.",
     media: [{ url: "https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=900&q=80" }],
+  },
+  {
+    id: "demo-i042",
+    reference: "REF-I042",
+    titre: "Immeuble mixte R+3 centre-ville",
+    mode: "vente",
+    type: "immeuble",
+    zone: "Kelibia - Centre-ville",
+    statut: "disponible",
+    visible_sur_site: true,
+    prix_affiche_client: 1200000,
+    immeuble_surface_terrain_m2: 350,
+    immeuble_surface_batie_m2: 800,
+    immeuble_largeur_facade_m: 16,
+    immeuble_nb_niveaux: 4,
+    immeuble_nb_etages: 3,
+    immeuble_nb_appartements: 8,
+    immeuble_nb_locaux_commerciaux: 2,
+    immeuble_nb_places_parking: 6,
+    immeuble_nb_unites_louees: 6,
+    immeuble_revenu_locatif_mensuel: 7500,
+    immeuble_revenu_locatif_annuel: 90000,
+    immeuble_rendement_brut_pct: 7.5,
+    immeuble_ascenseur: true,
+    immeuble_parking_exterieur: true,
+    immeuble_route_principale: true,
+    immeuble_proche_commerces: true,
+    description: "Immeuble mixte loue partiellement avec locaux commerciaux, ascenseur, parking et rendement brut 7.5%.",
+    media: [{ url: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80" }],
+  },
+  {
+    id: "REQ-003",
+    clientName: "Client terrain Kelibia",
+    phone: "20 400 400",
+    email: "terrain@example.com",
+    status: "Nouveau",
+    criteria: {
+      operation: { importance: "obligatoire", value: "Achat" },
+      propertyType: { importance: "obligatoire", value: "terrain" },
+      location: { importance: "obligatoire", value: "Kelibia" },
+      surface: { importance: "obligatoire", value: "400", rule: "min" },
+      facade: { importance: "obligatoire", value: "18", rule: "min" },
+      budget: { importance: "obligatoire", value: "400000", rule: "max" },
+      landUse: { importance: "obligatoire", value: "habitation" },
+      constructible: { importance: "obligatoire", value: "oui" },
+      title: { importance: "obligatoire", value: "oui" },
+      beach: { importance: "important", value: "oui" },
+      corner: { importance: "souhaite", value: "oui" },
+      access: { importance: "important", value: "" },
+    },
   },
 ];
 
@@ -461,6 +657,7 @@ function getSaleTypeLabel(type?: string | null) {
     terrain: "Terrain",
     lotissement: "Lotissement",
     local_commercial: "Local commercial",
+    bureau: "Bureau",
   };
   return labels[String(type || "").trim()] || "Bien vente";
 }
@@ -491,16 +688,47 @@ function getSaleNumericValue(bien: any, key: string) {
   if (key === "surface") {
     return Number(bien?.superficie_m2 || bien?.terrain_surface_m2 || bien?.immeuble_surface_batie_m2 || bien?.surface_local_m2 || 0);
   }
-  if (key === "facade") return Number(bien?.facade_m || bien?.terrain_facade_m || 0);
+  if (key === "facade") return Number(bien?.facade_m || bien?.terrain_facade_m || bien?.immeuble_largeur_facade_m || 0);
+  if (key === "distanceBeach") return Number(bien?.distance_plage_m || bien?.terrain_distance_plage_m || bien?.immeuble_distance_plage_m || bien?.lotissement_distance_plage_m || 0);
   if (key === "bedrooms") return Number(bien?.nb_chambres || 0);
+  if (key === "bathrooms") return Number(bien?.nb_salle_bain || 0);
+  if (key === "roadWidth") return Number(bien?.terrain_route_acces_largeur_m || bien?.lotissement_largeur_voies_m || 0);
+  if (key === "apartments") return Number(bien?.immeuble_nb_appartements || 0);
+  if (key === "commercialUnits") return Number(bien?.immeuble_nb_locaux_commerciaux || 0);
+  if (key === "rentalYield") return Number(bien?.immeuble_rendement_brut_pct || 0);
+  if (key === "storefrontWidth") return Number(bien?.local_largeur_vitrine_m || 0);
+  if (key === "mainFacadeWidth") return Number(bien?.facade_m || bien?.terrain_facade_m || bien?.immeuble_largeur_facade_m || 0);
+  if (key === "roomsOffices") return Number(bien?.local_nb_pieces_bureaux || 0);
+  if (key === "sanitaryCount") return Number(bien?.local_nb_sanitaires || 0);
   return 0;
 }
 
 function getSaleBooleanValue(bien: any, key: string) {
-  if (key === "garage") return Boolean(bien?.place_parking || bien?.immeuble_parking_exterieur || bien?.immeuble_parking_sous_sol || Number(bien?.immeuble_nb_garages || 0) > 0);
-  if (key === "pool") return normalizeText([bien?.description, bien?.caracteristiques?.join?.(" ")].join(" ")).includes("piscine");
+  if (key === "garage") return Boolean(bien?.place_parking || bien?.immeuble_garage || bien?.immeuble_parking_exterieur || bien?.immeuble_parking_sous_sol || Number(bien?.immeuble_nb_garages || 0) > 0 || Number(bien?.immeuble_nb_places_parking || 0) > 0);
+  if (key === "pool") return Boolean(bien?.piscine_individuelle || bien?.piscine_commune || bien?.vente_appartement_details?.piscine_individuelle || bien?.vente_appartement_details?.piscine_commune || bien?.vente_maison_details?.piscine_individuelle || bien?.vente_maison_details?.piscine_commune || normalizeText([bien?.description, bien?.caracteristiques?.join?.(" ")].join(" ")).includes("piscine"));
   if (key === "beach") return Boolean(bien?.proche_plage || bien?.immeuble_proche_plage || Number(bien?.distance_plage_m || bien?.terrain_distance_plage_m || bien?.immeuble_distance_plage_m || 999999) <= 800);
   if (key === "independent") return Boolean(bien?.independant || bien?.type === "villa_maison" || bien?.type === "terrain");
+  if (key === "constructible") return Boolean(bien?.terrain_constructible || bien?.lotissement_constructible);
+  if (key === "title") return Boolean(String(bien?.type_papier || "").includes("titre_foncier_individuel") || String(bien?.immeuble_titre_foncier || "").includes("individuel") || bien?.vente_appartement_details?.titre_foncier_individuel || bien?.vente_maison_details?.titre_foncier_individuel || bien?.lotissement_titre_foncier_global || normalizeText([bien?.description, bien?.terrain_documents_disponibles?.join?.(" ")].join(" ")).includes("titre"));
+  if (key === "blueTitle") return Boolean(bien?.immeuble_titre_bleu || bien?.local_titre_bleu || bien?.lotissement_titre_bleu || normalizeText([bien?.terrain_documents_disponibles?.join?.(" "), bien?.description].join(" ")).includes("titre bleu"));
+  if (key === "corner") return Boolean(bien?.terrain_angle || bien?.coin_angle);
+  if (key === "elevator") return Boolean(bien?.ascenseur || bien?.immeuble_ascenseur || bien?.local_ascenseur);
+  if (key === "balcony") return Boolean(bien?.balcon || bien?.vente_appartement_details?.balcon);
+  if (key === "terrace") return Boolean(bien?.terrasse || bien?.vente_maison_details?.terrasse);
+  if (key === "airConditioning") return Boolean(bien?.climatisation || bien?.immeuble_climatisation);
+  if (key === "centralHeating") return Boolean(bien?.chauffage_central || bien?.immeuble_chauffage_central || bien?.local_chauffage);
+  if (key === "equippedKitchen") return Boolean(bien?.cuisine_equipee);
+  if (key === "furnished") return Boolean(bien?.meuble);
+  if (key === "residence") return Boolean(bien?.vente_appartement_details?.residence || bien?.copropriete);
+  if (key === "securedResidence") return Boolean(bien?.vente_appartement_details?.residence_gardee);
+  if (key === "directAccess") return Boolean(bien?.local_acces_direct_rue || bien?.local_entree_independante);
+  if (key === "mainStreet") return Boolean(bien?.local_sur_rue_principale);
+  if (key === "activityAllowed") return Boolean(bien?.local_activite_commerciale_autorisee);
+  if (key === "openSpace") return Boolean(bien?.local_open_space);
+  if (key === "reception") return Boolean(bien?.local_reception);
+  if (key === "kitchenette") return Boolean(bien?.local_kitchenette);
+  if (key === "extraction") return Boolean(bien?.local_extraction_possible);
+  if (key === "fiberInternet") return Boolean(bien?.local_fibre_internet || bien?.terrain_viabilisation_fibre_optique);
   return false;
 }
 
@@ -509,8 +737,92 @@ function getSaleTextValue(bien: any, key: string) {
   if (key === "propertyType") return String(bien?.type || "");
   if (key === "location") return [bien?.zone, bien?.titre, bien?.description, bien?.terrain_zone].filter(Boolean).join(" ");
   if (key === "floor") return String(bien?.etage === 0 ? "RDC" : bien?.etage || "");
+  if (key === "landUse") return [bien?.type_terrain, bien?.lotissement_vocation, bien?.terrain_zone, bien?.description].filter(Boolean).join(" ");
+  if (key === "access") return [bien?.type_rue, bien?.description].filter(Boolean).join(" ");
+  if (key === "commercialUnits") return String(bien?.immeuble_nb_locaux_commerciaux || "");
   if (key === "other") return [bien?.description, bien?.type_papier, bien?.terrain_documents_disponibles?.join?.(" "), bien?.caracteristiques?.join?.(" ")].filter(Boolean).join(" ");
   return "";
+}
+
+function expandLotissementLotsForMatching(biens: any[]) {
+  return biens.flatMap((bien) => {
+    if (bien?.type !== "lotissement" || !Array.isArray(bien?.lotissement_terrains)) return [bien];
+    const parentReference = bien.reference || bien.id || "LOT";
+    const lots = bien.lotissement_terrains
+      .filter((lot: any) => !["reserve", "reservee", "vendu"].includes(normalizeText(lot?.statut || "disponible")))
+      .map((lot: any, index: number) => {
+        const surface = Number(lot?.surface_m2 || 0);
+        const prixM2 = Number(lot?.prix_m2 || bien.lotissement_prix_m2_unique || bien.lotissement_prix_m2_moyen || 0);
+        const prixTotal = Number(lot?.prix_total || (surface > 0 && prixM2 > 0 ? surface * prixM2 : 0));
+        const lotReference = lot?.reference || `${parentReference}-LOT${String(lot?.index || index + 1).padStart(2, "0")}`;
+        return {
+          ...bien,
+          id: `${bien.id || parentReference}::${lotReference}`,
+          reference: lotReference,
+          titre: `${bien.titre || "Lotissement"} - ${lotReference}`,
+          type: "terrain",
+          is_lotissement_lot: true,
+          parent_lotissement_id: bien.id,
+          parent_lotissement_reference: parentReference,
+          terrain_surface_m2: surface || null,
+          terrain_facade_m: lot?.facade_m ?? null,
+          terrain_distance_plage_m: lot?.terrain_distance_plage_m ?? bien.lotissement_distance_plage_m ?? null,
+          terrain_zone: lot?.terrain_zone || bien.zone || bien.terrain_zone || null,
+          terrain_constructible: Boolean(lot?.terrain_constructible || bien.lotissement_constructible),
+          terrain_angle: Boolean(lot?.terrain_angle || normalizeText(lot?.position).includes("angle")),
+          terrain_prix_affiche_total: prixTotal || null,
+          terrain_prix_affiche_par_m2: prixM2 || null,
+          prix_affiche_client: prixTotal || bien.prix_affiche_client || bien.prix_final || bien.prix_nuitee || null,
+          prix_final: prixTotal || bien.prix_final || null,
+          type_terrain: lot?.type_terrain || bien.lotissement_vocation || bien.type_terrain || "terrain",
+          type_rue: lot?.type_rue || bien.type_rue || null,
+          type_papier: lot?.type_papier || bien.type_papier || null,
+          description: [bien.description, lot?.position, lot?.orientation, `Lot issu du lotissement ${parentReference}`].filter(Boolean).join(" "),
+        };
+      });
+    return [bien, ...lots];
+  });
+}
+
+function expandImmeubleUnitsForMatching(biens: any[]) {
+  return biens.flatMap((bien) => {
+    if (bien?.type !== "immeuble" || !Array.isArray(bien?.immeuble_appartements)) return [bien];
+    const parentReference = bien.reference || bien.id || "IM";
+    const units = bien.immeuble_appartements
+      .filter((unit: any) => !["reserve", "reservee", "vendu"].includes(normalizeText(unit?.statut || "disponible")))
+      .map((unit: any, index: number) => {
+        const unitType = unit?.type_unite === "local_commercial" || unit?.type_unite === "bureau" ? "local_commercial" : "appartement";
+        const unitReference = unit?.reference || `${parentReference}-${unitType === "appartement" ? "A" : "LC"}${String(unit?.index || index + 1).padStart(2, "0")}`;
+        const price = Number(unit?.prix || 0);
+        const floorValue = normalizeText(unit?.etage).includes("rdc") ? 0 : Number(String(unit?.etage ?? "").replace(/\D/g, ""));
+        return {
+          ...bien,
+          id: `${bien.id || parentReference}::${unitReference}`,
+          reference: unitReference,
+          titre: `${bien.titre || "Immeuble"} - ${unitReference}`,
+          type: unitType,
+          is_immeuble_unit: true,
+          parent_immeuble_id: bien.id,
+          parent_immeuble_reference: parentReference,
+          configuration: unit?.configuration || null,
+          nb_chambres: Number(unit?.chambres || 0),
+          nb_salle_bain: Number(unit?.salle_bain || 0),
+          superficie_m2: Number(unit?.superficie_m2 || 0) || null,
+          etage: Number.isFinite(floorValue) ? floorValue : unit?.etage,
+          prix_affiche_client: price || bien.prix_affiche_client || bien.prix_final || null,
+          prix_final: price || bien.prix_final || null,
+          balcon: Boolean(unit?.balcon),
+          terrasse: Boolean(unit?.terrasse),
+          climatisation: Boolean(unit?.climatisation),
+          chauffage_central: Boolean(unit?.chauffage_central),
+          cuisine_equipee: Boolean(unit?.cuisine_equipee),
+          place_parking: Boolean(unit?.parking || unit?.garage),
+          type_papier: unit?.titre_foncier_individuel ? "titre_foncier_individuel" : bien.type_papier,
+          description: [bien.description, unit?.configuration, unit?.orientation, unit?.vue, `Unite de l'immeuble ${parentReference}`].filter(Boolean).join(" "),
+        };
+      });
+    return [bien, ...units];
+  });
 }
 
 function numericCriterionMatches(actual: number, criterion: MatchCriterion) {
@@ -519,16 +831,22 @@ function numericCriterionMatches(actual: number, criterion: MatchCriterion) {
   const tolerance = Math.max(0, toMatchNumber(criterion.tolerance) || 0);
   if (criterion.rule === "min") return actual + tolerance >= expected;
   if (criterion.rule === "max") return actual - tolerance <= expected;
+  if (criterion.rule === "between") {
+    const max = toMatchNumber(criterion.tolerance);
+    if (max === null) return actual >= expected;
+    return actual >= Math.min(expected, max) && actual <= Math.max(expected, max);
+  }
   if (criterion.rule === "tolerance") return Math.abs(actual - expected) <= tolerance;
   return Math.abs(actual - expected) <= tolerance;
 }
 
 function criterionMatches(bien: any, key: string, criterion: MatchCriterion) {
   if (criterion.importance === "ignore") return true;
-  if (["budget", "surface", "facade", "bedrooms"].includes(key)) {
+  const definition = getSaleCharacteristicDefinition(key);
+  if (definition?.kind === "number" || ["budget", "surface", "facade", "distanceBeach", "bedrooms", "bathrooms", "roadWidth", "apartments", "commercialUnits", "rentalYield", "storefrontWidth", "mainFacadeWidth", "roomsOffices", "sanitaryCount"].includes(key)) {
     return numericCriterionMatches(getSaleNumericValue(bien, key), criterion);
   }
-  if (["garage", "pool", "beach", "independent"].includes(key)) {
+  if (definition?.kind === "boolean" || ["garage", "pool", "beach", "balcony", "terrace", "airConditioning", "centralHeating", "equippedKitchen", "furnished", "residence", "securedResidence", "independent", "constructible", "title", "blueTitle", "corner", "elevator", "directAccess", "mainStreet", "activityAllowed", "openSpace", "reception", "kitchenette", "extraction", "fiberInternet"].includes(key)) {
     const wantsYes = normalizeText(criterion.value) !== "non";
     return getSaleBooleanValue(bien, key) === wantsYes;
   }
@@ -536,23 +854,61 @@ function criterionMatches(bien: any, key: string, criterion: MatchCriterion) {
   if (!expected) return true;
   const actual = normalizeText(getSaleTextValue(bien, key));
   if (key === "propertyType" && expected === "maison") return actual === "villa_maison";
-  return actual.includes(expected) || expected.includes(actual);
+  const acceptedValues = expected.split(/[,;|]/).map((item) => item.trim()).filter(Boolean);
+  return acceptedValues.length > 0
+    ? acceptedValues.some((item) => actual.includes(item) || item.includes(actual))
+    : actual.includes(expected) || expected.includes(actual);
 }
 
 function criterionLabel(key: string) {
+  const definition = getSaleCharacteristicDefinition(key);
+  if (definition) return definition.label;
   const labels: Record<string, string> = {
     operation: "Type d'operation",
     propertyType: "Type de bien",
     location: "Localisation",
     surface: "Surface terrain",
     facade: "Facade",
+    distanceBeach: "Distance plage (m)",
     budget: "Budget",
     bedrooms: "Nombre de chambres",
+    bathrooms: "Salles de bain",
     floor: "Etage",
     independent: "Maison independante",
     garage: "Garage / Parking",
     pool: "Piscine",
     beach: "Proche plage",
+    balcony: "Balcon",
+    terrace: "Terrasse",
+    airConditioning: "Climatisation",
+    centralHeating: "Chauffage central",
+    equippedKitchen: "Cuisine equipee",
+    furnished: "Meuble",
+    residence: "Residence",
+    securedResidence: "Residence gardee",
+    landUse: "Vocation",
+    constructible: "Constructible",
+    title: "Titre foncier",
+    blueTitle: "Titre bleu",
+    access: "Acces",
+    corner: "Coin de rue",
+    roadWidth: "Largeur route/voies",
+    apartments: "Nombre appartements",
+    commercialUnits: "Locaux commerciaux",
+    rentalYield: "Rendement brut (%)",
+    elevator: "Ascenseur",
+    storefrontWidth: "Largeur vitrine",
+    mainFacadeWidth: "Largeur facade principale",
+    roomsOffices: "Pieces / bureaux",
+    sanitaryCount: "Sanitaires",
+    directAccess: "Acces direct rue",
+    mainStreet: "Rue principale",
+    activityAllowed: "Activite autorisee",
+    openSpace: "Open space",
+    reception: "Reception",
+    kitchenette: "Kitchenette",
+    extraction: "Extraction possible",
+    fiberInternet: "Fibre / Internet",
     other: "Autres criteres",
   };
   return labels[key] || key;
@@ -591,6 +947,11 @@ export default function VentesAdminPage() {
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
   const [demands, setDemands] = useState<SalesDemand[]>([]);
+  const [clientFiles, setClientFiles] = useState<SalesClientFile[]>([]);
+  const [selectedClientFileId, setSelectedClientFileId] = useState("");
+  const [clientFileDraft, setClientFileDraft] = useState<SalesClientFile | null>(null);
+  const [clientFileSaving, setClientFileSaving] = useState(false);
+  const [clientFileReminderAction, setClientFileReminderAction] = useState<"schedule" | "send" | null>(null);
   const [ownerListingRequests, setOwnerListingRequests] = useState<OwnerSaleListingRequest[]>([]);
   const [ownerRequestMessages, setOwnerRequestMessages] = useState<Record<string, OwnerRequestMessage[]>>({});
   const [ownerRequestChatDrafts, setOwnerRequestChatDrafts] = useState<Record<string, string>>({});
@@ -599,7 +960,7 @@ export default function VentesAdminPage() {
   const [previewPhoto, setPreviewPhoto] = useState<{ url: string; title: string } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DemandDraft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("demandes");
+  const [activeTab, setActiveTab] = useState("clients");
   const [matchRequests, setMatchRequests] = useState<BuyerMatchRequest[]>(DEFAULT_MATCH_REQUESTS);
   const [selectedMatchRequestId, setSelectedMatchRequestId] = useState(DEFAULT_MATCH_REQUESTS[0]?.id || "");
   const [selectedReverseBienId, setSelectedReverseBienId] = useState("");
@@ -619,7 +980,7 @@ export default function VentesAdminPage() {
 
   const matchingBiens = useMemo(() => {
     const realSaleBiens = venteBiens.filter((bien) => bien.statut !== "vendu");
-    return realSaleBiens.length > 0 ? realSaleBiens : DEMO_SALE_BIENS;
+    return expandImmeubleUnitsForMatching(expandLotissementLotsForMatching(realSaleBiens.length > 0 ? realSaleBiens : DEMO_SALE_BIENS));
   }, [venteBiens]);
 
   const matchPropertyTypeOptions = useMemo(() => {
@@ -643,7 +1004,7 @@ export default function VentesAdminPage() {
       if (assignedFilter.trim()) params.set("assigned_admin_id", assignedFilter.trim());
       if (dateFrom) params.set("date_from", dateFrom);
       if (dateTo) params.set("date_to", dateTo);
-      const [response, ownerRequestsResponse] = await Promise.all([
+      const [response, ownerRequestsResponse, clientFilesResponse] = await Promise.all([
         fetch(`${API_URL}/admin/sales-demands${params.toString() ? `?${params.toString()}` : ""}`, {
           credentials: "include",
           cache: "no-store",
@@ -652,12 +1013,20 @@ export default function VentesAdminPage() {
           credentials: "include",
           cache: "no-store",
         }).catch(() => null),
+        fetch(`${API_URL}/admin/sales-client-files`, {
+          credentials: "include",
+          cache: "no-store",
+        }).catch(() => null),
       ]);
       const payload = response?.ok ? await response.json().catch(() => []) : [];
       const ownerRequestsPayload = ownerRequestsResponse?.ok ? await ownerRequestsResponse.json().catch(() => []) : [];
+      const clientFilesPayload = clientFilesResponse?.ok ? await clientFilesResponse.json().catch(() => []) : [];
       const rows = Array.isArray(payload) ? payload : [];
       setDemands(rows);
       setOwnerListingRequests(Array.isArray(ownerRequestsPayload) ? ownerRequestsPayload : []);
+      const fileRows = Array.isArray(clientFilesPayload) ? clientFilesPayload : [];
+      setClientFiles(fileRows);
+      if (!selectedClientFileId && fileRows[0]?.id) setSelectedClientFileId(fileRows[0].id);
       setDrafts((current) => {
         const next = { ...current };
         rows.forEach((row: SalesDemand) => {
@@ -672,6 +1041,10 @@ export default function VentesAdminPage() {
       if (ownerRequestsResponse && !ownerRequestsResponse.ok) {
         const errorPayload = await ownerRequestsResponse.json().catch(() => null);
         toast.error(String(errorPayload?.error || "Demandes proprietaires indisponibles"));
+      }
+      if (clientFilesResponse && !clientFilesResponse.ok) {
+        const errorPayload = await clientFilesResponse.json().catch(() => null);
+        toast.error(String(errorPayload?.error || "Dossiers clients indisponibles"));
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Chargement ventes impossible");
@@ -746,6 +1119,117 @@ export default function VentesAdminPage() {
     lotissements: venteBiens.filter((bien) => bien.type === "lotissement").length,
   }), [venteBiens]);
 
+  const selectedClientFile = useMemo(
+    () => clientFiles.find((file) => String(file.id) === String(selectedClientFileId)) || clientFiles[0] || null,
+    [clientFiles, selectedClientFileId]
+  );
+
+  useEffect(() => {
+    if (selectedClientFile) {
+      setClientFileDraft({
+        ...JSON.parse(JSON.stringify(selectedClientFile)),
+        criteria: mergeCriteriaWithSaleCharacteristics(
+          selectedClientFile.criteria,
+          String((selectedClientFile.criteria || []).find((criterion) => criterion.key === "propertyType")?.value || "")
+        ),
+      });
+    } else if (clientFiles.length === 0 && !clientFileDraft?.id) {
+      setClientFileDraft(null);
+    }
+  }, [selectedClientFile?.id]);
+
+  const createClientFile = () => {
+    setClientFileDraft({
+      id: "",
+      client_name: "Nouveau client",
+      client_phone: "",
+      client_email: "",
+      status: "nouveau",
+      progress_stage: "qualification",
+      last_contact_at: new Date().toISOString().slice(0, 10),
+      interested_bien_ids: [],
+      criteria: buildCriteriaFromSaleCharacteristics(),
+      notes: "",
+      outcome: null,
+      reminder_task: "",
+      reminder_at: "",
+      reminder_emails: ["ghaithhafsi2@gmail.com"],
+    });
+    setSelectedClientFileId("");
+    setActiveTab("clients");
+  };
+
+  const saveClientFile = async () => {
+    if (!clientFileDraft) return null;
+    setClientFileSaving(true);
+    try {
+      const isNew = !clientFileDraft.id;
+      const response = await fetch(
+        isNew ? `${API_URL}/admin/sales-client-files` : `${API_URL}/admin/sales-client-files/${encodeURIComponent(clientFileDraft.id)}`,
+        {
+          method: isNew ? "POST" : "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            ...clientFileDraft,
+            criteria: (clientFileDraft.criteria || []).map((criterion) => ({
+              ...criterion,
+              condition: criterion.rule || criterion.condition || "exact",
+            })),
+          }),
+        }
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(payload?.error || "Sauvegarde dossier impossible"));
+      toast.success("Dossier client sauvegarde");
+      await loadDemands("refresh");
+      if (payload?.id) setSelectedClientFileId(String(payload.id));
+      return payload as SalesClientFile;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sauvegarde dossier impossible");
+      return null;
+    } finally {
+      setClientFileSaving(false);
+    }
+  };
+
+  const runClientFileReminderAction = async (action: "schedule" | "send") => {
+    if (!clientFileDraft) return;
+    setClientFileReminderAction(action);
+    try {
+      const saved = await saveClientFile();
+      if (!saved?.id) throw new Error("Sauvegarde du dossier requise avant le rappel");
+      const id = String(saved.id || "").trim();
+      if (!id) throw new Error("Sauvegardez le dossier avant de programmer le rappel");
+      const endpoint = action === "schedule" ? "schedule" : "send-now";
+      const response = await fetch(`${API_URL}/admin/sales-client-files/${encodeURIComponent(id)}/reminder/${endpoint}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(payload?.error || "Action rappel impossible"));
+      toast.success(action === "schedule" ? "Rappel programme" : "Rappel envoye");
+      await loadDemands("refresh");
+      if (payload?.file) setClientFileDraft(payload.file);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Action rappel impossible");
+    } finally {
+      setClientFileReminderAction(null);
+    }
+  };
+
+  const updateClientCriterion = (index: number, patch: Partial<SalesClientCriterion>) => {
+    setClientFileDraft((current) => {
+      if (!current) return current;
+      const criteria = [...(current.criteria || [])];
+      criteria[index] = { ...criteria[index], ...patch };
+      if (criteria[index]?.key === "propertyType") {
+        return { ...current, criteria: mergeCriteriaWithSaleCharacteristics(criteria, String(criteria[index]?.value || "")) };
+      }
+      return { ...current, criteria };
+    });
+  };
+
   const selectedMatchRequest = useMemo(
     () => matchRequests.find((request) => request.id === selectedMatchRequestId) || matchRequests[0],
     [matchRequests, selectedMatchRequestId]
@@ -755,6 +1239,18 @@ export default function VentesAdminPage() {
     () => selectedMatchRequest ? computeMatchResults(selectedMatchRequest, matchingBiens) : [],
     [selectedMatchRequest, matchingBiens]
   );
+  const selectedMatchCriteriaEntries = useMemo(() => {
+    if (!selectedMatchRequest) return [] as Array<[string, MatchCriterion]>;
+    const propertyType = String(selectedMatchRequest.criteria.propertyType?.value || "");
+    const allowedKeys = new Set(buildCriteriaFromSaleCharacteristics(propertyType).map((criterion) => criterion.key));
+    const orderOf = (key: string) => {
+      const index = SALE_CHARACTERISTIC_DEFINITIONS.findIndex((item) => item.key === key);
+      return index >= 0 ? index : 999;
+    };
+    return Object.entries(selectedMatchRequest.criteria)
+      .filter(([key]) => allowedKeys.has(key))
+      .sort(([left], [right]) => orderOf(left) - orderOf(right));
+  }, [selectedMatchRequest]);
 
   const selectedReverseBien = useMemo(
     () => matchingBiens.find((bien) => String(bien.id) === String(selectedReverseBienId)) || matchingBiens[0],
@@ -769,10 +1265,38 @@ export default function VentesAdminPage() {
       .sort((a, b) => Number(b.result.passedRequired) - Number(a.result.passedRequired) || b.result.score - a.result.score);
   }, [matchRequests, selectedReverseBien]);
 
+  const salesStageStats = useMemo(() => SALES_STAGE_OPTIONS.map((stage) => ({
+    label: stage.label,
+    value: demands.filter((row) => String(row.sales_stage || "nouvelle_demande") === stage.value).length,
+  })), [demands]);
+
+  const saleTypeStats = useMemo(() => ["appartement", "villa_maison", "terrain", "lotissement", "immeuble", "local_commercial"].map((type) => ({
+    label: getSaleTypeLabel(type),
+    value: venteBiens.filter((bien) => String(bien.type || "") === type).length,
+  })), [venteBiens]);
+
+  const visitDayStats = useMemo(() => {
+    const labels = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+    const stats = labels.map((label) => ({ label, value: 0 }));
+    scheduledDemands.forEach((row) => {
+      const raw = isoDate(row.visit_preferred_date);
+      if (!raw) return;
+      const date = new Date(`${raw}T12:00:00`);
+      const index = (date.getDay() + 6) % 7;
+      stats[index].value += 1;
+    });
+    return stats;
+  }, [scheduledDemands]);
+
   const updateMatchCriterion = (requestId: string, key: string, patch: Partial<MatchCriterion>) => {
     setMatchRequests((current) => current.map((request) => (
       request.id === requestId
-        ? { ...request, criteria: { ...request.criteria, [key]: { ...(request.criteria[key] || { importance: "ignore", value: "" }), ...patch } } }
+        ? (() => {
+            const nextCriteria = { ...request.criteria, [key]: { ...(request.criteria[key] || { importance: "ignore", value: "" }), ...patch } };
+            if (key !== "propertyType") return { ...request, criteria: nextCriteria };
+            const generated = recordCriteriaFromClientCriteria(buildCriteriaFromSaleCharacteristics(String(nextCriteria.propertyType?.value || "")));
+            return { ...request, criteria: { ...generated, ...nextCriteria } };
+          })()
         : request
     )));
   };
@@ -785,13 +1309,7 @@ export default function VentesAdminPage() {
       phone: "",
       email: "",
       status: "Nouveau",
-      criteria: {
-        operation: { importance: "obligatoire", value: "Achat" },
-        propertyType: { importance: "important", value: "" },
-        location: { importance: "important", value: "" },
-        budget: { importance: "important", value: "", rule: "max" },
-        surface: { importance: "souhaite", value: "", rule: "min" },
-      },
+      criteria: recordCriteriaFromClientCriteria(buildCriteriaFromSaleCharacteristics()),
     };
     setMatchRequests((current) => [...current, next]);
     setSelectedMatchRequestId(id);
@@ -817,10 +1335,31 @@ export default function VentesAdminPage() {
         </select>
       );
     }
-    if (["garage", "pool", "beach", "independent"].includes(key)) {
+    if (["garage", "pool", "beach", "balcony", "terrace", "airConditioning", "centralHeating", "equippedKitchen", "furnished", "residence", "securedResidence", "independent", "constructible", "title", "blueTitle", "corner", "elevator", "directAccess", "mainStreet", "activityAllowed", "openSpace", "reception", "kitchenette", "extraction", "fiberInternet"].includes(key)) {
       return (
         <select value={criterion.value || "oui"} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
           {YES_NO_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      );
+    }
+    if (key === "landUse") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Toutes les vocations</option>
+          <option value="habitation">Habitation</option>
+          <option value="commercial">Commercial</option>
+          <option value="touristique">Touristique</option>
+          <option value="agricole">Agricole</option>
+        </select>
+      );
+    }
+    if (key === "access") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Tous les acces</option>
+          <option value="route_goudronnee">Route goudronnee</option>
+          <option value="rue_residentielle">Rue residentielle</option>
+          <option value="piste">Piste</option>
         </select>
       );
     }
@@ -846,10 +1385,86 @@ export default function VentesAdminPage() {
         </select>
       );
     }
-    if (["budget", "surface", "facade"].includes(key)) {
+    if (["budget", "surface", "facade", "distanceBeach", "bathrooms", "roadWidth", "apartments", "commercialUnits", "rentalYield", "storefrontWidth", "mainFacadeWidth", "roomsOffices", "sanitaryCount"].includes(key)) {
       return <input type="number" min="0" value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass} />;
     }
     return <input value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass} />;
+  };
+
+  const renderClientCriterionValueControl = (criterion: SalesClientCriterion, index: number) => {
+    const definition = getSaleCharacteristicDefinition(criterion.key);
+    const baseClass = "rounded-lg border border-gray-200 px-3 py-2";
+    const updateValue = (value: string) => updateClientCriterion(index, { value });
+    if (criterion.key === "propertyType") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Tous les types</option>
+          {matchPropertyTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      );
+    }
+    if (criterion.key === "location") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Toutes les zones</option>
+          {matchLocationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      );
+    }
+    if (definition?.kind === "boolean") {
+      return (
+        <select value={criterion.value || "oui"} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          {YES_NO_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      );
+    }
+    if (criterion.key === "landUse") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Toutes les vocations</option>
+          <option value="habitation">Habitation</option>
+          <option value="commercial">Commercial</option>
+          <option value="touristique">Touristique</option>
+          <option value="agricole">Agricole</option>
+        </select>
+      );
+    }
+    if (criterion.key === "access") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Tous les acces</option>
+          <option value="route_goudronnee">Route goudronnee</option>
+          <option value="rue_residentielle">Rue residentielle</option>
+          <option value="piste">Piste</option>
+        </select>
+      );
+    }
+    if (criterion.key === "bedrooms") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          {BEDROOM_OPTIONS.map((value) => <option key={value} value={value}>{value === "0" ? "Studio / 0" : `${value} chambre${value === "1" ? "" : "s"}`}</option>)}
+        </select>
+      );
+    }
+    if (criterion.key === "floor") {
+      return (
+        <select value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="">Indifferent</option>
+          {FLOOR_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+        </select>
+      );
+    }
+    if (criterion.key === "operation") {
+      return (
+        <select value={criterion.value || "Achat"} onChange={(event) => updateValue(event.target.value)} className={baseClass}>
+          <option value="Achat">Achat</option>
+        </select>
+      );
+    }
+    if (definition?.kind === "number") {
+      return <input type="number" min="0" value={criterion.value} onChange={(event) => updateValue(event.target.value)} className={baseClass} />;
+    }
+    return <input value={criterion.value} onChange={(event) => updateValue(event.target.value)} placeholder="Valeur ou plusieurs valeurs separees par virgule" className={baseClass} />;
   };
 
   const updateDraft = (id: string, patch: Partial<DemandDraft>) => {
@@ -1193,17 +1808,13 @@ export default function VentesAdminPage() {
             <Plus className="h-4 w-4" />
             Nouveau bien vente
           </Link>
-          <Link to={buildSalesCreateHref("terrain")} className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:border-emerald-300">
-            <Layers3 className="h-4 w-4" />
-            Nouveau terrain
-          </Link>
           <button
             type="button"
-            onClick={createMatchRequest}
+            onClick={createClientFile}
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:border-emerald-300"
           >
-            <Target className="h-4 w-4" />
-            Nouvelle demande matching
+            <Users className="h-4 w-4" />
+            Nouveau dossier client
           </button>
           <button
             type="button"
@@ -1216,116 +1827,210 @@ export default function VentesAdminPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-4">
-        <div className="rounded-2xl border border-slate-200 bg-[linear-gradient(145deg,#ffffff,#f8fafc)] p-5 shadow-[0_18px_36px_rgba(15,23,42,0.05)]">
-          <div className="inline-flex rounded-2xl bg-slate-900 p-2 text-white"><FolderOpen className="h-5 w-5" /></div>
-          <p className="mt-4 text-sm font-semibold text-slate-900">Catalogue vente</p>
-          <p className="mt-1 text-sm text-slate-600">Tous les biens visibles et brouillons relies au tunnel commercial.</p>
-          <div className="mt-4 flex items-center justify-between text-sm text-slate-600"><span>References</span><span className="font-semibold text-slate-950">{referenceStats.total}</span></div>
-          <div className="mt-2 flex items-center justify-between text-sm text-slate-600"><span>Visibles sur site</span><span className="font-semibold text-slate-950">{referenceStats.visible}</span></div>
-        </div>
-        <div className="rounded-2xl border border-emerald-200 bg-[linear-gradient(145deg,rgba(236,253,245,0.95),rgba(255,255,255,0.98))] p-5 shadow-[0_18px_36px_rgba(16,185,129,0.08)]">
-          <div className="inline-flex rounded-2xl bg-emerald-600 p-2 text-white"><Layers3 className="h-5 w-5" /></div>
-          <p className="mt-4 text-sm font-semibold text-slate-900">Terrains et lots</p>
-          <p className="mt-1 text-sm text-slate-600">Acces rapide a la creation et a l'edition des terrains et lotissements.</p>
-          <div className="mt-4 flex items-center justify-between text-sm text-slate-600"><span>Terrains</span><span className="font-semibold text-slate-950">{referenceStats.terrains}</span></div>
-          <div className="mt-2 flex items-center justify-between text-sm text-slate-600"><span>Lotissements</span><span className="font-semibold text-slate-950">{referenceStats.lotissements}</span></div>
-        </div>
-        <Link to={buildSalesCreateHref("lotissement")} className="rounded-2xl border border-amber-200 bg-[linear-gradient(145deg,rgba(255,251,235,0.96),rgba(255,255,255,0.98))] p-5 shadow-[0_18px_36px_rgba(245,158,11,0.08)] transition hover:translate-y-[-1px]">
-          <div className="inline-flex rounded-2xl bg-amber-500 p-2 text-white"><Plus className="h-5 w-5" /></div>
-          <p className="mt-4 text-sm font-semibold text-slate-900">Creer un lotissement</p>
-          <p className="mt-1 text-sm text-slate-600">Ouvre directement l'editeur Biens en mode vente lotissement.</p>
-        </Link>
-        <Link to="/admin/biens" className="rounded-2xl border border-gray-200 bg-white p-5 shadow-[0_18px_36px_rgba(15,23,42,0.04)] transition hover:translate-y-[-1px]">
-          <div className="inline-flex rounded-2xl bg-white p-2 text-slate-700 ring-1 ring-gray-200"><PencilLine className="h-5 w-5" /></div>
-          <p className="mt-4 text-sm font-semibold text-slate-900">Admin biens complet</p>
-          <p className="mt-1 text-sm text-slate-600">Acces integral a l'editeur, aux medias, aux caracteristiques et a la visibilite.</p>
-        </Link>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <label className="grid gap-1 text-sm text-gray-700">
-          <span className="inline-flex items-center gap-2 font-medium"><Filter className="h-4 w-4" />Recherche</span>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ID demande, client, ref, bien" className="rounded-lg border border-gray-200 px-3 py-2" />
-        </label>
-        <label className="grid gap-1 text-sm text-gray-700">
-          <span className="font-medium">Etape</span>
-          <select value={salesStageFilter} onChange={(event) => setSalesStageFilter(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2">
-            <option value="">Toutes</option>
-            {SALES_STAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
-        <label className="grid gap-1 text-sm text-gray-700">
-          <span className="font-medium">Bien</span>
-          <select value={bienFilter} onChange={(event) => setBienFilter(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2">
-            <option value="">Tous</option>
-            {venteBiens.map((bien) => <option key={bien.id} value={bien.id}>{bien.reference} - {bien.titre}</option>)}
-          </select>
-        </label>
-        <label className="grid gap-1 text-sm text-gray-700">
-          <span className="font-medium">Commercial</span>
-          <select value={assignedFilter} onChange={(event) => setAssignedFilter(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2">
-            <option value="">Tous</option>
-            {assignedAdminOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-          </select>
-        </label>
-        <label className="grid gap-1 text-sm text-gray-700">
-          <span className="font-medium">Date debut</span>
-          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2" />
-        </label>
-        <label className="grid gap-1 text-sm text-gray-700">
-          <span className="font-medium">Date fin</span>
-          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2" />
-        </label>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => void loadDemands("refresh")} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Appliquer</button>
-        <button type="button" onClick={() => {
-          setSearch("");
-          setSalesStageFilter("");
-          setBienFilter("");
-          setAssignedFilter("");
-          setDateFrom("");
-          setDateTo("");
-          void loadDemands("refresh");
-        }} className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:border-gray-300">Reinitialiser</button>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="inline-flex rounded-lg bg-emerald-50 p-2 text-emerald-700"><ClipboardList className="h-5 w-5" /></div>
-          <p className="mt-3 text-sm text-gray-500">Demandes</p>
-          <p className="text-2xl font-bold text-gray-900">{demands.length}</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="inline-flex rounded-lg bg-amber-50 p-2 text-amber-700"><CalendarDays className="h-5 w-5" /></div>
-          <p className="mt-3 text-sm text-gray-500">Visites planifiees</p>
-          <p className="text-2xl font-bold text-gray-900">{scheduledDemands.length}</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="inline-flex rounded-lg bg-sky-50 p-2 text-sky-700"><BadgeDollarSign className="h-5 w-5" /></div>
-          <p className="mt-3 text-sm text-gray-500">Offres / compromis</p>
-          <p className="text-2xl font-bold text-gray-900">{demands.filter((row) => ["offre_en_cours", "compromis_signe"].includes(String(row.sales_stage || ""))).length}</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="inline-flex rounded-lg bg-rose-50 p-2 text-rose-700"><UserCheck className="h-5 w-5" /></div>
-          <p className="mt-3 text-sm text-gray-500">Assignes</p>
-          <p className="text-2xl font-bold text-gray-900">{assignedAdminOptions.length}</p>
-        </div>
-      </div>
-
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid h-auto grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-3 xl:grid-cols-6">
-          <TabsTrigger value="demandes" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Demandes</TabsTrigger>
-          <TabsTrigger value="calendrier" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Calendrier / RDV</TabsTrigger>
-          <TabsTrigger value="pipeline" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Pipeline</TabsTrigger>
-          <TabsTrigger value="matching" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Matching</TabsTrigger>
-          <TabsTrigger value="proprietaires" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Demandes proprietaires ({ownerListingRequests.length})</TabsTrigger>
-          <TabsTrigger value="references" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">References</TabsTrigger>
+        <TabsList className="grid h-auto grid-cols-2 gap-2 rounded-2xl border border-gray-200 bg-white p-2 shadow-sm xl:grid-cols-5">
+          <TabsTrigger value="clients" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Clients ventes</TabsTrigger>
+          <TabsTrigger value="biens" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Biens</TabsTrigger>
+          <TabsTrigger value="matching" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Matchings</TabsTrigger>
+          <TabsTrigger value="calendrier" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Calendriers</TabsTrigger>
+          <TabsTrigger value="stats" className="rounded-lg border border-gray-200 bg-white px-4 py-2 data-[state=active]:border-emerald-500 data-[state=active]:bg-emerald-50">Stats</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="demandes" className="mt-6 space-y-4">
+        <TabsContent value="clients" className="mt-6 space-y-4">
+          <section className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-bold text-slate-950">Dossiers clients</h2>
+                <button type="button" onClick={createClientFile} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                  Nouveau
+                </button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {clientFiles.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">Aucun dossier client sauvegarde.</div>
+                ) : clientFiles.map((file) => (
+                  <button
+                    key={file.id}
+                    type="button"
+                    onClick={() => setSelectedClientFileId(file.id)}
+                    className={`w-full rounded-lg border p-3 text-left transition ${selectedClientFile?.id === file.id ? "border-emerald-400 bg-emerald-50" : "border-gray-200 bg-white hover:border-emerald-200"}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-slate-950">{file.client_name}</p>
+                      <span className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{statusLabel(file.status)}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-600">{file.client_phone || "Telephone a completer"}</p>
+                    <p className="mt-1 text-xs text-gray-500">Dernier contact: {dateLabel(file.last_contact_at)}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              {clientFileDraft ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-lg font-bold text-slate-950">{clientFileDraft.id ? "Dossier client ouvert" : "Nouveau dossier client"}</h2>
+                    <button type="button" disabled={clientFileSaving} onClick={() => void saveClientFile()} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                      <Save className="h-4 w-4" />
+                      Sauvegarder
+                    </button>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <label className="grid gap-1 text-sm font-medium text-gray-700">Nom client<input value={clientFileDraft.client_name} onChange={(event) => setClientFileDraft({ ...clientFileDraft, client_name: event.target.value })} className="rounded-lg border border-gray-200 px-3 py-2" /></label>
+                    <label className="grid gap-1 text-sm font-medium text-gray-700">Telephone<input value={clientFileDraft.client_phone} onChange={(event) => setClientFileDraft({ ...clientFileDraft, client_phone: event.target.value })} className="rounded-lg border border-gray-200 px-3 py-2" /></label>
+                    <label className="grid gap-1 text-sm font-medium text-gray-700">Email<input value={clientFileDraft.client_email || ""} onChange={(event) => setClientFileDraft({ ...clientFileDraft, client_email: event.target.value })} className="rounded-lg border border-gray-200 px-3 py-2" /></label>
+                    <label className="grid gap-1 text-sm font-medium text-gray-700">Statut<select value={clientFileDraft.status} onChange={(event) => setClientFileDraft({ ...clientFileDraft, status: event.target.value, outcome: event.target.value === "success" || event.target.value === "echec" ? event.target.value : clientFileDraft.outcome })} className="rounded-lg border border-gray-200 px-3 py-2"><option value="nouveau">Nouveau</option><option value="recherche">Recherche</option><option value="visite">Visite</option><option value="negociation">Negociation</option><option value="success">Success</option><option value="echec">Echec</option></select></label>
+                    <label className="grid gap-1 text-sm font-medium text-gray-700">Avancement<input value={clientFileDraft.progress_stage} onChange={(event) => setClientFileDraft({ ...clientFileDraft, progress_stage: event.target.value })} className="rounded-lg border border-gray-200 px-3 py-2" /></label>
+                    <label className="grid gap-1 text-sm font-medium text-gray-700">Dernier contact<input type="date" value={String(clientFileDraft.last_contact_at || "").slice(0, 10)} onChange={(event) => setClientFileDraft({ ...clientFileDraft, last_contact_at: event.target.value })} className="rounded-lg border border-gray-200 px-3 py-2" /></label>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-sm font-bold text-slate-900">Biens interesses</p>
+                    <select value="" onChange={(event) => {
+                      const id = event.target.value;
+                      if (!id || clientFileDraft.interested_bien_ids.includes(id)) return;
+                      setClientFileDraft({ ...clientFileDraft, interested_bien_ids: [...clientFileDraft.interested_bien_ids, id] });
+                    }} className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                      <option value="">Ajouter un bien</option>
+                      {venteBiens.map((bien) => <option key={bien.id} value={bien.id}>{bien.reference || bien.id} - {bien.titre}</option>)}
+                    </select>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {clientFileDraft.interested_bien_ids.map((id) => {
+                        const bien = venteBiens.find((item) => String(item.id) === String(id));
+                        return (
+                          <button key={id} type="button" onClick={() => setClientFileDraft({ ...clientFileDraft, interested_bien_ids: clientFileDraft.interested_bien_ids.filter((item) => item !== id) })} className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                            {(bien?.reference || id)} x
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <table className="w-full min-w-[780px] text-left text-sm">
+                      <thead className="bg-gray-50 text-xs text-gray-500"><tr><th className="px-3 py-2">Critere</th><th className="px-3 py-2">Valeur / condition matching</th><th className="px-3 py-2">Importance</th></tr></thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {clientFileDraft.criteria.map((criterion, index) => {
+                          const definition = getSaleCharacteristicDefinition(criterion.key);
+                          const isNumeric = definition?.kind === "number";
+                          return (
+                          <tr key={criterion.key}>
+                            <td className="px-3 py-2 font-semibold text-slate-800">{criterion.label}</td>
+                            <td className="px-3 py-2">
+                              <div className="grid gap-2 md:grid-cols-[1fr_160px_120px]">
+                                {renderClientCriterionValueControl(criterion, index)}
+                                {isNumeric ? <select value={criterion.rule || "exact"} onChange={(event) => updateClientCriterion(index, { rule: event.target.value as NumericRule })} className="rounded-lg border border-gray-200 px-3 py-2">
+                                  {Object.entries(MATCH_NUMERIC_RULE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                </select> : <span className="rounded-lg bg-gray-50 px-3 py-2 text-gray-400">=</span>}
+                                {isNumeric ? <input value={criterion.tolerance || ""} onChange={(event) => updateClientCriterion(index, { tolerance: event.target.value })} placeholder={criterion.rule === "between" ? "Max" : "+/-"} className="rounded-lg border border-gray-200 px-3 py-2" /> : <span className="rounded-lg bg-gray-50 px-3 py-2 text-gray-400">-</span>}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2"><select value={criterion.importance} onChange={(event) => updateClientCriterion(index, { importance: event.target.value as MatchImportance })} className={`rounded-lg border px-3 py-2 font-semibold ${MATCH_IMPORTANCE_STYLES[criterion.importance]}`}>{Object.entries(MATCH_IMPORTANCE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></td>
+                          </tr>
+                        );})}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="grid gap-1 text-sm font-medium text-gray-700">Notes<textarea value={clientFileDraft.notes || ""} onChange={(event) => setClientFileDraft({ ...clientFileDraft, notes: event.target.value })} rows={4} className="rounded-lg border border-gray-200 px-3 py-2" /></label>
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Alarme dossier</p>
+                        <h3 className="text-base font-bold text-slate-950">Rappel reserve aux admins</h3>
+                      </div>
+                      <CalendarDays className="h-5 w-5 text-amber-700" />
+                    </div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-[1fr_220px]">
+                      <label className="grid gap-1 text-sm font-medium text-gray-700">Tache a rappeler<input value={clientFileDraft.reminder_task || ""} onChange={(event) => setClientFileDraft({ ...clientFileDraft, reminder_task: event.target.value })} placeholder="Ex: rappeler le client pour confirmer budget" className="rounded-lg border border-amber-200 bg-white px-3 py-2" /></label>
+                      <label className="grid gap-1 text-sm font-medium text-gray-700">Date et heure<input type="datetime-local" value={String(clientFileDraft.reminder_at || "").slice(0, 16)} onChange={(event) => setClientFileDraft({ ...clientFileDraft, reminder_at: event.target.value })} className="rounded-lg border border-amber-200 bg-white px-3 py-2" /></label>
+                    </div>
+                    <label className="mt-3 grid gap-1 text-sm font-medium text-gray-700">
+                      Emails admins a notifier
+                      <textarea value={(clientFileDraft.reminder_emails || ["ghaithhafsi2@gmail.com"]).join(", ")} onChange={(event) => setClientFileDraft({ ...clientFileDraft, reminder_emails: event.target.value.split(/[,\n;]/).map((item) => item.trim()).filter(Boolean) })} rows={2} placeholder="ghaithhafsi2@gmail.com, admin2@example.com" className="rounded-lg border border-amber-200 bg-white px-3 py-2" />
+                    </label>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!!clientFileReminderAction || clientFileSaving}
+                        onClick={() => void runClientFileReminderAction("schedule")}
+                        className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-60"
+                      >
+                        <CalendarDays className="h-4 w-4" />
+                        {clientFileReminderAction === "schedule" ? "Programmation..." : "Lancer l'envoi programme"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!!clientFileReminderAction || clientFileSaving}
+                        onClick={() => void runClientFileReminderAction("send")}
+                        className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:opacity-60"
+                      >
+                        <Send className="h-4 w-4" />
+                        {clientFileReminderAction === "send" ? "Envoi..." : "Envoyer maintenant"}
+                      </button>
+                      {clientFileDraft.reminder_sent_at ? (
+                        <span className="text-xs font-semibold text-emerald-700">Dernier envoi: {dateLabel(clientFileDraft.reminder_sent_at)}</span>
+                      ) : (
+                        <span className="text-xs text-amber-700">Aucun rappel envoye.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-500">Selectionnez ou creez un dossier client.</div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+              <label className="grid gap-1 text-sm text-gray-700">
+                <span className="inline-flex items-center gap-2 font-medium"><Filter className="h-4 w-4" />Recherche</span>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ID demande, client, ref, bien" className="rounded-lg border border-gray-200 px-3 py-2" />
+              </label>
+              <label className="grid gap-1 text-sm text-gray-700">
+                <span className="font-medium">Etape</span>
+                <select value={salesStageFilter} onChange={(event) => setSalesStageFilter(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2">
+                  <option value="">Toutes</option>
+                  {SALES_STAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm text-gray-700">
+                <span className="font-medium">Bien</span>
+                <select value={bienFilter} onChange={(event) => setBienFilter(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2">
+                  <option value="">Tous</option>
+                  {venteBiens.map((bien) => <option key={bien.id} value={bien.id}>{bien.reference} - {bien.titre}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm text-gray-700">
+                <span className="font-medium">Commercial</span>
+                <select value={assignedFilter} onChange={(event) => setAssignedFilter(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2">
+                  <option value="">Tous</option>
+                  {assignedAdminOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm text-gray-700">
+                <span className="font-medium">Date debut</span>
+                <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2" />
+              </label>
+              <label className="grid gap-1 text-sm text-gray-700">
+                <span className="font-medium">Date fin</span>
+                <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-2" />
+              </label>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" onClick={() => void loadDemands("refresh")} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Appliquer</button>
+              <button type="button" onClick={() => {
+                setSearch("");
+                setSalesStageFilter("");
+                setBienFilter("");
+                setAssignedFilter("");
+                setDateFrom("");
+                setDateTo("");
+                void loadDemands("refresh");
+              }} className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:border-gray-300">Reinitialiser</button>
+            </div>
+          </section>
+
           {loading ? (
             <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">Chargement des demandes ventes...</div>
           ) : demands.length === 0 ? (
@@ -1521,36 +2226,7 @@ export default function VentesAdminPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="pipeline" className="mt-6">
-          <div className="grid gap-4 xl:grid-cols-4 2xl:grid-cols-8">
-            {pipeline.map((column) => (
-              <div key={column.value} className="rounded-xl border border-gray-200 bg-white p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-gray-900">{column.label}</h3>
-                  <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700">{column.items.length}</span>
-                </div>
-                <div className="mt-3 space-y-3">
-                  {column.items.length === 0 ? (
-                    <p className="text-xs text-gray-400">Aucune demande</p>
-                  ) : (
-                    column.items.map((row) => (
-                      <div key={row.id} className="rounded-lg border border-gray-200 p-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-gray-900">{row.bien_reference || row.bien_id}</p>
-                          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">#{row.id}</span>
-                        </div>
-                        <p className="mt-1 text-xs text-gray-600">{row.client_name || row.client_email || "Client"}</p>
-                        <p className="mt-1 text-xs text-gray-500">{row.visit_preferred_date ? dateLabel(row.visit_preferred_date) : "Date non planifiee"}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="proprietaires" className="mt-6">
+        <TabsContent value="clients" className="mt-6">
           {ownerListingRequests.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">Aucune demande proprietaire pour le moment.</div>
           ) : (
@@ -1678,6 +2354,16 @@ export default function VentesAdminPage() {
         </TabsContent>
 
         <TabsContent value="matching" className="mt-6 space-y-5">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={createMatchRequest}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:border-emerald-300"
+            >
+              <Target className="h-4 w-4" />
+              Nouvelle demande matching
+            </button>
+          </div>
           {venteBiens.filter((bien) => bien.statut !== "vendu").length === 0 ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
               Apercu avec biens de demonstration. Ajoutez un bien en mode vente pour lancer le matching sur le catalogue reel.
@@ -1739,8 +2425,8 @@ export default function VentesAdminPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {Object.entries(selectedMatchRequest.criteria).map(([key, criterion]) => {
-                          const isNumeric = ["budget", "surface", "facade", "bedrooms"].includes(key);
+                        {selectedMatchCriteriaEntries.map(([key, criterion]) => {
+                          const isNumeric = getSaleCharacteristicDefinition(key)?.kind === "number";
                           return (
                             <tr key={key} className="align-top">
                               <td className="px-3 py-2.5 font-semibold text-slate-800">{criterionLabel(key)}</td>
@@ -1753,7 +2439,7 @@ export default function VentesAdminPage() {
                                     <select value={criterion.rule || "exact"} onChange={(event) => updateMatchCriterion(selectedMatchRequest.id, key, { rule: event.target.value as NumericRule })} className="min-w-0 rounded-lg border border-slate-200 px-2 py-2">
                                       {Object.entries(MATCH_NUMERIC_RULE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                                     </select>
-                                    <input type="number" min="0" value={criterion.tolerance || ""} onChange={(event) => updateMatchCriterion(selectedMatchRequest.id, key, { tolerance: event.target.value })} placeholder="+/-" className="min-w-0 rounded-lg border border-slate-200 px-2 py-2" />
+                                    <input type="number" min="0" value={criterion.tolerance || ""} onChange={(event) => updateMatchCriterion(selectedMatchRequest.id, key, { tolerance: event.target.value })} placeholder={criterion.rule === "between" ? "Max" : "+/-"} className="min-w-0 rounded-lg border border-slate-200 px-2 py-2" />
                                   </div>
                                 ) : (
                                   <span className="inline-flex rounded-md bg-slate-50 px-3 py-2 text-slate-500">-</span>
@@ -1896,8 +2582,35 @@ export default function VentesAdminPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="references" className="mt-6">
+        <TabsContent value="biens" className="mt-6">
           <div className="space-y-4">
+            <div className="grid gap-4 xl:grid-cols-4">
+              <div className="rounded-2xl border border-slate-200 bg-[linear-gradient(145deg,#ffffff,#f8fafc)] p-5 shadow-[0_18px_36px_rgba(15,23,42,0.05)]">
+                <div className="inline-flex rounded-2xl bg-slate-900 p-2 text-white"><FolderOpen className="h-5 w-5" /></div>
+                <p className="mt-4 text-sm font-semibold text-slate-900">Catalogue vente</p>
+                <p className="mt-1 text-sm text-slate-600">Tous les biens visibles et brouillons relies au tunnel commercial.</p>
+                <div className="mt-4 flex items-center justify-between text-sm text-slate-600"><span>References</span><span className="font-semibold text-slate-950">{referenceStats.total}</span></div>
+                <div className="mt-2 flex items-center justify-between text-sm text-slate-600"><span>Visibles sur site</span><span className="font-semibold text-slate-950">{referenceStats.visible}</span></div>
+              </div>
+              <div className="rounded-2xl border border-emerald-200 bg-[linear-gradient(145deg,rgba(236,253,245,0.95),rgba(255,255,255,0.98))] p-5 shadow-[0_18px_36px_rgba(16,185,129,0.08)]">
+                <div className="inline-flex rounded-2xl bg-emerald-600 p-2 text-white"><Layers3 className="h-5 w-5" /></div>
+                <p className="mt-4 text-sm font-semibold text-slate-900">Terrains et lots</p>
+                <p className="mt-1 text-sm text-slate-600">Acces rapide a la creation et a l'edition des terrains et lotissements.</p>
+                <div className="mt-4 flex items-center justify-between text-sm text-slate-600"><span>Terrains</span><span className="font-semibold text-slate-950">{referenceStats.terrains}</span></div>
+                <div className="mt-2 flex items-center justify-between text-sm text-slate-600"><span>Lotissements</span><span className="font-semibold text-slate-950">{referenceStats.lotissements}</span></div>
+              </div>
+              <Link to={buildSalesCreateHref("lotissement")} className="rounded-2xl border border-amber-200 bg-[linear-gradient(145deg,rgba(255,251,235,0.96),rgba(255,255,255,0.98))] p-5 shadow-[0_18px_36px_rgba(245,158,11,0.08)] transition hover:translate-y-[-1px]">
+                <div className="inline-flex rounded-2xl bg-amber-500 p-2 text-white"><Plus className="h-5 w-5" /></div>
+                <p className="mt-4 text-sm font-semibold text-slate-900">Creer un lotissement</p>
+                <p className="mt-1 text-sm text-slate-600">Ouvre directement l'editeur Biens en mode vente lotissement.</p>
+              </Link>
+              <Link to="/admin/biens" className="rounded-2xl border border-gray-200 bg-white p-5 shadow-[0_18px_36px_rgba(15,23,42,0.04)] transition hover:translate-y-[-1px]">
+                <div className="inline-flex rounded-2xl bg-white p-2 text-slate-700 ring-1 ring-gray-200"><PencilLine className="h-5 w-5" /></div>
+                <p className="mt-4 text-sm font-semibold text-slate-900">Admin biens complet</p>
+                <p className="mt-1 text-sm text-slate-600">Acces integral a l'editeur, aux medias, aux caracteristiques et a la visibilite.</p>
+              </Link>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-3">
               <Link to={buildSalesCreateHref("appartement")} className="rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-emerald-300">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Creation</p>
@@ -2043,6 +2756,54 @@ export default function VentesAdminPage() {
             )}
           </div>
         </TabsContent>
+        <TabsContent value="stats" className="mt-6 space-y-5">
+          <div className="grid gap-4 md:grid-cols-4">
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="inline-flex rounded-lg bg-emerald-50 p-2 text-emerald-700"><ClipboardList className="h-5 w-5" /></div>
+              <p className="mt-3 text-sm text-gray-500">Demandes</p>
+              <p className="text-2xl font-bold text-gray-900">{demands.length}</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="inline-flex rounded-lg bg-amber-50 p-2 text-amber-700"><CalendarDays className="h-5 w-5" /></div>
+              <p className="mt-3 text-sm text-gray-500">Visites planifiees</p>
+              <p className="text-2xl font-bold text-gray-900">{scheduledDemands.length}</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="inline-flex rounded-lg bg-sky-50 p-2 text-sky-700"><BadgeDollarSign className="h-5 w-5" /></div>
+              <p className="mt-3 text-sm text-gray-500">Offres / compromis</p>
+              <p className="text-2xl font-bold text-gray-900">{demands.filter((row) => ["offre_en_cours", "compromis_signe"].includes(String(row.sales_stage || ""))).length}</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="inline-flex rounded-lg bg-rose-50 p-2 text-rose-700"><UserCheck className="h-5 w-5" /></div>
+              <p className="mt-3 text-sm text-gray-500">Assignes</p>
+              <p className="text-2xl font-bold text-gray-900">{assignedAdminOptions.length}</p>
+            </div>
+          </div>
+          <div className="grid gap-5 xl:grid-cols-3">
+            <StatsBars title="Pipeline commercial" rows={salesStageStats} colorClass="bg-emerald-600" />
+            <StatsBars title="Types de biens vente" rows={saleTypeStats} colorClass="bg-sky-600" />
+            <StatsBars title="Visites par jour" rows={visitDayStats} colorClass="bg-amber-500" />
+          </div>
+          <div className="grid gap-5 xl:grid-cols-2">
+            <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-bold text-slate-950">Performance matching</h3>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl bg-emerald-50 p-4"><p className="text-xs font-semibold text-emerald-700">Demandes matching</p><p className="mt-1 text-2xl font-black text-emerald-900">{matchRequests.length}</p></div>
+                <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs font-semibold text-slate-600">Biens matchables</p><p className="mt-1 text-2xl font-black text-slate-950">{matchingBiens.length}</p></div>
+                <div className="rounded-xl bg-amber-50 p-4"><p className="text-xs font-semibold text-amber-700">Dossiers clients</p><p className="mt-1 text-2xl font-black text-amber-900">{clientFiles.length}</p></div>
+              </div>
+            </section>
+            <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-bold text-slate-950">References vente</h3>
+              <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Total</p><p className="text-2xl font-black">{referenceStats.total}</p></div>
+                <div className="rounded-xl bg-emerald-50 p-4"><p className="text-xs text-emerald-700">En ligne</p><p className="text-2xl font-black">{referenceStats.visible}</p></div>
+                <div className="rounded-xl bg-sky-50 p-4"><p className="text-xs text-sky-700">Terrains</p><p className="text-2xl font-black">{referenceStats.terrains}</p></div>
+                <div className="rounded-xl bg-amber-50 p-4"><p className="text-xs text-amber-700">Lots</p><p className="text-2xl font-black">{referenceStats.lotissements}</p></div>
+              </div>
+            </section>
+          </div>
+        </TabsContent>
       </Tabs>
       {previewPhoto ? (
         <button
@@ -2055,5 +2816,27 @@ export default function VentesAdminPage() {
         </button>
       ) : null}
     </div>
+  );
+}
+
+function StatsBars({ title, rows, colorClass }: { title: string; rows: Array<{ label: string; value: number }>; colorClass: string }) {
+  const max = Math.max(1, ...rows.map((row) => Number(row.value || 0)));
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h3 className="text-lg font-bold text-slate-950">{title}</h3>
+      <div className="mt-4 space-y-3">
+        {rows.map((row) => (
+          <div key={row.label}>
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span className="font-semibold text-slate-700">{row.label}</span>
+              <span className="font-bold text-slate-950">{row.value}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className={`h-full rounded-full ${colorClass}`} style={{ width: `${Math.max(4, Math.round((Number(row.value || 0) / max) * 100))}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

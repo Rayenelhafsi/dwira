@@ -33,7 +33,9 @@ server {
     ssl_certificate /etc/letsencrypt/live/www.dwiraimmobilier.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/www.dwiraimmobilier.com/privkey.pem;
 
-    root /var/www/dwiraimmobilier.com/public/dist;
+    # Blue/green: current is an atomic symlink to the validated release.
+    # Legacy direct deploy used /var/www/dwiraimmobilier.com/public/dist.
+    root /var/www/dwiraimmobilier.com/current/dist;
     index index.html;
     client_max_body_size 50M;
     error_page 413 = /413.json;

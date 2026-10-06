@@ -24,6 +24,7 @@ import {
   Hotel,
   PanelLeftClose,
   PanelLeftOpen,
+  X,
 } from 'lucide-react';
 import logo from '../../../../logo dwira.jpg';
 import { preloadAdminRoute } from '../utils/routePreload';
@@ -33,6 +34,7 @@ interface AdminSidebarProps {
   onClose?: () => void;
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
+  variant?: 'desktop' | 'mobile';
 }
 
 type AdminNavItem = {
@@ -101,7 +103,7 @@ export function buildAdminNavItems(user: AuthUser | null | undefined, notificati
   ];
 }
 
-export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange }: AdminSidebarProps) {
+export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange, variant = 'desktop' }: AdminSidebarProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -212,21 +214,35 @@ export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange }: 
   }, [fetchNotificationAlerts]);
 
   const navItems = buildAdminNavItems(user, notificationAlertCount);
-  const expandedClass = collapsed ? '' : 'xl:not-sr-only xl:block';
-  const railOnly = collapsed ? 'xl:justify-center xl:px-3' : 'xl:justify-start';
+  const isMobile = variant === 'mobile';
+  const expandedClass = isMobile ? 'block' : collapsed ? '' : 'xl:not-sr-only xl:block';
+  const railOnly = isMobile ? 'justify-start' : collapsed ? 'xl:justify-center xl:px-3' : 'xl:justify-start';
 
   return (
-    <aside className={`group/admin-sidebar flex h-screen w-[min(22rem,86vw)] max-w-64 flex-col overflow-y-auto overflow-x-hidden bg-emerald-950 pb-[env(safe-area-inset-bottom)] text-white transition-[width] duration-300 lg:w-20 ${collapsed ? 'xl:w-20' : 'xl:w-64'}`}>
-      <div className={`hidden border-b border-emerald-900 p-4 lg:block ${collapsed ? 'xl:p-3' : 'xl:p-6'}`}>
-        <div className={`flex items-start gap-3 ${collapsed ? 'justify-center' : 'justify-between'}`}>
-          <div className={`flex min-w-0 items-center gap-3 ${collapsed ? 'xl:hidden' : ''}`}>
+    <aside
+      className={`group/admin-sidebar flex h-[100dvh] w-[min(20rem,88vw)] max-w-[calc(100vw-1rem)] flex-col overflow-y-auto overflow-x-hidden bg-emerald-950 pb-[env(safe-area-inset-bottom)] text-white shadow-2xl transition-[width] duration-300 lg:h-screen lg:w-20 lg:shadow-none ${
+        collapsed ? 'xl:w-20' : 'xl:w-64'
+      }`}
+    >
+      <div className={`border-b border-emerald-900 p-4 ${isMobile ? 'block' : `hidden lg:block ${collapsed ? 'xl:p-3' : 'xl:p-6'}`}`}>
+        <div className={`flex items-start gap-3 ${isMobile ? 'justify-between' : collapsed ? 'justify-center' : 'justify-between'}`}>
+          <div className={`flex min-w-0 items-center gap-3 ${!isMobile && collapsed ? 'xl:hidden' : ''}`}>
             <img src={logo} alt="Dwira" className="h-8 w-auto shrink-0" />
-            <div className={`hidden min-w-0 ${expandedClass}`}>
+            <div className={`${isMobile ? 'block' : 'hidden'} min-w-0 ${expandedClass}`}>
               <h2 className="text-lg font-bold leading-tight">Dwira Admin</h2>
               <p className="text-xs text-emerald-400">Gestion immobiliere</p>
             </div>
           </div>
-          {onCollapsedChange ? (
+          {isMobile && onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-700 bg-emerald-900/80 text-emerald-50 transition-colors hover:border-white hover:bg-emerald-800"
+              aria-label="Fermer le menu"
+            >
+              <X size={20} />
+            </button>
+          ) : onCollapsedChange ? (
             <button
               type="button"
               onClick={() => onCollapsedChange(!collapsed)}
@@ -237,6 +253,7 @@ export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange }: 
               {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
             </button>
           ) : null}
+          {!isMobile && (
           <button
             type="button"
             onClick={openUrgentAlerts}
@@ -250,10 +267,11 @@ export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange }: 
               </span>
             )}
           </button>
+          )}
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-6">
+      <nav className="flex-1 space-y-1 px-3 py-5 lg:py-6">
         {navItems.map((item) => (
           <button
             key={item.path}
@@ -262,7 +280,7 @@ export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange }: 
             onMouseEnter={() => handleNavIntent(item.path)}
             onFocus={() => handleNavIntent(item.path)}
             onTouchStart={() => handleNavIntent(item.path)}
-            className={`relative flex items-center justify-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${railOnly} ${
+            className={`relative flex min-w-0 items-center justify-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${railOnly} ${
               isActive(item.path)
                 ? 'bg-emerald-800 text-white shadow-sm'
                 : 'text-emerald-100/70 hover:bg-emerald-900 hover:text-white'
@@ -270,9 +288,9 @@ export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange }: 
             title={item.name}
           >
             <item.icon size={18} className="shrink-0" />
-            <span className={`hidden min-w-0 flex-1 truncate ${expandedClass}`}>{item.name}</span>
+            <span className={`${isMobile ? 'block' : 'hidden'} min-w-0 flex-1 truncate ${expandedClass}`}>{item.name}</span>
             {item.path === '/admin/notifications' && hasLoadedAlertsRef.current && (item.badgeCount || 0) > 0 && (
-              <span className={`inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white absolute right-2 ${collapsed ? '' : 'xl:static'}`}>
+              <span className={`inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white ${isMobile ? 'static' : `absolute right-2 ${collapsed ? '' : 'xl:static'}`}`}>
                 {item.badgeCount! > 99 ? '99+' : item.badgeCount}
               </span>
             )}
@@ -280,14 +298,14 @@ export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange }: 
         ))}
       </nav>
 
-      <div className={`border-t border-emerald-900 bg-emerald-950 p-3 ${collapsed ? 'xl:p-3' : 'xl:p-4'}`}>
-        <div className={`mb-4 flex items-center justify-center gap-3 ${collapsed ? '' : 'xl:justify-start'}`}>
+      <div className={`border-t border-emerald-900 bg-emerald-950 p-3 ${!isMobile && collapsed ? 'xl:p-3' : 'xl:p-4'}`}>
+        <div className={`mb-4 flex items-center justify-center gap-3 ${isMobile ? 'justify-start' : collapsed ? '' : 'xl:justify-start'}`}>
           <img
             src={user?.avatar || `https://ui-avatars.com/api/?name=${user?.name || 'Admin'}`}
             alt={user?.name}
             className="h-9 w-9 rounded-full border border-emerald-700 bg-white"
           />
-          <div className={`hidden overflow-hidden ${expandedClass}`}>
+          <div className={`${isMobile ? 'block' : 'hidden'} overflow-hidden ${expandedClass}`}>
             <p className="truncate text-sm font-medium">{user?.name}</p>
             <p className="truncate text-xs capitalize text-emerald-400">
               {user?.role === 'admin' ? (user?.adminType === 'superadmin' ? 'Superadmin' : 'Sous-admin') : (user?.role || 'Admin')}
@@ -303,7 +321,7 @@ export function AdminSidebar({ onClose, collapsed = false, onCollapsedChange }: 
           title="Deconnexion"
         >
           <LogOut size={16} />
-          <span className={`hidden ${collapsed ? '' : 'xl:inline'}`}>Deconnexion</span>
+          <span className={`${isMobile ? 'inline' : 'hidden'} ${!isMobile && collapsed ? '' : 'xl:inline'}`}>Deconnexion</span>
         </button>
       </div>
     </aside>
